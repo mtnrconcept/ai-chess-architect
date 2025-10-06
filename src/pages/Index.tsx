@@ -1,8 +1,11 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Library, PlayCircle, Crown } from 'lucide-react';
+import { Sparkles, Library, PlayCircle, Crown, UserCircle } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Index = () => {
+  const { user } = useAuth();
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Hero Section */}
@@ -29,18 +32,25 @@ const Index = () => {
                 Générateur de Règles
               </Button>
             </Link>
-            
+
             <Link to="/lobby">
               <Button variant="gold" size="lg" className="text-lg px-8 py-6">
                 <Library size={24} />
                 Lobby des Règles
               </Button>
             </Link>
-            
+
             <Link to="/play">
               <Button variant="secondary" size="lg" className="text-lg px-8 py-6">
                 <PlayCircle size={24} />
                 Jouer
+              </Button>
+            </Link>
+
+            <Link to={user ? '/profile' : '/signup'}>
+              <Button variant="outline" size="lg" className="text-lg px-8 py-6">
+                <UserCircle size={24} />
+                {user ? 'Mon Profil' : "Créer un compte"}
               </Button>
             </Link>
           </div>
