@@ -159,10 +159,13 @@ const Play = () => {
   const activeCustomRulesCount = customRules.length;
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <Button variant="ghost" onClick={() => navigate('/')}>
+    <div className="relative min-h-screen overflow-hidden bg-[#050210] text-foreground">
+      <div className="pointer-events-none absolute inset-0 bg-neon-grid opacity-40" />
+      <div className="pointer-events-none absolute -top-32 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-cyan-400/20 blur-3xl animate-neonPulse" />
+      <div className="pointer-events-none absolute -bottom-40 right-0 h-80 w-80 rounded-full bg-fuchsia-500/20 blur-3xl animate-neonPulse" />
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-10">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <Button variant="ghost" onClick={() => navigate('/')}> 
             <ArrowLeft size={20} />
             Retour
           </Button>
@@ -248,13 +251,13 @@ const Play = () => {
         </div>
 
         {activeCustomRulesCount > 0 && (
-          <div className="rounded-lg border border-primary/40 bg-primary/10 p-4 text-sm text-primary">
+          <div className="rounded-xl border border-primary/30 bg-primary/15 p-4 text-sm text-primary backdrop-blur">
             {activeCustomRulesCount} règle(s) personnalisée(s) ont été importées depuis le lobby.
           </div>
         )}
 
-        <div className="flex flex-col lg:flex-row gap-6 items-start justify-center">
-          <div className="flex-1 flex justify-center">
+        <div className="grid gap-8 justify-items-center lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex w-full justify-center">
             <ChessBoard
               gameState={gameState}
               onSquareClick={handleSquareClick}
@@ -262,8 +265,8 @@ const Play = () => {
             />
           </div>
 
-          <div className="w-full lg:w-80 space-y-4">
-            <div className="bg-card border border-border rounded-xl p-6">
+          <div className="w-full max-w-lg space-y-4 lg:w-80 lg:max-w-none">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_18px_45px_-20px_rgba(59,130,246,0.55)] backdrop-blur">
               <h3 className="text-lg font-bold mb-4">Informations</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -282,12 +285,12 @@ const Play = () => {
             </div>
 
             {gameState.activeRules.length > 0 && (
-              <div className="bg-card border border-border rounded-xl p-6">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_18px_45px_-20px_rgba(236,72,153,0.5)] backdrop-blur">
                 <h3 className="text-lg font-bold mb-4">Règles actives</h3>
                 <div className="space-y-2">
                   {gameState.activeRules.map(rule => (
-                    <div key={rule.ruleId} className="p-2 rounded bg-accent/20 border border-accent">
-                      <div className="flex items-center gap-2 mb-1">
+                    <div key={rule.ruleId} className="rounded-xl border border-accent/40 bg-accent/20 p-3 shadow-[0_0_18px_rgba(236,72,153,0.35)]">
+                      <div className="mb-1 flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${getCategoryColor(rule.category)}`} />
                         <span className="text-xs font-semibold">{rule.ruleName}</span>
                       </div>

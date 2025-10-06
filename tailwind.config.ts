@@ -64,6 +64,7 @@ export default {
       backgroundImage: {
         'gradient-premium': 'var(--gradient-premium)',
         'gradient-gold': 'var(--gradient-gold)',
+        'neon-grid': 'radial-gradient(circle at 20% 20%, rgba(34, 211, 238, 0.25) 0, transparent 55%), radial-gradient(circle at 80% 20%, rgba(236, 72, 153, 0.3) 0, transparent 55%), radial-gradient(circle at 20% 80%, rgba(99, 102, 241, 0.25) 0, transparent 55%), radial-gradient(circle at 80% 80%, rgba(250, 204, 21, 0.2) 0, transparent 55%)',
       },
       boxShadow: {
         'glow': 'var(--shadow-glow)',
@@ -91,10 +92,58 @@ export default {
             height: "0",
           },
         },
+        neonPulse: {
+          '0%, 100%': {
+            opacity: '0.55',
+            boxShadow: '0 0 25px rgba(56, 189, 248, 0.55)',
+          },
+          '50%': {
+            opacity: '0.9',
+            boxShadow: '0 0 40px rgba(236, 72, 153, 0.75)',
+          },
+        },
+        neonShimmer: {
+          '0%': {
+            transform: 'translateX(-120%) rotate(8deg)',
+            opacity: '0',
+          },
+          '50%': {
+            opacity: '0.35',
+          },
+          '100%': {
+            transform: 'translateX(120%) rotate(8deg)',
+            opacity: '0',
+          },
+        },
+        float: {
+          '0%, 100%': {
+            transform: 'translateY(-4px)',
+          },
+          '50%': {
+            transform: 'translateY(4px)',
+          },
+        },
+        ripple: {
+          '0%': {
+            transform: 'scale(0.7)',
+            opacity: '0.75',
+          },
+          '70%': {
+            opacity: '0',
+          },
+          '100%': {
+            transform: 'scale(1.6)',
+            opacity: '0',
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        neonPulse: 'neonPulse 3s ease-in-out infinite',
+        neonShimmer: 'neonShimmer 8s linear infinite',
+        float: 'float 6s ease-in-out infinite',
+        ripple: 'ripple 1.8s ease-out infinite',
       },
     },
   },

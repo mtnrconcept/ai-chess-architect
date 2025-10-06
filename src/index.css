@@ -4,99 +4,99 @@
 
 @layer base {
   :root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
+    --background: 232 88% 4%;
+    --foreground: 180 100% 97%;
 
-    --card: 240 10% 7%;
-    --card-foreground: 0 0% 98%;
+    --card: 232 76% 6%;
+    --card-foreground: 180 100% 97%;
 
-    --popover: 240 10% 7%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 232 76% 8%;
+    --popover-foreground: 180 100% 97%;
 
-    --primary: 45 100% 51%;
-    --primary-foreground: 240 10% 3.9%;
+    --primary: 183 97% 58%;
+    --primary-foreground: 236 100% 11%;
 
-    --secondary: 263 70% 50%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 276 92% 65%;
+    --secondary-foreground: 236 100% 11%;
 
-    --muted: 240 5% 15%;
-    --muted-foreground: 240 5% 64.9%;
+    --muted: 231 45% 14%;
+    --muted-foreground: 213 31% 75%;
 
-    --accent: 217 91% 60%;
-    --accent-foreground: 0 0% 98%;
+    --accent: 316 91% 58%;
+    --accent-foreground: 236 100% 11%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: 7 88% 55%;
+    --destructive-foreground: 236 100% 11%;
 
-    --border: 240 5% 20%;
-    --input: 240 5% 20%;
-    --ring: 45 100% 51%;
+    --border: 229 58% 18%;
+    --input: 229 58% 18%;
+    --ring: 183 97% 58%;
 
-    --radius: 0.75rem;
+    --radius: 0.85rem;
 
-    --sidebar-background: 240 10% 5%;
-    --sidebar-foreground: 240 5% 90%;
-    --sidebar-primary: 45 100% 51%;
-    --sidebar-primary-foreground: 240 10% 3.9%;
-    --sidebar-accent: 240 5% 15%;
-    --sidebar-accent-foreground: 240 5% 90%;
-    --sidebar-border: 240 5% 20%;
-    --sidebar-ring: 45 100% 51%;
+    --sidebar-background: 235 90% 5%;
+    --sidebar-foreground: 210 35% 88%;
+    --sidebar-primary: 183 97% 58%;
+    --sidebar-primary-foreground: 236 100% 11%;
+    --sidebar-accent: 281 82% 20%;
+    --sidebar-accent-foreground: 210 35% 88%;
+    --sidebar-border: 229 58% 18%;
+    --sidebar-ring: 183 97% 58%;
 
     /* Custom Chess Tokens */
-    --chess-board-light: 45 30% 85%;
-    --chess-board-dark: 30 15% 35%;
-    --gold-accent: 45 100% 51%;
-    --gold-hover: 45 100% 60%;
-    
+    --chess-board-light: 267 90% 20%;
+    --chess-board-dark: 222 95% 9%;
+    --gold-accent: 49 100% 64%;
+    --gold-hover: 49 100% 72%;
+
     /* Gradients */
-    --gradient-premium: linear-gradient(135deg, hsl(263 70% 50%), hsl(217 91% 60%));
-    --gradient-gold: linear-gradient(135deg, hsl(45 100% 51%), hsl(38 92% 50%));
-    
+    --gradient-premium: linear-gradient(135deg, hsl(183 97% 58%), hsl(316 91% 58%), hsl(276 92% 65%));
+    --gradient-gold: linear-gradient(135deg, hsl(49 100% 64%), hsl(24 100% 62%));
+
     /* Shadows */
-    --shadow-glow: 0 0 40px hsl(45 100% 51% / 0.3);
-    --shadow-card: 0 10px 40px -10px hsl(0 0% 0% / 0.5);
-    
+    --shadow-glow: 0 0 48px hsl(183 97% 58% / 0.35);
+    --shadow-card: 0 22px 65px -20px hsl(313 100% 50% / 0.45);
+
     /* Transitions */
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-smooth: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
+    --background: 232 88% 4%;
+    --foreground: 180 100% 97%;
 
-    --card: 240 10% 7%;
-    --card-foreground: 0 0% 98%;
+    --card: 232 76% 6%;
+    --card-foreground: 180 100% 97%;
 
-    --popover: 240 10% 7%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 232 76% 8%;
+    --popover-foreground: 180 100% 97%;
 
-    --primary: 45 100% 51%;
-    --primary-foreground: 240 10% 3.9%;
+    --primary: 183 97% 58%;
+    --primary-foreground: 236 100% 11%;
 
-    --secondary: 263 70% 50%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 276 92% 65%;
+    --secondary-foreground: 236 100% 11%;
 
-    --muted: 240 5% 15%;
-    --muted-foreground: 240 5% 64.9%;
+    --muted: 231 45% 14%;
+    --muted-foreground: 213 31% 75%;
 
-    --accent: 217 91% 60%;
-    --accent-foreground: 0 0% 98%;
+    --accent: 316 91% 58%;
+    --accent-foreground: 236 100% 11%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: 7 88% 55%;
+    --destructive-foreground: 236 100% 11%;
 
-    --border: 240 5% 20%;
-    --input: 240 5% 20%;
-    --ring: 45 100% 51%;
-    --sidebar-background: 240 10% 5%;
-    --sidebar-foreground: 240 5% 90%;
-    --sidebar-primary: 45 100% 51%;
-    --sidebar-primary-foreground: 240 10% 3.9%;
-    --sidebar-accent: 240 5% 15%;
-    --sidebar-accent-foreground: 240 5% 90%;
-    --sidebar-border: 240 5% 20%;
-    --sidebar-ring: 45 100% 51%;
+    --border: 229 58% 18%;
+    --input: 229 58% 18%;
+    --ring: 183 97% 58%;
+    --sidebar-background: 235 90% 5%;
+    --sidebar-foreground: 210 35% 88%;
+    --sidebar-primary: 183 97% 58%;
+    --sidebar-primary-foreground: 236 100% 11%;
+    --sidebar-accent: 281 82% 20%;
+    --sidebar-accent-foreground: 210 35% 88%;
+    --sidebar-border: 229 58% 18%;
+    --sidebar-ring: 183 97% 58%;
   }
 }
 
