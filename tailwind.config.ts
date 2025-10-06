@@ -57,6 +57,17 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        'chess-light': "hsl(var(--chess-board-light))",
+        'chess-dark': "hsl(var(--chess-board-dark))",
+        'gold': "hsl(var(--gold-accent))",
+      },
+      backgroundImage: {
+        'gradient-premium': 'var(--gradient-premium)',
+        'gradient-gold': 'var(--gradient-gold)',
+      },
+      boxShadow: {
+        'glow': 'var(--shadow-glow)',
+        'card-custom': 'var(--shadow-card)',
       },
       borderRadius: {
         lg: "var(--radius)",

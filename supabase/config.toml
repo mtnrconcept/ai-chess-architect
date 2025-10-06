@@ -1,0 +1,4 @@
+project_id = "pfcaolibtgvynnwaxvol"
+
+[functions.generate-chess-rule]
+verify_jwt = false
