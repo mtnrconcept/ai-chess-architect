@@ -36,16 +36,25 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
           const isValidMoveSquare = isValidMove(rowIndex, colIndex);
           const isSelectedSquare = isSelected(rowIndex, colIndex);
 
+          const handleClick = () => {
+            const position = { row: rowIndex, col: colIndex };
+
+            if (isValidMoveSquare) {
+              onSquareClick(position);
+              return;
+            }
+
+            if (piece) {
+              onPieceClick(piece);
+            } else {
+              onSquareClick(position);
+            }
+          };
+
           return (
             <div
               key={`${rowIndex}-${colIndex}`}
-              onClick={() => {
-                if (piece) {
-                  onPieceClick(piece);
-                } else {
-                  onSquareClick({ row: rowIndex, col: colIndex });
-                }
-              }}
+              onClick={handleClick}
               className={`
                 relative flex items-center justify-center cursor-pointer transition-all
                 ${isLight ? 'bg-chess-light' : 'bg-chess-dark'}
