@@ -2,13 +2,14 @@ import { ChessRule } from '@/types/chess';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trash2, Power, PowerOff } from 'lucide-react';
+import { Trash2, Power, PowerOff, AlertTriangle } from 'lucide-react';
 
 interface RuleCardProps {
   rule: ChessRule;
   onDelete?: (ruleId: string) => void;
   onToggle?: (ruleId: string, isActive: boolean) => void;
   showActions?: boolean;
+  issues?: string[];
 }
 
 const categoryColors = {
@@ -22,7 +23,14 @@ const categoryColors = {
   behavior: 'bg-pink-500/20 text-pink-300 border-pink-500/30'
 };
 
-const RuleCard = ({ rule, onDelete, onToggle, showActions = true }: RuleCardProps) => {
+const RuleCard = ({ rule, onDelete, onToggle, showActions = true, issues = [] }: RuleCardProps) => {
+  const affectedPiecesLabel = Array.isArray(rule.affectedPieces) && rule.affectedPieces.length > 0
+    ? rule.affectedPieces.join(', ')
+    : 'Aucune pièce spécifique';
+
+  const conditionsCount = Array.isArray(rule.conditions) ? rule.conditions.length : 0;
+  const effectsCount = Array.isArray(rule.effects) ? rule.effects.length : 0;
+
   return (
     <Card className="bg-card/50 border-border backdrop-blur-sm hover:border-primary/50 transition-all">
       <CardHeader>
@@ -73,32 +81,40 @@ const RuleCard = ({ rule, onDelete, onToggle, showActions = true }: RuleCardProp
         </div>
         <CardDescription className="mt-2">{rule.description}</CardDescription>
       </CardHeader>
-      
+
       <CardContent>
         <div className="space-y-2 text-sm">
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Pièces affectées:</span>
-            <span className="text-foreground font-medium">
-              {rule.affectedPieces.join(', ')}
-            </span>
+            <span className="text-foreground font-medium">{affectedPiecesLabel}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Déclencheur:</span>
             <span className="text-foreground font-medium">{rule.trigger}</span>
           </div>
-          {rule.conditions.length > 0 && (
+          {conditionsCount > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Conditions:</span>
-              <span className="text-foreground font-medium">{rule.conditions.length}</span>
+              <span className="text-foreground font-medium">{conditionsCount}</span>
             </div>
           )}
-          {rule.effects.length > 0 && (
+          {effectsCount > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Effets:</span>
-              <span className="text-foreground font-medium">{rule.effects.length}</span>
+              <span className="text-foreground font-medium">{effectsCount}</span>
             </div>
           )}
         </div>
+        {issues.length > 0 && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            <div className="space-y-1">
+              {issues.map((issue, index) => (
+                <p key={index}>{issue}</p>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

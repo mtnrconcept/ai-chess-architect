@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RotateCcw, Settings } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
@@ -10,9 +10,24 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { analyzeRuleLogic } from '@/lib/ruleValidation';
 
 const Play = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const rawCustomRules = useMemo(() => {
+    const state = location.state as { customRules?: ChessRule[] } | undefined;
+    if (!state?.customRules) return [] as ChessRule[];
+    return Array.isArray(state.customRules) ? state.customRules : [];
+  }, [location.state]);
+
+  const analyzedCustomRules = useMemo(
+    () => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule),
+    [rawCustomRules]
+  );
+
+  const [customRules, setCustomRules] = useState<ChessRule[]>(analyzedCustomRules);
   const [selectedRules, setSelectedRules] = useState<Set<string>>(new Set());
   const [gameState, setGameState] = useState<GameState>(() => ({
     board: ChessEngine.initializeBoard(),
@@ -27,6 +42,31 @@ const Play = () => {
     activeRules: []
   }));
 
+  const presetRuleIds = useMemo(
+    () => new Set(allPresetRules.map(rule => rule.ruleId)),
+    []
+  );
+
+  useEffect(() => {
+    setCustomRules(analyzedCustomRules);
+  }, [analyzedCustomRules]);
+
+  useEffect(() => {
+    const activeCustomRules = customRules.map(rule => ({ ...rule, isActive: true }));
+    const customRuleIds = new Set(customRules.map(rule => rule.ruleId));
+
+    setGameState(prev => ({
+      ...prev,
+      activeRules: [
+        ...activeCustomRules,
+        ...prev.activeRules.filter(rule =>
+          !customRuleIds.has(rule.ruleId) &&
+          (presetRuleIds.has(rule.ruleId) || rule.ruleId === undefined)
+        )
+      ]
+    }));
+  }, [customRules, presetRuleIds]);
+
   const toggleRule = (ruleId: string) => {
     setSelectedRules(prev => {
       const newSet = new Set(prev);
@@ -40,13 +80,16 @@ const Play = () => {
   };
 
   const applyRules = () => {
-    const activeRules = allPresetRules
+    const presetRules = allPresetRules
       .filter(rule => selectedRules.has(rule.ruleId))
       .map(rule => ({ ...rule, isActive: true }));
-    
+
     setGameState(prev => ({
       ...prev,
-      activeRules
+      activeRules: [
+        ...customRules.map(rule => ({ ...rule, isActive: true })),
+        ...presetRules
+      ]
     }));
   };
 
@@ -109,9 +152,11 @@ const Play = () => {
       gameStatus: 'active',
       capturedPieces: [],
       moveHistory: [],
-      activeRules: []
+      activeRules: gameState.activeRules
     });
   };
+
+  const activeCustomRulesCount = customRules.length;
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -202,6 +247,12 @@ const Play = () => {
           </div>
         </div>
 
+        {activeCustomRulesCount > 0 && (
+          <div className="rounded-lg border border-primary/40 bg-primary/10 p-4 text-sm text-primary">
+            {activeCustomRulesCount} règle(s) personnalisée(s) ont été importées depuis le lobby.
+          </div>
+        )}
+
         <div className="flex flex-col lg:flex-row gap-6 items-start justify-center">
           <div className="flex-1 flex justify-center">
             <ChessBoard
@@ -254,3 +305,4 @@ const Play = () => {
 };
 
 export default Play;
+
