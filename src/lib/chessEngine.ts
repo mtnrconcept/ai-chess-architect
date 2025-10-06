@@ -289,7 +289,13 @@ export class ChessEngine {
         case 'modifyMovement':
           // Range extension
           if (params.range) {
-            modifiedMoves = this.extendMovesByRange(board, piece, params.range, params.direction);
+            modifiedMoves = this.extendMovesByRange(
+              board,
+              piece,
+              params.range,
+              params.direction,
+              modifiedMoves
+            );
           }
           // Bonus range to all moves
           if (params.bonusRange) {
@@ -309,7 +315,7 @@ export class ChessEngine {
           // Teleport for queen
           if (params.ability === 'teleport' && params.frequency) {
             if (gameState.turnNumber % params.frequency === 0) {
-              modifiedMoves = this.addTeleportMoves(board, piece);
+              modifiedMoves = this.addTeleportMoves(board, piece, modifiedMoves);
             }
           }
           // Straight move for knight
@@ -367,34 +373,31 @@ export class ChessEngine {
     board: (ChessPiece | null)[][],
     piece: ChessPiece,
     range: number,
-    direction?: string
+    direction: string | undefined,
+    existingMoves: Position[]
   ): Position[] {
-    const moves: Position[] = [];
+    const moves: Position[] = [...existingMoves];
+    const vectors = this.resolveDirections(piece, direction);
     const { row, col } = piece.position;
 
-    if (piece.type === 'king') {
-      // King agile - extend range to 2
-      const offsets = [
-        [-1, -1], [-1, 0], [-1, 1],
-        [0, -1], [0, 1],
-        [1, -1], [1, 0], [1, 1]
-      ];
+    vectors.forEach(([dRow, dCol]) => {
+      for (let step = 1; step <= range; step++) {
+        const pos = { row: row + dRow * step, col: col + dCol * step };
+        if (!this.isValidPosition(pos)) break;
 
-      offsets.forEach(([dRow, dCol]) => {
-        for (let i = 1; i <= range; i++) {
-          const pos = { row: row + dRow * i, col: col + dCol * i };
-          if (this.isValidPosition(pos)) {
-            const target = this.getPieceAt(board, pos);
-            if (!target || target.color !== piece.color) {
-              moves.push(pos);
-            }
-            if (target) break;
+        const target = this.getPieceAt(board, pos);
+        if (!target) {
+          moves.push(pos);
+        } else {
+          if (target.color !== piece.color) {
+            moves.push(pos);
           }
+          break;
         }
-      });
-    }
+      }
+    });
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   private static addBonusRange(
@@ -427,7 +430,7 @@ export class ChessEngine {
       }
     });
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   private static getPieceDirections(piece: ChessPiece): number[][] {
@@ -443,6 +446,57 @@ export class ChessEngine {
       default:
         return [];
     }
+  }
+
+  private static resolveDirections(piece: ChessPiece, direction?: string): number[][] {
+    if (direction) {
+      switch (direction) {
+        case 'diagonal':
+          return [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+        case 'straight':
+        case 'orthogonal':
+          return [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        case 'horizontal':
+          return [[0, -1], [0, 1]];
+        case 'vertical':
+          return [[-1, 0], [1, 0]];
+        case 'all':
+          return [
+            [-1, -1], [-1, 0], [-1, 1],
+            [0, -1], [0, 1],
+            [1, -1], [1, 0], [1, 1]
+          ];
+        default:
+          break;
+      }
+    }
+
+    const defaultDirections = this.getPieceDirections(piece);
+    if (defaultDirections.length > 0) {
+      return defaultDirections;
+    }
+
+    if (piece.type === 'pawn') {
+      const forward = piece.color === 'white' ? -1 : 1;
+      return [[forward, 0]];
+    }
+
+    return [];
+  }
+
+  private static ensureUniquePositions(positions: Position[]): Position[] {
+    const seen = new Set<string>();
+    const unique: Position[] = [];
+
+    positions.forEach(pos => {
+      const key = `${pos.row}-${pos.col}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(pos);
+      }
+    });
+
+    return unique;
   }
 
   private static addPawnDoubleMove(
@@ -501,15 +555,16 @@ export class ChessEngine {
       }
     });
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   private static addTeleportMoves(
     board: (ChessPiece | null)[][],
-    piece: ChessPiece
+    piece: ChessPiece,
+    existingMoves: Position[]
   ): Position[] {
     // Queen can teleport anywhere on board
-    const moves: Position[] = [];
+    const moves: Position[] = [...existingMoves];
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         if (row !== piece.position.row || col !== piece.position.col) {
@@ -520,7 +575,7 @@ export class ChessEngine {
         }
       }
     }
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   private static getStraightMoves(
@@ -545,7 +600,7 @@ export class ChessEngine {
       }
     });
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   private static getDiagonalMoves(
@@ -570,7 +625,7 @@ export class ChessEngine {
       }
     });
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   private static getLateralMoves(
@@ -595,7 +650,7 @@ export class ChessEngine {
       }
     });
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   private static getExtendedCaptures(
@@ -624,7 +679,7 @@ export class ChessEngine {
       });
     }
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   // Add forward capture ability for pawns
@@ -644,7 +699,7 @@ export class ChessEngine {
       }
     }
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
   // Add lateral capture ability for pawns
@@ -669,7 +724,7 @@ export class ChessEngine {
       }
     });
 
-    return moves;
+    return this.ensureUniquePositions(moves);
   }
 
 
