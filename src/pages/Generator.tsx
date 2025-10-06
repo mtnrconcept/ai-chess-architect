@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,13 +8,46 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Generator = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedRule, setGeneratedRule] = useState<ChessRule | null>(null);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background p-4 flex items-center justify-center">
+        <Card className="max-w-xl w-full bg-card/80 backdrop-blur">
+          <CardHeader className="space-y-2 text-center">
+            <CardTitle className="text-3xl font-bold">Connexion requise</CardTitle>
+            <CardDescription>
+              Créez un compte ou connectez-vous pour générer et sauvegarder des règles personnalisées.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Button asChild variant="premium" className="w-full">
+              <Link to="/signup">Créer un compte</Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/signup?mode=signin">Se connecter</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const generateRule = async () => {
     if (!prompt.trim()) {
@@ -57,19 +90,17 @@ const Generator = () => {
   const saveRule = async () => {
     if (!generatedRule) return;
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        toast({
-          title: "Erreur",
-          description: "Vous devez être connecté pour sauvegarder une règle",
-          variant: "destructive"
-        });
-        return;
-      }
+    if (!user) {
+      toast({
+        title: "Erreur",
+        description: "Vous devez être connecté pour sauvegarder une règle",
+        variant: "destructive"
+      });
+      return;
+    }
 
-      const { error } = await supabase.from('custom_chess_rules').insert([{
+    try {
+      const { error } = await supabase.from('custom_chess_rules').insert([{ 
         rule_id: generatedRule.ruleId,
         rule_name: generatedRule.ruleName,
         description: generatedRule.description,
@@ -80,7 +111,8 @@ const Generator = () => {
         effects: generatedRule.effects as any,
         priority: generatedRule.priority,
         is_active: generatedRule.isActive,
-        validation_rules: generatedRule.validationRules as any
+        validation_rules: generatedRule.validationRules as any,
+        user_id: user.id
       }]);
 
       if (error) throw error;
