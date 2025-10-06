@@ -324,6 +324,14 @@ export class ChessEngine {
           if (params.ability === 'lateralMove') {
             modifiedMoves = [...modifiedMoves, ...this.getLateralMoves(board, piece)];
           }
+          // Forward capture for pawn
+          if (params.ability === 'forwardCapture') {
+            modifiedMoves = [...modifiedMoves, ...this.getForwardCaptures(board, piece)];
+          }
+          // Lateral capture for pawn
+          if (params.ability === 'lateralCapture') {
+            modifiedMoves = [...modifiedMoves, ...this.getLateralCaptures(board, piece)];
+          }
           break;
 
         case 'allowExtraMove':
@@ -340,6 +348,13 @@ export class ChessEngine {
           // Extended capture range for pawns
           if (params.captureRange && piece.type === 'pawn') {
             modifiedMoves = [...modifiedMoves, ...this.getExtendedCaptures(board, piece, params.captureRange)];
+          }
+          break;
+
+        case 'preventCapture':
+          // Filter out capture moves based on immunity conditions
+          if (params.immunity) {
+            // Piece is immune to capture - handled elsewhere
           }
           break;
       }
@@ -608,6 +623,51 @@ export class ChessEngine {
         }
       });
     }
+
+    return moves;
+  }
+
+  // Add forward capture ability for pawns
+  private static getForwardCaptures(
+    board: (ChessPiece | null)[][],
+    piece: ChessPiece
+  ): Position[] {
+    const moves: Position[] = [];
+    const { row, col } = piece.position;
+    const direction = piece.color === 'white' ? -1 : 1;
+
+    const forwardPos = { row: row + direction, col };
+    if (this.isValidPosition(forwardPos)) {
+      const target = this.getPieceAt(board, forwardPos);
+      if (target && target.color !== piece.color) {
+        moves.push(forwardPos);
+      }
+    }
+
+    return moves;
+  }
+
+  // Add lateral capture ability for pawns
+  private static getLateralCaptures(
+    board: (ChessPiece | null)[][],
+    piece: ChessPiece
+  ): Position[] {
+    const moves: Position[] = [];
+    const { row, col } = piece.position;
+
+    const lateralPositions = [
+      { row, col: col - 1 },
+      { row, col: col + 1 }
+    ];
+
+    lateralPositions.forEach(pos => {
+      if (this.isValidPosition(pos)) {
+        const target = this.getPieceAt(board, pos);
+        if (target && target.color !== piece.color) {
+          moves.push(pos);
+        }
+      }
+    });
 
     return moves;
   }

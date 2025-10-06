@@ -167,10 +167,10 @@ export const presetAttackRules: ChessRule[] = [
     description: 'Les pions peuvent capturer en diagonale jusqu\'à 2 cases',
     category: 'capture',
     affectedPieces: ['pawn'],
-    trigger: 'onCapture',
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'modifyMovement', target: 'self', parameters: { captureRange: 2, direction: 'diagonal', duration: 'permanent' } }
+      { action: 'allowCapture', target: 'self', parameters: { captureRange: 2, direction: 'diagonal', duration: 'permanent' } }
     ],
     priority: 6,
     isActive: false,
@@ -178,108 +178,104 @@ export const presetAttackRules: ChessRule[] = [
   },
   {
     ruleId: 'preset_atk_02',
-    ruleName: 'Cavalier Explosif',
-    description: 'Le cavalier capture toutes les pièces adjacentes à sa case d\'arrivée',
+    ruleName: 'Tour Longue Portée',
+    description: 'La tour peut capturer à distance sans se déplacer',
     category: 'capture',
-    affectedPieces: ['knight'],
-    trigger: 'onCapture',
+    affectedPieces: ['rook'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'allowCapture', target: 'all', parameters: { area: 'adjacent', radius: 1, duration: 'temporary' } }
+      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 2, duration: 'permanent' } }
     ],
-    priority: 8,
+    priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_atk_03',
-    ruleName: 'Tour Transpercante',
-    description: 'La tour peut capturer 2 pièces alignées en un seul mouvement',
+    ruleName: 'Fou Agressif',
+    description: 'Le fou a une portée de capture étendue en diagonale',
     category: 'capture',
-    affectedPieces: ['rook'],
-    trigger: 'onCapture',
+    affectedPieces: ['bishop'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'allowCapture', target: 'specific', parameters: { count: 2, alignment: 'straight', duration: 'temporary' } }
+      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, direction: 'diagonal', duration: 'permanent' } }
     ],
-    priority: 7,
+    priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_atk_04',
-    ruleName: 'Reine Magnétique',
-    description: 'La reine attire les pièces ennemies à portée de capture',
+    ruleName: 'Reine Puissante',
+    description: 'La reine peut se déplacer et capturer avec une portée accrue',
     category: 'capture',
     affectedPieces: ['queen'],
-    trigger: 'turnBased',
-    conditions: [
-      { type: 'turnNumber', value: 5, operator: 'greaterOrEqual' }
-    ],
-    effects: [
-      { action: 'addAbility', target: 'opponent', parameters: { ability: 'pullTowards', range: 2, duration: 'temporary' } }
-    ],
-    priority: 9,
-    isActive: false,
-    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
-  },
-  {
-    ruleId: 'preset_atk_05',
-    ruleName: 'Fou Ricochant',
-    description: 'Le fou peut capturer puis continuer son mouvement diagonal',
-    category: 'capture',
-    affectedPieces: ['bishop'],
-    trigger: 'onCapture',
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'captureAndContinue', duration: 'temporary' } }
+      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
-    ruleId: 'preset_atk_06',
-    ruleName: 'Capture Sacrifice',
-    description: 'Capturer une pièce ennemie fait perdre une pièce aléatoire alliée',
+    ruleId: 'preset_atk_05',
+    ruleName: 'Cavalier Chasseur',
+    description: 'Le cavalier peut capturer en ligne droite sur 2 cases',
     category: 'capture',
-    affectedPieces: ['all'],
-    trigger: 'onCapture',
+    affectedPieces: ['knight'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'triggerEvent', target: 'self', parameters: { event: 'sacrificeRandomPiece', duration: 'temporary' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'straightMove', range: 2, duration: 'permanent' } }
     ],
-    priority: 10,
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_atk_06',
+    ruleName: 'Pion Agressif',
+    description: 'Les pions peuvent capturer vers l\'avant en plus de la diagonale',
+    category: 'capture',
+    affectedPieces: ['pawn'],
+    trigger: 'always',
+    conditions: [],
+    effects: [
+      { action: 'addAbility', target: 'self', parameters: { ability: 'forwardCapture', range: 1, duration: 'permanent' } }
+    ],
+    priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_atk_07',
-    ruleName: 'Capture en Chaîne',
-    description: 'Après une capture, peut capturer immédiatement une autre pièce adjacente',
+    ruleName: 'Roi Combattant',
+    description: 'Le roi peut capturer à 2 cases de distance',
     category: 'capture',
-    affectedPieces: ['all'],
-    trigger: 'onCapture',
+    affectedPieces: ['king'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'allowExtraMove', target: 'self', parameters: { count: 1, captureOnly: true, duration: 'temporary' } }
+      { action: 'modifyMovement', target: 'self', parameters: { range: 2, duration: 'permanent' } }
     ],
-    priority: 8,
+    priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_atk_08',
-    ruleName: 'Roi Vengeur',
-    description: 'Le roi peut capturer n\'importe quelle pièce ayant capturé une pièce alliée',
+    ruleName: 'Capture Multiple Tour',
+    description: 'La tour peut capturer plusieurs pièces alignées',
     category: 'capture',
-    affectedPieces: ['king'],
-    trigger: 'conditional',
-    conditions: [
-      { type: 'pieceType', value: 'king', operator: 'equals' }
-    ],
+    affectedPieces: ['rook'],
+    trigger: 'always',
+    conditions: [],
     effects: [
-      { action: 'allowCapture', target: 'specific', parameters: { condition: 'hasCaptured', duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'jump', duration: 'permanent' } }
     ],
     priority: 7,
     isActive: false,
@@ -287,29 +283,29 @@ export const presetAttackRules: ChessRule[] = [
   },
   {
     ruleId: 'preset_atk_09',
-    ruleName: 'Pion Kamikaze',
-    description: 'Le pion peut se sacrifier pour capturer toutes les pièces adjacentes',
+    ruleName: 'Pion Latéral Attaquant',
+    description: 'Les pions peuvent capturer latéralement',
     category: 'capture',
     affectedPieces: ['pawn'],
-    trigger: 'onCapture',
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'allowCapture', target: 'all', parameters: { area: 'adjacent', selfDestruct: true, duration: 'temporary' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'lateralCapture', range: 1, duration: 'permanent' } }
     ],
-    priority: 9,
+    priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_atk_10',
-    ruleName: 'Capture Fantôme',
-    description: 'Peut capturer une pièce sans occuper sa case',
+    ruleName: 'Toutes Pièces Offensives',
+    description: 'Toutes les pièces ont une portée de capture augmentée de 1',
     category: 'capture',
     affectedPieces: ['all'],
-    trigger: 'onCapture',
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'remoteCapture', range: 1, duration: 'temporary' } }
+      { action: 'modifyMovement', target: 'all', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
     priority: 7,
     isActive: false,
@@ -320,121 +316,124 @@ export const presetAttackRules: ChessRule[] = [
 export const presetDefenseRules: ChessRule[] = [
   {
     ruleId: 'preset_def_01',
-    ruleName: 'Roi Forteresse',
-    description: 'Le roi ne peut pas être capturé tant qu\'il reste au moins 3 pièces alliées',
+    ruleName: 'Roi Résistant',
+    description: 'Le roi peut se déplacer de 2 cases pour fuir le danger',
     category: 'defense',
     affectedPieces: ['king'],
     trigger: 'always',
-    conditions: [
-      { type: 'piecesOnBoard', value: 3, operator: 'greaterOrEqual' }
-    ],
-    effects: [
-      { action: 'preventCapture', target: 'self', parameters: { immunity: true, duration: 'permanent' } }
-    ],
-    priority: 10,
-    isActive: false,
-    validationRules: { allowedWith: [], conflictsWith: ['preset_mov_06'], requiredState: {} }
-  },
-  {
-    ruleId: 'preset_def_02',
-    ruleName: 'Bouclier de Tour',
-    description: 'Les tours créent un bouclier qui bloque les captures dans leur ligne de vue',
-    category: 'defense',
-    affectedPieces: ['rook'],
-    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'all', parameters: { ability: 'lineProtection', duration: 'permanent' } }
+      { action: 'modifyMovement', target: 'self', parameters: { range: 2, duration: 'permanent' } }
     ],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
-    ruleId: 'preset_def_03',
-    ruleName: 'Pions Gardiens',
-    description: 'Les pions protègent les pièces directement derrière eux',
+    ruleId: 'preset_def_02',
+    ruleName: 'Tour Défensive',
+    description: 'Les tours peuvent se déplacer en diagonale pour se protéger',
     category: 'defense',
-    affectedPieces: ['pawn'],
+    affectedPieces: ['rook'],
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'all', parameters: { ability: 'rearGuard', range: 1, duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'diagonalMove', range: 1, duration: 'permanent' } }
     ],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
-    ruleId: 'preset_def_04',
-    ruleName: 'Cavalier Esquiveur',
-    description: 'Le cavalier a 50% de chance d\'esquiver une capture',
+    ruleId: 'preset_def_03',
+    ruleName: 'Pions Fortifiés',
+    description: 'Les pions peuvent reculer d\'une case pour se défendre',
     category: 'defense',
-    affectedPieces: ['knight'],
-    trigger: 'onCapture',
+    affectedPieces: ['pawn'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'dodge', chance: 0.5, duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'backward', range: 1, duration: 'permanent' } }
+    ],
+    priority: 4,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_def_04',
+    ruleName: 'Cavalier Mobile',
+    description: 'Le cavalier peut faire un mouvement supplémentaire pour fuir',
+    category: 'defense',
+    affectedPieces: ['knight'],
+    trigger: 'onMove',
+    conditions: [
+      { type: 'pieceType', value: 'knight', operator: 'equals' },
+      { type: 'movesThisTurn', value: 1, operator: 'lessThan' }
+    ],
+    effects: [
+      { action: 'allowExtraMove', target: 'self', parameters: { count: 1, duration: 'temporary' } }
+    ],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_def_05',
+    ruleName: 'Reine Évasive',
+    description: 'La reine peut téléporter pour échapper au danger tous les 5 tours',
+    category: 'defense',
+    affectedPieces: ['queen'],
+    trigger: 'turnBased',
+    conditions: [
+      { type: 'turnNumber', value: 5, operator: 'greaterOrEqual' }
+    ],
+    effects: [
+      { action: 'addAbility', target: 'self', parameters: { ability: 'teleport', frequency: 5, duration: 'permanent' } }
     ],
     priority: 7,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
-    ruleId: 'preset_def_05',
-    ruleName: 'Reine Régénération',
-    description: 'Si capturée, la reine réapparaît après 3 tours',
-    category: 'defense',
-    affectedPieces: ['queen'],
-    trigger: 'onCapture',
-    conditions: [],
-    effects: [
-      { action: 'triggerEvent', target: 'self', parameters: { event: 'respawn', delay: 3, duration: 'permanent' } }
-    ],
-    priority: 9,
-    isActive: false,
-    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
-  },
-  {
     ruleId: 'preset_def_06',
-    ruleName: 'Formation Défensive',
-    description: 'Deux pièces adjacentes ne peuvent pas être capturées',
+    ruleName: 'Fou Rapide',
+    description: 'Le fou peut se déplacer avec une portée accrue',
     category: 'defense',
-    affectedPieces: ['all'],
+    affectedPieces: ['bishop'],
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'preventCapture', target: 'all', parameters: { condition: 'adjacent', duration: 'permanent' } }
+      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
-    priority: 8,
+    priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_def_07',
-    ruleName: 'Fou Miroir',
-    description: 'Le fou renvoie les attaques à la pièce attaquante',
+    ruleName: 'Protection Royale',
+    description: 'Le roi et les pièces adjacentes sont renforcés',
     category: 'defense',
-    affectedPieces: ['bishop'],
-    trigger: 'onCapture',
+    affectedPieces: ['king'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'reflect', duration: 'permanent' } }
+      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
-    priority: 8,
+    priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_def_08',
-    ruleName: 'Sanctuaire',
-    description: 'Les 4 cases centrales de l\'échiquier sont des zones protégées',
+    ruleName: 'Ligne Défensive',
+    description: 'Les tours peuvent sauter par-dessus des pièces alliées',
     category: 'defense',
-    affectedPieces: ['all'],
+    affectedPieces: ['rook'],
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'preventCapture', target: 'all', parameters: { zones: [[3,3],[3,4],[4,3],[4,4]], duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'jump', duration: 'permanent' } }
     ],
     priority: 6,
     isActive: false,
@@ -442,33 +441,31 @@ export const presetDefenseRules: ChessRule[] = [
   },
   {
     ruleId: 'preset_def_09',
-    ruleName: 'Armure Temporaire',
-    description: 'Chaque pièce devient immune après avoir bougé pendant 1 tour',
+    ruleName: 'Mobilité Générale',
+    description: 'Toutes les pièces ont une portée augmentée de 1',
     category: 'defense',
     affectedPieces: ['all'],
-    trigger: 'onMove',
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'immunity', duration: 'turns', count: 1 } }
+      { action: 'modifyMovement', target: 'all', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
-    priority: 7,
+    priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_def_10',
-    ruleName: 'Contre-Attaque',
-    description: 'Quand une pièce est menacée, elle peut capturer immédiatement',
+    ruleName: 'Pion Latéral Défensif',
+    description: 'Les pions peuvent se déplacer latéralement pour bloquer',
     category: 'defense',
-    affectedPieces: ['all'],
-    trigger: 'conditional',
-    conditions: [
-      { type: 'threatened', value: true, operator: 'equals' }
-    ],
+    affectedPieces: ['pawn'],
+    trigger: 'always',
+    conditions: [],
     effects: [
-      { action: 'allowExtraMove', target: 'self', parameters: { count: 1, captureOnly: true, duration: 'temporary' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'lateralMove', range: 1, duration: 'permanent' } }
     ],
-    priority: 9,
+    priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   }
@@ -477,16 +474,17 @@ export const presetDefenseRules: ChessRule[] = [
 export const presetBehaviorRules: ChessRule[] = [
   {
     ruleId: 'preset_beh_01',
-    ruleName: 'Tours Jumelles',
-    description: 'Quand une tour bouge, l\'autre tour peut bouger dans la même direction',
+    ruleName: 'Cavalier Double Saut',
+    description: 'Le cavalier peut se déplacer deux fois par tour',
     category: 'behavior',
-    affectedPieces: ['rook'],
+    affectedPieces: ['knight'],
     trigger: 'onMove',
     conditions: [
-      { type: 'pieceType', value: 'rook', operator: 'equals' }
+      { type: 'pieceType', value: 'knight', operator: 'equals' },
+      { type: 'movesThisTurn', value: 1, operator: 'lessThan' }
     ],
     effects: [
-      { action: 'triggerEvent', target: 'specific', parameters: { event: 'mirrorMove', targetPiece: 'rook', duration: 'temporary' } }
+      { action: 'allowExtraMove', target: 'self', parameters: { count: 1, duration: 'temporary' } }
     ],
     priority: 6,
     isActive: false,
@@ -494,63 +492,61 @@ export const presetBehaviorRules: ChessRule[] = [
   },
   {
     ruleId: 'preset_beh_02',
-    ruleName: 'Pions Évoluants',
-    description: 'Les pions deviennent des cavaliers en atteignant la 4ème rangée',
+    ruleName: 'Pions Persistants',
+    description: 'Les pions peuvent avancer de 2 cases à tout moment',
     category: 'behavior',
     affectedPieces: ['pawn'],
-    trigger: 'conditional',
-    conditions: [
-      { type: 'position', value: 4, operator: 'equals' }
-    ],
+    trigger: 'always',
+    conditions: [],
     effects: [
-      { action: 'changeValue', target: 'self', parameters: { property: 'type', value: 'knight', duration: 'permanent' } }
+      { action: 'modifyMovement', target: 'self', parameters: { doubleMove: true, duration: 'permanent' } }
     ],
-    priority: 7,
+    priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_beh_03',
-    ruleName: 'Rotation Cyclique',
-    description: 'Toutes les pièces tournent leur mouvement de 90° chaque tour',
+    ruleName: 'Tour Polyvalente',
+    description: 'La tour peut se déplacer en diagonale sur 2 cases',
     category: 'behavior',
-    affectedPieces: ['all'],
-    trigger: 'turnBased',
+    affectedPieces: ['rook'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'modifyMovement', target: 'all', parameters: { rotation: 90, frequency: 1, duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'diagonalMove', range: 2, duration: 'permanent' } }
     ],
-    priority: 8,
+    priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_beh_04',
-    ruleName: 'Échange Forcé',
-    description: 'Toutes les 5 tours, deux pièces aléatoires échangent leur position',
+    ruleName: 'Fou Mobile',
+    description: 'Le fou peut se déplacer en ligne droite sur 2 cases',
     category: 'behavior',
-    affectedPieces: ['all'],
-    trigger: 'turnBased',
-    conditions: [
-      { type: 'turnNumber', value: 5, operator: 'greaterOrEqual' }
-    ],
+    affectedPieces: ['bishop'],
+    trigger: 'always',
+    conditions: [],
     effects: [
-      { action: 'triggerEvent', target: 'all', parameters: { event: 'randomSwap', frequency: 5, count: 2, duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'straightMove', range: 2, duration: 'permanent' } }
     ],
-    priority: 9,
+    priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_beh_05',
-    ruleName: 'Roi Commandant',
-    description: 'Le roi peut donner un mouvement supplémentaire à une pièce alliée adjacente',
+    ruleName: 'Reine Omnipotente',
+    description: 'La reine peut téléporter tous les 3 tours',
     category: 'behavior',
-    affectedPieces: ['king'],
-    trigger: 'onMove',
-    conditions: [],
+    affectedPieces: ['queen'],
+    trigger: 'turnBased',
+    conditions: [
+      { type: 'turnNumber', value: 3, operator: 'greaterOrEqual' }
+    ],
     effects: [
-      { action: 'allowExtraMove', target: 'specific', parameters: { range: 1, targetType: 'ally', count: 1, duration: 'temporary' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'teleport', frequency: 3, duration: 'permanent' } }
     ],
     priority: 7,
     isActive: false,
@@ -558,76 +554,76 @@ export const presetBehaviorRules: ChessRule[] = [
   },
   {
     ruleId: 'preset_beh_06',
-    ruleName: 'Brouillard de Guerre',
-    description: 'Les pièces ennemies à plus de 3 cases ne sont pas visibles',
+    ruleName: 'Roi Agile',
+    description: 'Le roi peut se déplacer de 2 cases',
     category: 'behavior',
-    affectedPieces: ['all'],
+    affectedPieces: ['king'],
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'restrictMovement', target: 'opponent', parameters: { visibility: 3, duration: 'permanent' } }
-    ],
-    priority: 10,
-    isActive: false,
-    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
-  },
-  {
-    ruleId: 'preset_beh_07',
-    ruleName: 'Gravité Inversée',
-    description: 'Les pièces se déplacent dans la direction opposée à celle prévue',
-    category: 'behavior',
-    affectedPieces: ['all'],
-    trigger: 'always',
-    conditions: [],
-    effects: [
-      { action: 'modifyMovement', target: 'all', parameters: { invert: true, duration: 'permanent' } }
-    ],
-    priority: 9,
-    isActive: false,
-    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
-  },
-  {
-    ruleId: 'preset_beh_08',
-    ruleName: 'Fous Téléporteurs',
-    description: 'Les fous peuvent échanger leur position entre eux',
-    category: 'behavior',
-    affectedPieces: ['bishop'],
-    trigger: 'onMove',
-    conditions: [],
-    effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'swapPosition', targetPiece: 'bishop', duration: 'temporary' } }
+      { action: 'modifyMovement', target: 'self', parameters: { range: 2, duration: 'permanent' } }
     ],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
-    ruleId: 'preset_beh_09',
-    ruleName: 'Boost Tempo',
-    description: 'Chaque joueur joue 2 fois d\'affilée',
+    ruleId: 'preset_beh_07',
+    ruleName: 'Cavalier Ligne Droite',
+    description: 'Le cavalier peut se déplacer en ligne droite sur 3 cases',
     category: 'behavior',
-    affectedPieces: ['all'],
-    trigger: 'turnBased',
+    affectedPieces: ['knight'],
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'changeValue', target: 'all', parameters: { property: 'turnsPerPlayer', value: 2, duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'straightMove', range: 3, duration: 'permanent' } }
     ],
-    priority: 8,
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_beh_08',
+    ruleName: 'Pion Latéral',
+    description: 'Les pions peuvent se déplacer latéralement',
+    category: 'behavior',
+    affectedPieces: ['pawn'],
+    trigger: 'always',
+    conditions: [],
+    effects: [
+      { action: 'addAbility', target: 'self', parameters: { ability: 'lateralMove', range: 1, duration: 'permanent' } }
+    ],
+    priority: 4,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_beh_09',
+    ruleName: 'Tour Sauteuse',
+    description: 'La tour peut sauter par-dessus une pièce alliée',
+    category: 'behavior',
+    affectedPieces: ['rook'],
+    trigger: 'always',
+    conditions: [],
+    effects: [
+      { action: 'addAbility', target: 'self', parameters: { ability: 'jump', duration: 'permanent' } }
+    ],
+    priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   },
   {
     ruleId: 'preset_beh_10',
-    ruleName: 'Chaos Total',
-    description: 'Chaque mouvement a 20% de chance d\'affecter une case aléatoire',
+    ruleName: 'Mobilité Accrue',
+    description: 'Toutes les pièces ont +1 de portée',
     category: 'behavior',
     affectedPieces: ['all'],
-    trigger: 'onMove',
+    trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'triggerEvent', target: 'all', parameters: { event: 'randomDestination', chance: 0.2, duration: 'permanent' } }
+      { action: 'modifyMovement', target: 'all', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
-    priority: 10,
+    priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
   }
