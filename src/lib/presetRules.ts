@@ -15,6 +15,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'allowExtraMove', target: 'self', parameters: { count: 1, duration: 'temporary' } }
     ],
+    tags: ['cavalier', 'double-tour', 'agressif'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -30,6 +31,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { range: 99, direction: 'diagonal', duration: 'permanent' } }
     ],
+    tags: ['fou', 'diagonale', 'longue-portee'],
     priority: 3,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -47,6 +49,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'jump', count: 1, duration: 'temporary' } }
     ],
+    tags: ['tour', 'saut', 'mobilite'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -62,6 +65,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { doubleMove: true, duration: 'permanent' } }
     ],
+    tags: ['pion', 'double-pas', 'avancee'],
     priority: 2,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -79,6 +83,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'teleport', frequency: 3, duration: 'permanent' } }
     ],
+    tags: ['reine', 'teleportation', 'strategie'],
     priority: 7,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -94,6 +99,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { range: 2, duration: 'permanent' } }
     ],
+    tags: ['roi', 'mobilite', 'echappatoire'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: ['preset_def_01'], requiredState: {} }
@@ -109,6 +115,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'straightMove', range: 3, duration: 'permanent' } }
     ],
+    tags: ['cavalier', 'ligne', 'hybride'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -124,6 +131,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'all', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
+    tags: ['global', 'vitesse', 'acceleration'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -139,6 +147,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'diagonalMove', range: 2, duration: 'permanent' } }
     ],
+    tags: ['tour', 'diagonale', 'flexible'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -154,6 +163,7 @@ export const presetMovementRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'lateralMove', range: 1, duration: 'permanent' } }
     ],
+    tags: ['pion', 'lateral', 'controle-centre'],
     priority: 3,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -172,6 +182,7 @@ export const presetAttackRules: ChessRule[] = [
     effects: [
       { action: 'allowCapture', target: 'self', parameters: { captureRange: 2, direction: 'diagonal', duration: 'permanent' } }
     ],
+    tags: ['pion', 'attaque', 'diagonale'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -185,8 +196,13 @@ export const presetAttackRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 2, duration: 'permanent' } }
+      {
+        action: 'allowCapture',
+        target: 'self',
+        parameters: { range: 3, style: 'line', requiresLineOfSight: true, duration: 'permanent' }
+      }
     ],
+    tags: ['tour', 'longue-portee', 'attaque'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -200,8 +216,9 @@ export const presetAttackRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, direction: 'diagonal', duration: 'permanent' } }
+      { action: 'allowCapture', target: 'self', parameters: { direction: 'diagonal', bonusRange: 2, duration: 'permanent' } }
     ],
+    tags: ['fou', 'attaque', 'pression'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -217,6 +234,7 @@ export const presetAttackRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
+    tags: ['reine', 'agression', 'polyvalente'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -230,8 +248,13 @@ export const presetAttackRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'straightMove', range: 2, duration: 'permanent' } }
+      {
+        action: 'allowCapture',
+        target: 'self',
+        parameters: { direction: 'orthogonal', range: 2, pattern: 'straight', duration: 'permanent' }
+      }
     ],
+    tags: ['cavalier', 'hybride', 'attaque'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -247,6 +270,7 @@ export const presetAttackRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'forwardCapture', range: 1, duration: 'permanent' } }
     ],
+    tags: ['pion', 'pression', 'avant'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -260,8 +284,9 @@ export const presetAttackRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'modifyMovement', target: 'self', parameters: { range: 2, duration: 'permanent' } }
+      { action: 'allowCapture', target: 'self', parameters: { range: 2, pattern: 'king', duration: 'permanent' } }
     ],
+    tags: ['roi', 'contre-attaque', 'portee'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -275,8 +300,9 @@ export const presetAttackRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'jump', duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'chainCapture', maxTargets: 2, duration: 'permanent' } }
     ],
+    tags: ['tour', 'combo', 'attaque'],
     priority: 7,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -290,8 +316,9 @@ export const presetAttackRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'lateralCapture', range: 1, duration: 'permanent' } }
+      { action: 'allowCapture', target: 'self', parameters: { direction: 'lateral', range: 1, duration: 'permanent' } }
     ],
+    tags: ['pion', 'lateral', 'attaque'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -307,6 +334,7 @@ export const presetAttackRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'all', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
+    tags: ['global', 'offensive', 'portee'],
     priority: 7,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -325,6 +353,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { range: 2, duration: 'permanent' } }
     ],
+    tags: ['roi', 'defense', 'mobilite'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -340,6 +369,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'diagonalMove', range: 1, duration: 'permanent' } }
     ],
+    tags: ['tour', 'defense', 'repositionnement'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -353,8 +383,9 @@ export const presetDefenseRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'addAbility', target: 'self', parameters: { ability: 'backward', range: 1, duration: 'permanent' } }
+      { action: 'addAbility', target: 'self', parameters: { ability: 'backwardMove', range: 1, duration: 'permanent' } }
     ],
+    tags: ['pion', 'retrait', 'defense'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -373,6 +404,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'allowExtraMove', target: 'self', parameters: { count: 1, duration: 'temporary' } }
     ],
+    tags: ['cavalier', 'fuite', 'defense'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -390,6 +422,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'teleport', frequency: 5, duration: 'permanent' } }
     ],
+    tags: ['reine', 'teleportation', 'sauvetage'],
     priority: 7,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -405,6 +438,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
+    tags: ['fou', 'retrait', 'flexibilite'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -418,8 +452,13 @@ export const presetDefenseRules: ChessRule[] = [
     trigger: 'always',
     conditions: [],
     effects: [
-      { action: 'modifyMovement', target: 'self', parameters: { bonusRange: 1, duration: 'permanent' } }
+      {
+        action: 'changeValue',
+        target: 'all',
+        parameters: { radius: 1, around: 'king', property: 'defense', value: 'boost', duration: 'permanent' }
+      }
     ],
+    tags: ['roi', 'aura', 'protection'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -435,6 +474,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'jump', duration: 'permanent' } }
     ],
+    tags: ['tour', 'mur', 'soutien'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -450,6 +490,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'all', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
+    tags: ['global', 'mobilite', 'reaction'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -465,6 +506,7 @@ export const presetDefenseRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'lateralMove', range: 1, duration: 'permanent' } }
     ],
+    tags: ['pion', 'blocage', 'defense'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -486,6 +528,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'allowExtraMove', target: 'self', parameters: { count: 1, duration: 'temporary' } }
     ],
+    tags: ['cavalier', 'combo', 'agressif'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -501,6 +544,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { doubleMove: true, duration: 'permanent' } }
     ],
+    tags: ['pion', 'pression', 'avancee'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -516,6 +560,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'diagonalMove', range: 2, duration: 'permanent' } }
     ],
+    tags: ['tour', 'polyvalent', 'mobilite'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -531,6 +576,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'straightMove', range: 2, duration: 'permanent' } }
     ],
+    tags: ['fou', 'hybride', 'mobilite'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -548,6 +594,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'teleport', frequency: 3, duration: 'permanent' } }
     ],
+    tags: ['reine', 'teleportation', 'controle'],
     priority: 7,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -563,6 +610,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'self', parameters: { range: 2, duration: 'permanent' } }
     ],
+    tags: ['roi', 'mobilite', 'polyvalent'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -578,6 +626,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'straightMove', range: 3, duration: 'permanent' } }
     ],
+    tags: ['cavalier', 'controle', 'hybride'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -593,6 +642,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'lateralMove', range: 1, duration: 'permanent' } }
     ],
+    tags: ['pion', 'lateral', 'flexible'],
     priority: 4,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -608,6 +658,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'addAbility', target: 'self', parameters: { ability: 'jump', duration: 'permanent' } }
     ],
+    tags: ['tour', 'saut', 'surprise'],
     priority: 6,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
@@ -623,6 +674,7 @@ export const presetBehaviorRules: ChessRule[] = [
     effects: [
       { action: 'modifyMovement', target: 'all', parameters: { bonusRange: 1, duration: 'permanent' } }
     ],
+    tags: ['global', 'vitesse', 'dynamique'],
     priority: 5,
     isActive: false,
     validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }

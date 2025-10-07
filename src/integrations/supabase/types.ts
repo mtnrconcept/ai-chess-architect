@@ -27,6 +27,7 @@ export type Database = {
           priority: number | null
           rule_id: string
           rule_name: string
+          tags: string[] | null
           trigger: string
           updated_at: string
           usage_count: number | null
@@ -45,6 +46,7 @@ export type Database = {
           priority?: number | null
           rule_id: string
           rule_name: string
+          tags?: string[] | null
           trigger: string
           updated_at?: string
           usage_count?: number | null
@@ -63,6 +65,7 @@ export type Database = {
           priority?: number | null
           rule_id?: string
           rule_name?: string
+          tags?: string[] | null
           trigger?: string
           updated_at?: string
           usage_count?: number | null
