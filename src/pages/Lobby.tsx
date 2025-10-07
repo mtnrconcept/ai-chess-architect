@@ -49,6 +49,7 @@ const Lobby = () => {
   const [selectedPieces, setSelectedPieces] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
   const [issueFilter, setIssueFilter] = useState<IssueFilterValue>('all');
+  const [showAllTags, setShowAllTags] = useState(false);
 
   const fetchRules = useCallback(async () => {
     if (authLoading) return;
@@ -211,6 +212,8 @@ const Lobby = () => {
     });
   }, [priorityBounds.min, priorityBounds.max]);
 
+  const TAG_DISPLAY_LIMIT = 8;
+
   const availableTags = useMemo(() => {
     const tags = new Set<string>();
     customRules.forEach(rule => {
@@ -221,6 +224,21 @@ const Lobby = () => {
     });
     return Array.from(tags).sort();
   }, [customRules, presetAnalyses]);
+
+  const hasMoreTags = availableTags.length > TAG_DISPLAY_LIMIT;
+
+  const displayedTags = useMemo(
+    () => (showAllTags || !hasMoreTags
+      ? availableTags
+      : availableTags.slice(0, TAG_DISPLAY_LIMIT)),
+    [availableTags, hasMoreTags, showAllTags]
+  );
+
+  useEffect(() => {
+    if (!hasMoreTags) {
+      setShowAllTags(false);
+    }
+  }, [hasMoreTags]);
 
   const availableCategories = useMemo(() => {
     const categories = new Set<ChessRule['category']>();
@@ -767,7 +785,7 @@ const Lobby = () => {
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-muted-foreground">Filtrer par tags :</span>
-                {availableTags.map(tag => {
+                {displayedTags.map(tag => {
                   const normalized = tag.toLowerCase();
                   const isActive = selectedTags.has(normalized);
                   return (
@@ -782,6 +800,16 @@ const Lobby = () => {
                     </Button>
                   );
                 })}
+                {hasMoreTags && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="rounded-full px-3 py-1 text-xs uppercase tracking-wide"
+                    onClick={() => setShowAllTags(prev => !prev)}
+                  >
+                    {showAllTags ? 'Afficher moins' : 'Afficher plus'}
+                  </Button>
+                )}
                 {selectedTags.size > 0 && (
                   <Button size="sm" variant="ghost" onClick={clearTagFilters}>
                     Réinitialiser les tags
