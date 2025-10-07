@@ -9,6 +9,7 @@ const allowedCategories: ChessRule['category'][] = [
   'restriction',
   'defense',
   'behavior',
+  'vip',
 ];
 
 const allowedTriggers: ChessRule['trigger'][] = [
