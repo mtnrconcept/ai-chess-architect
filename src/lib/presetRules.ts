@@ -1342,7 +1342,195 @@ export const presetBizarreRules: ChessRule[] = [
   }
 ];
 
+export const presetVipMagnusGoatRules: ChessRule[] = [
+  {
+    ruleId: 'preset_vip_magnus_01',
+    ruleName: 'L\'ouverture aveugle',
+    description: 'Avant la partie, chaque joueur dispose ses pièces majeures en secret sur la première rangée (hors roi et pions).',
+    category: 'vip',
+    affectedPieces: ['queen', 'rook', 'bishop', 'knight'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'phase', value: 'setup', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'secretSetup', target: 'self', parameters: { hidden: true, rank: 1, excludedPieces: ['king', 'pawn'] } }
+    ],
+    tags: ['vip', 'magnus', 'ouverture', 'creativite', 'surprise'],
+    priority: 10,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: { phase: 'setup' } }
+  },
+  {
+    ruleId: 'preset_vip_magnus_02',
+    ruleName: 'L\'écho stratégique',
+    description: 'Chaque poussée de pion oblige l\'adversaire à répondre par un coup de pion symétrique dans la colonne miroir.',
+    category: 'vip',
+    affectedPieces: ['pawn'],
+    trigger: 'onMove',
+    conditions: [
+      { type: 'pieceType', value: 'pawn', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'forceMirrorMove', target: 'opponent', parameters: { pieceType: 'pawn', symmetry: 'file', window: 1 } }
+    ],
+    tags: ['vip', 'magnus', 'pions', 'symetrie', 'tempo'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_03',
+    ruleName: 'L\'effet pendule',
+    description: 'Tout échange de pièces transfère 10 secondes du chrono du joueur actif à son adversaire.',
+    category: 'vip',
+    affectedPieces: ['all'],
+    trigger: 'onCapture',
+    conditions: [
+      { type: 'exchange', value: 'materialTrade', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'transferTime', target: 'opponent', parameters: { seconds: 10 } }
+    ],
+    tags: ['vip', 'magnus', 'tempo', 'echange', 'horloge'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_04',
+    ruleName: 'Le pion-éclaireur',
+    description: 'Une fois par partie, un pion peut bondir de 3 cases lors de sa première sortie mais perd la capture en diagonale.',
+    category: 'vip',
+    affectedPieces: ['pawn'],
+    trigger: 'onMove',
+    conditions: [
+      { type: 'pieceType', value: 'pawn', operator: 'equals' },
+      { type: 'hasMoved', value: false, operator: 'equals' },
+      { type: 'usagePerGame', value: 1, operator: 'lessOrEqual' }
+    ],
+    effects: [
+      { action: 'enableBurstAdvance', target: 'self', parameters: { squares: 3, usage: 1, disableDiagonalCapture: true } }
+    ],
+    tags: ['vip', 'magnus', 'pions', 'centre', 'initiative'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_05',
+    ruleName: 'La spirale du roi',
+    description: 'Une fois par partie, le roi peut se déplacer comme un cavalier pour échapper à la pression.',
+    category: 'vip',
+    affectedPieces: ['king'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'usagePerGame', value: 1, operator: 'lessOrEqual' }
+    ],
+    effects: [
+      { action: 'grantSpecialMove', target: 'self', parameters: { pattern: 'knight', usage: 1 } }
+    ],
+    tags: ['vip', 'magnus', 'roi', 'finale', 'sauvetage'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_06',
+    ruleName: 'La mémoire de la position',
+    description: 'À la troisième répétition d\'une position, le joueur à l\'origine peut transformer un pion en pièce mineure.',
+    category: 'vip',
+    affectedPieces: ['pawn'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'repetitionCount', value: 3, operator: 'greaterOrEqual' }
+    ],
+    effects: [
+      { action: 'transformPawn', target: 'self', parameters: { promotion: ['rook', 'bishop', 'knight'], immediate: true } }
+    ],
+    tags: ['vip', 'magnus', 'repetition', 'transformation', 'mineure'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_07',
+    ruleName: 'Coup d\'instinct',
+    description: 'Un coup joué en moins de 2 secondes et validé par l\'IA octroie 30 secondes supplémentaires.',
+    category: 'vip',
+    affectedPieces: ['all'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'decisionTime', value: 2, operator: 'lessOrEqual' },
+      { type: 'aiEvaluation', value: 'noBlunder', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'grantTimeBonus', target: 'self', parameters: { seconds: 30, validation: 'aiQualityCheck' } }
+    ],
+    tags: ['vip', 'magnus', 'intuition', 'temps', 'pression'],
+    priority: 7,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_08',
+    ruleName: 'Le miroir inversé',
+    description: 'Donner échec autorise immédiatement l\'adversaire à rejouer le coup précédent de son choix.',
+    category: 'vip',
+    affectedPieces: ['all'],
+    trigger: 'onCheck',
+    conditions: [
+      { type: 'gaveCheck', value: true, operator: 'equals' }
+    ],
+    effects: [
+      { action: 'allowUndo', target: 'opponent', parameters: { moves: 1, immediate: true, reason: 'mirror' } }
+    ],
+    tags: ['vip', 'magnus', 'echec', 'controle', 'calcul'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_09',
+    ruleName: 'Le gel temporel',
+    description: 'Une fois par partie, gèle une pièce adverse pendant deux tours l\'empêchant de bouger ou de capturer.',
+    category: 'vip',
+    affectedPieces: ['all'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'usagePerGame', value: 1, operator: 'lessOrEqual' }
+    ],
+    effects: [
+      { action: 'freezePiece', target: 'opponent', parameters: { turns: 2, usage: 1 } }
+    ],
+    tags: ['vip', 'magnus', 'controle', 'zugzwang', 'tempo'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_vip_magnus_10',
+    ruleName: 'L\'esprit du jeu',
+    description: 'Un sacrifice volontaire sans gain matériel direct offre un jeton pour rejouer un coup ou un pion.',
+    category: 'vip',
+    affectedPieces: ['all'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'sacrifice', value: 'voluntary', operator: 'equals' },
+      { type: 'materialBalanceAfterMove', value: 'negative', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'grantToken', target: 'self', parameters: { token: 'spirit', redeemOptions: ['redoMove', 'replayPawn'], stackable: true } }
+    ],
+    tags: ['vip', 'magnus', 'sacrifice', 'romantique', 'jeton'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  }
+];
+
 export const allPresetRules = [
+  ...presetVipMagnusGoatRules,
   ...presetMovementRules,
   ...presetAttackRules,
   ...presetDefenseRules,

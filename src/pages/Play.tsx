@@ -48,6 +48,18 @@ const Play = () => {
     () => new Set(initialPresetRuleIds)
   );
   const [isRulesSheetOpen, setIsRulesSheetOpen] = useState(false);
+  const presetCategoryOrder: ChessRule['category'][] = ['vip', 'movement', 'capture', 'defense', 'behavior'];
+  const presetCategoryLabels: Record<ChessRule['category'], string> = {
+    movement: 'Mouvement',
+    capture: 'Attaque',
+    special: 'Spécial',
+    condition: 'Condition',
+    victory: 'Victoire',
+    restriction: 'Restriction',
+    defense: 'Défense',
+    behavior: 'Comportement',
+    vip: 'VIP Magnus Goat'
+  };
   const [gameState, setGameState] = useState<GameState>(() => ({
     board: ChessEngine.initializeBoard(),
     currentPlayer: 'white',
@@ -112,6 +124,7 @@ const Play = () => {
       case 'capture': return 'bg-red-500';
       case 'defense': return 'bg-green-500';
       case 'behavior': return 'bg-purple-500';
+      case 'vip': return 'bg-amber-400';
       default: return 'bg-gray-500';
     }
   };
@@ -269,14 +282,9 @@ const Play = () => {
                 </SheetHeader>
                 <ScrollArea className="h-[calc(100vh-150px)] mt-6">
                   <div className="space-y-6">
-                    {['movement', 'capture', 'defense', 'behavior'].map(category => {
+                    {presetCategoryOrder.map(category => {
                       const categoryRules = allPresetRules.filter(r => r.category === category);
-                      const categoryLabel = {
-                        movement: 'Mouvement',
-                        capture: 'Attaque',
-                        defense: 'Défense',
-                        behavior: 'Comportement'
-                      }[category];
+                      const categoryLabel = presetCategoryLabels[category] ?? category;
 
                       return (
                         <div key={category} className="space-y-3">

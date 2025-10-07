@@ -49,7 +49,7 @@ export interface ChessRule {
   ruleId: string;
   ruleName: string;
   description: string;
-  category: 'movement' | 'capture' | 'special' | 'condition' | 'victory' | 'restriction' | 'defense' | 'behavior';
+  category: 'movement' | 'capture' | 'special' | 'condition' | 'victory' | 'restriction' | 'defense' | 'behavior' | 'vip';
   affectedPieces: string[];
   trigger: 'always' | 'onMove' | 'onCapture' | 'onCheck' | 'onCheckmate' | 'turnBased' | 'conditional';
   conditions: RuleCondition[];
