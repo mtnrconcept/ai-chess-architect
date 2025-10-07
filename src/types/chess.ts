@@ -20,6 +20,8 @@ export interface ChessMove {
   captured?: ChessPiece;
   isEnPassant?: boolean;
   isCastling?: boolean;
+  rookFrom?: Position;
+  rookTo?: Position;
   promotion?: PieceType;
 }
 
@@ -75,7 +77,7 @@ export interface GameState {
   capturedPieces: ChessPiece[];
   moveHistory: ChessMove[];
   activeRules: ChessRule[];
-  extraMoves?: number;
+  extraMoves: number;
   modifiedMovement?: any;
   abilities?: any[];
   restrictions?: any[];

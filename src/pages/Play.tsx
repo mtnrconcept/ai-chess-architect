@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, RotateCcw, Settings } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
-import { GameState, Position, ChessPiece, ChessMove, ChessRule } from '@/types/chess';
+import { GameState, Position, ChessPiece, ChessRule, PieceColor } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -39,7 +39,8 @@ const Play = () => {
     gameStatus: 'active',
     capturedPieces: [],
     moveHistory: [],
-    activeRules: []
+    activeRules: [],
+    extraMoves: 0
   }));
 
   const presetRuleIds = useMemo(
@@ -104,6 +105,7 @@ const Play = () => {
   };
 
   const handlePieceClick = (piece: ChessPiece) => {
+    if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
     if (piece.color !== gameState.currentPlayer) return;
 
     const validMoves = ChessEngine.getValidMoves(gameState.board, piece, gameState);
@@ -115,6 +117,7 @@ const Play = () => {
   };
 
   const handleSquareClick = (position: Position) => {
+    if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
     if (!gameState.selectedPiece) return;
 
     const isValid = gameState.validMoves.some(
@@ -122,21 +125,88 @@ const Play = () => {
     );
 
     if (isValid) {
-      const move: ChessMove = {
-        from: gameState.selectedPiece.position,
-        to: position,
-        piece: gameState.selectedPiece
-      };
+      const move = ChessEngine.createMove(
+        gameState.board,
+        gameState.selectedPiece,
+        position,
+        gameState
+      );
+
+      const extraMovesEarned = ChessEngine.getExtraMovesForPiece(
+        gameState.selectedPiece,
+        gameState
+      );
 
       const newBoard = ChessEngine.executeMove(gameState.board, move, gameState);
+      const updatedHistory = [...gameState.moveHistory, move];
+      const updatedCaptured = move.captured
+        ? [...gameState.capturedPieces, move.captured]
+        : [...gameState.capturedPieces];
+
+      const previousExtraMoves = gameState.extraMoves;
+      const remainingAfterConsumption = previousExtraMoves > 0
+        ? previousExtraMoves - 1
+        : 0;
+      const totalExtraMoves = remainingAfterConsumption + extraMovesEarned;
+
+      const opponentColor: PieceColor = gameState.currentPlayer === 'white' ? 'black' : 'white';
+      const stayOnCurrentPlayer = totalExtraMoves > 0;
+
+      const nextPlayer = stayOnCurrentPlayer ? gameState.currentPlayer : opponentColor;
+      const nextMovesThisTurn = stayOnCurrentPlayer
+        ? gameState.movesThisTurn + 1
+        : 0;
+      const nextExtraMoves = stayOnCurrentPlayer ? totalExtraMoves : 0;
+      const nextTurnNumber = gameState.turnNumber + 1;
+
+      const evaluationState: GameState = {
+        ...gameState,
+        board: newBoard,
+        currentPlayer: opponentColor,
+        turnNumber: nextTurnNumber,
+        movesThisTurn: 0,
+        selectedPiece: null,
+        validMoves: [],
+        gameStatus: 'active',
+        capturedPieces: updatedCaptured,
+        moveHistory: updatedHistory,
+        extraMoves: 0
+      };
+
+      const opponentInCheck = ChessEngine.isInCheck(newBoard, opponentColor, evaluationState);
+      const opponentHasMoves = ChessEngine.hasAnyLegalMoves(newBoard, opponentColor, evaluationState);
+
+      let nextStatus: GameState['gameStatus'] = 'active';
+      if (opponentInCheck && !opponentHasMoves) {
+        nextStatus = 'checkmate';
+      } else if (!opponentInCheck && !opponentHasMoves) {
+        nextStatus = 'stalemate';
+      } else if (opponentInCheck) {
+        nextStatus = 'check';
+      }
+
+      const finalExtraMoves = nextStatus === 'active' || nextStatus === 'check'
+        ? nextExtraMoves
+        : 0;
+      const finalMovesThisTurn = nextStatus === 'active' || nextStatus === 'check'
+        ? nextMovesThisTurn
+        : 0;
+      const finalCurrentPlayer = nextStatus === 'active' || nextStatus === 'check'
+        ? nextPlayer
+        : opponentColor;
 
       setGameState({
         ...gameState,
         board: newBoard,
-        currentPlayer: gameState.currentPlayer === 'white' ? 'black' : 'white',
+        currentPlayer: finalCurrentPlayer,
+        turnNumber: nextTurnNumber,
+        movesThisTurn: finalMovesThisTurn,
         selectedPiece: null,
         validMoves: [],
-        moveHistory: [...gameState.moveHistory, move]
+        gameStatus: nextStatus,
+        capturedPieces: updatedCaptured,
+        moveHistory: updatedHistory,
+        extraMoves: finalExtraMoves
       });
     }
   };
@@ -152,7 +222,8 @@ const Play = () => {
       gameStatus: 'active',
       capturedPieces: [],
       moveHistory: [],
-      activeRules: gameState.activeRules
+      activeRules: gameState.activeRules,
+      extraMoves: 0
     });
   };
 
