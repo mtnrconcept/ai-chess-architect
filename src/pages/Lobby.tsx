@@ -410,6 +410,11 @@ const Lobby = () => {
     return first.done ? null : first.value;
   }, [selectedPresetRuleIds]);
 
+  const hasSelectedPresetRules = useMemo(
+    () => selectedPresetRuleIds.size > 0,
+    [selectedPresetRuleIds]
+  );
+
   const activeCustomRule = useMemo(
     () => customRules.find(rule => rule.isActive) ?? null,
     [customRules]
