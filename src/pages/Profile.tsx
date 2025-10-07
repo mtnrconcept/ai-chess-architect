@@ -8,61 +8,8 @@ import RuleCard from '@/components/RuleCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import type { Tables } from '@/integrations/supabase/types';
-import type { ChessRule, RuleCondition, RuleEffect } from '@/types/chess';
-
-type CustomRuleRow = Tables<'custom_chess_rules'>;
-
-const defaultValidation: ChessRule['validationRules'] = {
-  allowedWith: [],
-  conflictsWith: [],
-  requiredState: null,
-};
-
-const parseConditions = (conditions: CustomRuleRow['conditions']): RuleCondition[] => {
-  if (!conditions) return [];
-  if (Array.isArray(conditions)) return conditions as RuleCondition[];
-  return [];
-};
-
-const parseEffects = (effects: CustomRuleRow['effects']): RuleEffect[] => {
-  if (!effects) return [];
-  if (Array.isArray(effects)) return effects as RuleEffect[];
-  return [];
-};
-
-const parseValidation = (
-  validation: CustomRuleRow['validation_rules']
-): ChessRule['validationRules'] => {
-  if (!validation || typeof validation !== 'object') {
-    return defaultValidation;
-  }
-
-  const value = validation as Partial<ChessRule['validationRules']>;
-  return {
-    allowedWith: Array.isArray(value.allowedWith) ? value.allowedWith : [],
-    conflictsWith: Array.isArray(value.conflictsWith) ? value.conflictsWith : [],
-    requiredState: value.requiredState ?? null,
-  };
-};
-
-const mapRuleRowToChessRule = (row: CustomRuleRow): ChessRule => ({
-  id: row.id,
-  ruleId: row.rule_id,
-  ruleName: row.rule_name,
-  description: row.description,
-  category: row.category as ChessRule['category'],
-  affectedPieces: row.affected_pieces ?? [],
-  trigger: row.trigger as ChessRule['trigger'],
-  conditions: parseConditions(row.conditions),
-  effects: parseEffects(row.effects),
-  priority: row.priority ?? 0,
-  isActive: row.is_active ?? true,
-  validationRules: parseValidation(row.validation_rules),
-  userId: row.user_id ?? undefined,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+import type { ChessRule } from '@/types/chess';
+import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from '@/lib/customRuleMapper';
 
 const Profile = () => {
   const { user, loading: authLoading, signOut, refreshUser } = useAuth();
@@ -98,7 +45,8 @@ const Profile = () => {
 
       if (error) throw error;
 
-      setRules((data ?? []).map(mapRuleRowToChessRule));
+      const rows = (data ?? []) as CustomRuleRow[];
+      setRules(mapCustomRuleRowsToChessRules(rows));
     } catch (error: any) {
       console.error('Error loading rules:', error);
       toast({
