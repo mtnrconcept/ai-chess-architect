@@ -29,6 +29,7 @@ const Play = () => {
 
   const [customRules, setCustomRules] = useState<ChessRule[]>(analyzedCustomRules);
   const [selectedRules, setSelectedRules] = useState<Set<string>>(new Set());
+  const [isRulesSheetOpen, setIsRulesSheetOpen] = useState(false);
   const [gameState, setGameState] = useState<GameState>(() => ({
     board: ChessEngine.initializeBoard(),
     currentPlayer: 'white',
@@ -92,6 +93,8 @@ const Play = () => {
         ...presetRules
       ]
     }));
+
+    setIsRulesSheetOpen(false);
   };
 
   const getCategoryColor = (category: string) => {
@@ -244,7 +247,7 @@ const Play = () => {
             Partie d'Échecs
           </h1>
           <div className="flex gap-2">
-            <Sheet>
+            <Sheet open={isRulesSheetOpen} onOpenChange={open => setIsRulesSheetOpen(open)}>
               <SheetTrigger asChild>
                 <Button variant="outline">
                   <Settings size={20} className="mr-2" />
