@@ -1,5 +1,29 @@
 import { ChessRule, RuleCondition, RuleEffect } from '@/types/chess';
 
+const generateAnonymousRuleId = (() => {
+  let counter = 0;
+  return () => `generated-rule-${++counter}`;
+})();
+
+const createDefaultRule = (): ChessRule => ({
+  ruleId: generateAnonymousRuleId(),
+  ruleName: 'Règle sans nom',
+  description: '',
+  category: 'special',
+  affectedPieces: [],
+  trigger: 'always',
+  conditions: [],
+  effects: [],
+  tags: [],
+  priority: 1,
+  isActive: false,
+  validationRules: {
+    allowedWith: [],
+    conflictsWith: [],
+    requiredState: null,
+  },
+});
+
 const allowedCategories: ChessRule['category'][] = [
   'movement',
   'capture',
@@ -155,11 +179,32 @@ export interface RuleAnalysisResult {
   issues: string[];
 }
 
-export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
+export const analyzeRuleLogic = (rule: unknown): RuleAnalysisResult => {
   const issues: string[] = [];
-  const rawRule = rule as unknown as Record<string, unknown>;
+  const fallbackRule = createDefaultRule();
 
-  const rawRuleName = rawRule.ruleName;
+  if (!isRecord(rule)) {
+    issues.push('Structure de règle invalide remplacée par des valeurs par défaut.');
+  }
+
+  const rawRule = isRecord(rule)
+    ? rule as Record<string, unknown>
+    : fallbackRule as unknown as Record<string, unknown>;
+
+  const rawRuleId = getRecordValue<unknown>(rawRule, 'ruleId')
+    ?? getRecordValue<unknown>(rawRule, 'rule_id')
+    ?? getRecordValue<unknown>(rawRule, 'id')
+    ?? fallbackRule.ruleId;
+
+  const ruleId = typeof rawRuleId === 'string' && rawRuleId.trim().length > 0
+    ? rawRuleId.trim()
+    : (() => {
+        issues.push('Identifiant de règle manquant ou invalide généré automatiquement.');
+        return fallbackRule.ruleId;
+      })();
+
+  const rawRuleName = getRecordValue<unknown>(rawRule, 'ruleName')
+    ?? getRecordValue<unknown>(rawRule, 'rule_name');
   const ruleName = typeof rawRuleName === 'string' && rawRuleName.trim().length > 0
     ? rawRuleName.trim()
     : 'Règle sans nom';
@@ -167,13 +212,13 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
     issues.push('Nom de règle manquant ou invalide corrigé.');
   }
 
-  const rawDescription = rawRule.description;
+  const rawDescription = getRecordValue<unknown>(rawRule, 'description');
   const description = typeof rawDescription === 'string' ? rawDescription.trim() : '';
   if (!description) {
     issues.push('Description manquante remplacée par une valeur vide.');
   }
 
-  const rawCategory = rawRule.category;
+  const rawCategory = getRecordValue<unknown>(rawRule, 'category');
   const category = typeof rawCategory === 'string' && allowedCategories.includes(rawCategory as ChessRule['category'])
     ? (rawCategory as ChessRule['category'])
     : 'special';
@@ -181,7 +226,7 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
     issues.push('Catégorie invalide remplacée par "special".');
   }
 
-  const rawTrigger = rawRule.trigger;
+  const rawTrigger = getRecordValue<unknown>(rawRule, 'trigger');
   const trigger = typeof rawTrigger === 'string' && allowedTriggers.includes(rawTrigger as ChessRule['trigger'])
     ? (rawTrigger as ChessRule['trigger'])
     : 'always';
@@ -189,22 +234,23 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
     issues.push('Déclencheur invalide remplacé par "always".');
   }
 
-  const rawAffectedPieces = rawRule.affectedPieces;
+  const rawAffectedPieces = getRecordValue<unknown>(rawRule, 'affectedPieces')
+    ?? getRecordValue<unknown>(rawRule, 'affected_pieces');
   const affectedPieces = toStringArray(rawAffectedPieces);
   if (affectedPieces.length === 0 && Array.isArray(rawAffectedPieces) && rawAffectedPieces.length > 0) {
     issues.push('Pièces affectées invalides, valeurs supprimées.');
   }
 
-  const rawTags = rawRule.tags;
+  const rawTags = getRecordValue<unknown>(rawRule, 'tags');
   const tags = toStringArray(rawTags).map(tag => tag.toLowerCase());
   if (tags.length === 0 && hasProvidedListValues(rawTags)) {
     issues.push('Tags invalides supprimés.');
   }
 
-  const conditions = sanitizeConditions(rawRule.conditions, issues);
-  const effects = sanitizeEffects(rawRule.effects, issues);
+  const conditions = sanitizeConditions(getRecordValue<unknown>(rawRule, 'conditions'), issues);
+  const effects = sanitizeEffects(getRecordValue<unknown>(rawRule, 'effects'), issues);
 
-  const rawPriority = rawRule.priority;
+  const rawPriority = getRecordValue<unknown>(rawRule, 'priority');
   const numericPriority = typeof rawPriority === 'number'
     ? rawPriority
     : Number.parseInt(String(rawPriority ?? ''), 10);
@@ -213,14 +259,16 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
     issues.push('Priorité invalide fixée à 1.');
   }
 
-  const rawIsActive = rawRule.isActive;
+  const rawIsActive = getRecordValue<unknown>(rawRule, 'isActive')
+    ?? getRecordValue<unknown>(rawRule, 'is_active');
   const isActive = typeof rawIsActive === 'boolean' ? rawIsActive : Boolean(rawIsActive);
   if (isActive !== rawIsActive) {
     issues.push('Statut actif invalide corrigé.');
   }
 
   const validationRules = (() => {
-    const rawValidation = rawRule.validationRules;
+    const rawValidation = getRecordValue<unknown>(rawRule, 'validationRules')
+      ?? getRecordValue<unknown>(rawRule, 'validation_rules');
     if (!isRecord(rawValidation)) {
       if (rawValidation) {
         issues.push('Règles de validation invalides réinitialisées.');
@@ -253,25 +301,59 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
     } satisfies ChessRule['validationRules'];
   })();
 
+  const finalRule: ChessRule = {
+    ...fallbackRule,
+    ruleId,
+    ruleName,
+    description,
+    category,
+    trigger,
+    affectedPieces,
+    tags,
+    conditions,
+    effects,
+    priority: normalizedPriority,
+    isActive,
+    validationRules,
+  };
+
+  if (isRecord(rule)) {
+    const rawId = getRecordValue<unknown>(rule as Record<string, unknown>, 'id');
+    if (typeof rawId === 'string' && rawId.trim()) {
+      finalRule.id = rawId;
+    }
+
+    const rawUserId = getRecordValue<unknown>(rule as Record<string, unknown>, 'userId')
+      ?? getRecordValue<unknown>(rule as Record<string, unknown>, 'user_id');
+    if (typeof rawUserId === 'string' && rawUserId.trim()) {
+      finalRule.userId = rawUserId;
+    }
+
+    const rawCreatedAt = getRecordValue<unknown>(rule as Record<string, unknown>, 'createdAt')
+      ?? getRecordValue<unknown>(rule as Record<string, unknown>, 'created_at');
+    if (typeof rawCreatedAt === 'string' && rawCreatedAt.trim()) {
+      finalRule.createdAt = rawCreatedAt;
+    }
+
+    const rawUpdatedAt = getRecordValue<unknown>(rule as Record<string, unknown>, 'updatedAt')
+      ?? getRecordValue<unknown>(rule as Record<string, unknown>, 'updated_at');
+    if (typeof rawUpdatedAt === 'string' && rawUpdatedAt.trim()) {
+      finalRule.updatedAt = rawUpdatedAt;
+    }
+  }
+
   return {
-    rule: {
-      ...rule,
-      ruleName,
-      description,
-      category,
-      trigger,
-      affectedPieces,
-      tags,
-      conditions,
-      effects,
-      priority: normalizedPriority,
-      isActive,
-      validationRules,
-    },
+    rule: finalRule,
     issues,
   };
 };
 
-export const analyzeRules = (rules: ChessRule[]): RuleAnalysisResult[] =>
-  rules.map(rule => analyzeRuleLogic(rule));
+export const analyzeRules = (rules: unknown): RuleAnalysisResult[] => {
+  const source = Array.isArray(rules)
+    ? rules
+    : (rules === undefined || rules === null) ? [] : [rules];
+
+  return source.map(rule => analyzeRuleLogic(rule));
+};
+
 
