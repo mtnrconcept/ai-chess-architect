@@ -87,7 +87,8 @@ const Play = () => {
       replayOpportunities: {},
       vipTokens: { white: 0, black: 0 },
       forcedMirrorResponse: null,
-      secretSetupApplied: false
+      secretSetupApplied: false,
+      blindOpeningRevealed: { white: false, black: false }
     };
   });
 
@@ -106,10 +107,19 @@ const Play = () => {
     setGameState(prev => {
       let nextBoard = prev.board;
       let secretApplied = prev.secretSetupApplied;
+      let blindOpeningRevealed = prev.blindOpeningRevealed ?? { white: false, black: false };
 
       if (secretSetupEnabled && !secretApplied && prev.moveHistory.length === 0) {
         nextBoard = ChessEngine.applySecretSetup(prev.board);
         secretApplied = true;
+        blindOpeningRevealed = { white: false, black: false };
+      }
+
+      if (!secretSetupEnabled) {
+        blindOpeningRevealed = { white: true, black: true };
+        nextBoard = prev.board.map(row =>
+          row.map(piece => (piece ? { ...piece, isHidden: false } : null))
+        );
       }
 
       const positionHistory = { ...prev.positionHistory };
@@ -123,7 +133,8 @@ const Play = () => {
         board: nextBoard,
         activeRules: [...activeCustomRules, ...activePresetRules],
         secretSetupApplied: secretApplied,
-        positionHistory
+        positionHistory,
+        blindOpeningRevealed
       };
     });
   }, [customRules, appliedPresetRuleIds]);
@@ -136,7 +147,8 @@ const Play = () => {
           type: 'pawn',
           color,
           position: { row: startRow, col },
-          hasMoved: false
+          hasMoved: false,
+          isHidden: false
         } as ChessPiece;
         return true;
       }
@@ -147,6 +159,7 @@ const Play = () => {
   const handlePieceClick = (piece: ChessPiece) => {
     if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
     if (piece.color !== gameState.currentPlayer) return;
+    if (piece.isHidden) return;
 
     const forcedMirror = gameState.forcedMirrorResponse;
     if (forcedMirror && forcedMirror.color === piece.color) {
@@ -337,6 +350,20 @@ const Play = () => {
       };
     }
 
+    let blindOpeningRevealed = gameState.blindOpeningRevealed ?? { white: false, black: false };
+
+    if (
+      hasRule('preset_vip_magnus_01') &&
+      selectedPiece.type === 'pawn' &&
+      !blindOpeningRevealed[selectedPiece.color]
+    ) {
+      ChessEngine.revealBackRank(newBoard, selectedPiece.color);
+      blindOpeningRevealed = {
+        ...blindOpeningRevealed,
+        [selectedPiece.color]: true
+      };
+    }
+
     const lastMoveByColor = {
       ...gameState.lastMoveByColor,
       [gameState.currentPlayer]: move
@@ -363,7 +390,8 @@ const Play = () => {
       replayOpportunities,
       vipTokens,
       forcedMirrorResponse: forcedMirror,
-      secretSetupApplied: gameState.secretSetupApplied
+      secretSetupApplied: gameState.secretSetupApplied,
+      blindOpeningRevealed
     };
 
     if (hasRule('preset_vip_magnus_10') && !move.captured) {
@@ -459,7 +487,8 @@ const Play = () => {
       pendingTransformations,
       lastMoveByColor,
       replayOpportunities,
-      vipTokens
+      vipTokens,
+      blindOpeningRevealed
     });
   };
 
@@ -486,7 +515,8 @@ const Play = () => {
       replayOpportunities: {},
       vipTokens: { white: 0, black: 0 },
       forcedMirrorResponse: null,
-      secretSetupApplied: false
+      secretSetupApplied: false,
+      blindOpeningRevealed: { white: false, black: false }
     });
   };
 

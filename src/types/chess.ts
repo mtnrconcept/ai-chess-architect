@@ -11,6 +11,7 @@ export interface ChessPiece {
   color: PieceColor;
   position: Position;
   hasMoved?: boolean;
+  isHidden?: boolean;
 }
 
 export interface ChessMove {
@@ -100,4 +101,5 @@ export interface GameState {
   replayOpportunities: Partial<Record<PieceColor, { from: Position; to: Position }>>;
   vipTokens: Record<PieceColor, number>;
   secretSetupApplied?: boolean;
+  blindOpeningRevealed: Record<PieceColor, boolean>;
 }
