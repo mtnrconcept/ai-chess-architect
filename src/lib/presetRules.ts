@@ -681,9 +681,671 @@ export const presetBehaviorRules: ChessRule[] = [
   }
 ];
 
+export const presetBizarreRules: ChessRule[] = [
+  {
+    ruleId: 'preset_biz_01',
+    ruleName: 'Reine Fantôme',
+    description: 'La reine devient invisible pendant un tour après avoir capturé une pièce',
+    category: 'special',
+    affectedPieces: ['queen'],
+    trigger: 'onCapture',
+    conditions: [],
+    effects: [
+      { action: 'addAbility', target: 'self', parameters: { ability: 'invisibility', duration: 'turns', turns: 1 } }
+    ],
+    tags: ['reine', 'fantome', 'subtil'],
+    priority: 6,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_02',
+    ruleName: 'Roi Boomerang',
+    description: 'Le roi revient automatiquement sur sa case initiale après deux tours',
+    category: 'behavior',
+    affectedPieces: ['king'],
+    trigger: 'turnBased',
+    conditions: [
+      { type: 'turnNumber', value: 2, operator: 'greaterOrEqual' }
+    ],
+    effects: [
+      { action: 'forcedReturn', target: 'self', parameters: { origin: 'start', frequency: 2, duration: 'permanent' } }
+    ],
+    tags: ['roi', 'retour', 'absurde'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_03',
+    ruleName: 'Pions Magnétiques',
+    description: 'Les pions attirent les pièces adverses situées à une case orthogonale',
+    category: 'behavior',
+    affectedPieces: ['pawn'],
+    trigger: 'always',
+    conditions: [],
+    effects: [
+      { action: 'pullOpponents', target: 'opponent', parameters: { distance: 1, direction: 'orthogonal', duration: 'permanent' } }
+    ],
+    tags: ['pion', 'magnetique', 'controle'],
+    priority: 7,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_04',
+    ruleName: 'Tour Garde-Temps',
+    description: 'Les tours peuvent geler le compteur de tours pendant un tour complet',
+    category: 'special',
+    affectedPieces: ['rook'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'freezeTurn', target: 'all', parameters: { duration: 'turns', turns: 1 } }
+    ],
+    tags: ['tour', 'temps', 'controle'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_05',
+    ruleName: 'Fous Retournés',
+    description: 'Lorsque un fou atteint le bord, il change de couleur et d\'équipe pour un tour',
+    category: 'special',
+    affectedPieces: ['bishop'],
+    trigger: 'onMove',
+    conditions: [
+      { type: 'positionEdge', value: true, operator: 'equals' }
+    ],
+    effects: [
+      { action: 'swapSides', target: 'self', parameters: { duration: 'turns', turns: 1 } }
+    ],
+    tags: ['fou', 'trahison', 'bord'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_06',
+    ruleName: 'Cavaliers Boiteux',
+    description: 'Les cavaliers doivent toujours terminer leur saut sur une case déjà occupée',
+    category: 'restriction',
+    affectedPieces: ['knight'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'forceCapture', target: 'self', parameters: { requirement: 'occupiedDestination', duration: 'permanent' } }
+    ],
+    tags: ['cavalier', 'restriction', 'chaotique'],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_07',
+    ruleName: 'Recyclage Express',
+    description: 'Toute pièce capturée revient comme pion dans le camp adverse après un tour',
+    category: 'special',
+    affectedPieces: ['all'],
+    trigger: 'onCapture',
+    conditions: [],
+    effects: [
+      { action: 'respawnAsPawn', target: 'opponent', parameters: { delay: 1, duration: 'permanent' } }
+    ],
+    tags: ['respawn', 'pion', 'absurde'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_08',
+    ruleName: 'Roi Tourbillon',
+    description: 'Lorsque le roi se déplace, il repousse toutes les pièces adjacentes de deux cases',
+    category: 'behavior',
+    affectedPieces: ['king'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'pushPieces', target: 'all', parameters: { radius: 1, distance: 2, duration: 'permanent' } }
+    ],
+    tags: ['roi', 'tourbillon', 'zone'],
+    priority: 7,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_09',
+    ruleName: 'Pions Échelle',
+    description: 'Deux pions alliés alignés se transforment temporairement en tour',
+    category: 'special',
+    affectedPieces: ['pawn'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'adjacentAlly', value: 'pawn', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'temporaryTransform', target: 'self', parameters: { newType: 'rook', duration: 'turns', turns: 1 } }
+    ],
+    tags: ['pion', 'transformation', 'cooperation'],
+    priority: 6,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_10',
+    ruleName: 'Reine Mélomane',
+    description: 'La reine ne peut capturer que si une pièce alliée a bougé juste avant',
+    category: 'restriction',
+    affectedPieces: ['queen'],
+    trigger: 'onCapture',
+    conditions: [
+      { type: 'allyMovedLast', value: true, operator: 'equals' }
+    ],
+    effects: [
+      { action: 'restrictCapture', target: 'self', parameters: { requirement: 'allyMoved', duration: 'permanent' } }
+    ],
+    tags: ['reine', 'rythme', 'restriction'],
+    priority: 4,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_11',
+    ruleName: 'Cavaliers Catapultes',
+    description: 'Les cavaliers peuvent lancer une pièce alliée située sur leur case de départ',
+    category: 'special',
+    affectedPieces: ['knight'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'launchAlly', target: 'specific', parameters: { range: 3, direction: 'any', duration: 'temporary' } }
+    ],
+    tags: ['cavalier', 'catapulte', 'coop'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_12',
+    ruleName: 'Tour Tiroir',
+    description: 'Les tours peuvent échanger leur position avec une pièce alliée adjacente',
+    category: 'movement',
+    affectedPieces: ['rook'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'swapPositions', target: 'specific', parameters: { scope: 'adjacentAllies', duration: 'permanent' } }
+    ],
+    tags: ['tour', 'echange', 'position'],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_13',
+    ruleName: 'Roi Caméléon',
+    description: 'Le roi adopte temporairement les mouvements de la pièce qui vient de le menacer',
+    category: 'special',
+    affectedPieces: ['king'],
+    trigger: 'onCheck',
+    conditions: [],
+    effects: [
+      { action: 'copyMovement', target: 'self', parameters: { source: 'attacker', duration: 'turns', turns: 1 } }
+    ],
+    tags: ['roi', 'cameleon', 'defense'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_14',
+    ruleName: 'Pions Somnambules',
+    description: 'Une fois par partie, chaque pion peut se déplacer en arrière pendant la nuit (tour pair)',
+    category: 'movement',
+    affectedPieces: ['pawn'],
+    trigger: 'turnBased',
+    conditions: [
+      { type: 'turnParity', value: 'even', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'allowBackwardMove', target: 'self', parameters: { uses: 1, duration: 'permanent' } }
+    ],
+    tags: ['pion', 'nuit', 'retour'],
+    priority: 3,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_15',
+    ruleName: 'Fous Hypnotiques',
+    description: 'Les fous immobilisent une pièce adverse qu\'ils menacent pendant un tour',
+    category: 'defense',
+    affectedPieces: ['bishop'],
+    trigger: 'always',
+    conditions: [],
+    effects: [
+      { action: 'immobilize', target: 'opponent', parameters: { scope: 'threatened', duration: 'turns', turns: 1 } }
+    ],
+    tags: ['fou', 'hypnose', 'controle'],
+    priority: 7,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_16',
+    ruleName: 'Reine Bifide',
+    description: 'La reine se dédouble en créant une copie fantôme inoffensive pour un tour',
+    category: 'special',
+    affectedPieces: ['queen'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'spawnDecoy', target: 'self', parameters: { lifespan: 1, duration: 'turns', turns: 1 } }
+    ],
+    tags: ['reine', 'clone', 'bluff'],
+    priority: 6,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_17',
+    ruleName: 'Tour Echo',
+    description: 'Une tour peut répéter son dernier mouvement au tour suivant sans compter comme une action',
+    category: 'movement',
+    affectedPieces: ['rook'],
+    trigger: 'turnBased',
+    conditions: [],
+    effects: [
+      { action: 'allowRepeatMove', target: 'self', parameters: { free: true, duration: 'turns', turns: 1 } }
+    ],
+    tags: ['tour', 'echo', 'tempo'],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_18',
+    ruleName: 'Cavaliers Caméra',
+    description: 'Les cavaliers révèlent toutes les cases menacées pendant un tour après leur saut',
+    category: 'special',
+    affectedPieces: ['knight'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'revealThreats', target: 'all', parameters: { duration: 'turns', turns: 1 } }
+    ],
+    tags: ['cavalier', 'vision', 'information'],
+    priority: 4,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_19',
+    ruleName: 'Pions Sacrifice',
+    description: 'Lorsqu\'un pion est capturé, il explose et élimine toutes les pièces adjacentes',
+    category: 'special',
+    affectedPieces: ['pawn'],
+    trigger: 'onCapture',
+    conditions: [],
+    effects: [
+      { action: 'areaExplosion', target: 'all', parameters: { radius: 1, includeSelf: true, duration: 'instant' } }
+    ],
+    tags: ['pion', 'explosion', 'sacrifice'],
+    priority: 10,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_20',
+    ruleName: 'Reine Cartographe',
+    description: 'La reine marque une case qui devient impraticable pour tout le monde pendant deux tours',
+    category: 'restriction',
+    affectedPieces: ['queen'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'markTile', target: 'all', parameters: { blocked: true, duration: 'turns', turns: 2 } }
+    ],
+    tags: ['reine', 'territoire', 'controle'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_21',
+    ruleName: 'Roi Paratonnerre',
+    description: 'Le roi absorbe une capture visant une pièce alliée adjacente et prend sa place',
+    category: 'defense',
+    affectedPieces: ['king'],
+    trigger: 'onCapture',
+    conditions: [],
+    effects: [
+      { action: 'redirectCapture', target: 'self', parameters: { scope: 'adjacentAllies', duration: 'permanent' } }
+    ],
+    tags: ['roi', 'sacrifice', 'defense'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_22',
+    ruleName: 'Tour Ressort',
+    description: 'Après avoir été poussée, une tour rebondit sur la case opposée',
+    category: 'movement',
+    affectedPieces: ['rook'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'wasPushed', value: true, operator: 'equals' }
+    ],
+    effects: [
+      { action: 'springBack', target: 'self', parameters: { distance: 1, duration: 'instant' } }
+    ],
+    tags: ['tour', 'ressort', 'reaction'],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_23',
+    ruleName: 'Cavaliers Marionnettes',
+    description: 'Les cavaliers peuvent déplacer une pièce alliée adjacente en même temps qu\'eux',
+    category: 'movement',
+    affectedPieces: ['knight'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'moveAlly', target: 'specific', parameters: { scope: 'adjacentAllies', distance: 1, duration: 'instant' } }
+    ],
+    tags: ['cavalier', 'marionnette', 'synergie'],
+    priority: 6,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_24',
+    ruleName: 'Pions Bascule',
+    description: 'Les pions changent de direction d\'attaque à chaque tour',
+    category: 'behavior',
+    affectedPieces: ['pawn'],
+    trigger: 'turnBased',
+    conditions: [],
+    effects: [
+      { action: 'alternateAttack', target: 'self', parameters: { pattern: ['diagonal', 'orthogonal'], duration: 'permanent' } }
+    ],
+    tags: ['pion', 'bascule', 'attaque'],
+    priority: 4,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_25',
+    ruleName: 'Reine Paradoxe',
+    description: 'La reine ne peut rester deux tours de suite sur une case de la même couleur',
+    category: 'restriction',
+    affectedPieces: ['queen'],
+    trigger: 'turnBased',
+    conditions: [],
+    effects: [
+      { action: 'colorRestriction', target: 'self', parameters: { alternate: true, duration: 'permanent' } }
+    ],
+    tags: ['reine', 'paradoxe', 'couleur'],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_26',
+    ruleName: 'Fous Spirale',
+    description: 'Les fous doivent tourner autour du roi en spirale avant d\'attaquer',
+    category: 'restriction',
+    affectedPieces: ['bishop'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'spiralRequirement', target: 'self', parameters: { center: 'king', duration: 'permanent' } }
+    ],
+    tags: ['fou', 'spirale', 'rituel'],
+    priority: 3,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_27',
+    ruleName: 'Tour Forteresse',
+    description: 'Les tours créent un mur invisible bloquant les pièces adverses sur la même colonne',
+    category: 'defense',
+    affectedPieces: ['rook'],
+    trigger: 'always',
+    conditions: [],
+    effects: [
+      { action: 'blockColumn', target: 'opponent', parameters: { strength: 1, duration: 'permanent' } }
+    ],
+    tags: ['tour', 'forteresse', 'mur'],
+    priority: 9,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_28',
+    ruleName: 'Cavaliers Messagers',
+    description: 'Les cavaliers transmettent un bonus de +1 portée à la prochaine pièce alliée à jouer',
+    category: 'behavior',
+    affectedPieces: ['knight'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'grantRangeBonus', target: 'all', parameters: { recipients: 'nextAlly', bonus: 1, duration: 'turns', turns: 1 } }
+    ],
+    tags: ['cavalier', 'messager', 'bonus'],
+    priority: 4,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_29',
+    ruleName: 'Pions Arche',
+    description: 'Deux pions côte à côte créent une arche que les pièces alliées peuvent traverser pour se téléporter',
+    category: 'special',
+    affectedPieces: ['pawn'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'adjacentPair', value: true, operator: 'equals' }
+    ],
+    effects: [
+      { action: 'allyTeleport', target: 'all', parameters: { range: 4, usage: 1, duration: 'turns', turns: 1 } }
+    ],
+    tags: ['pion', 'teleportation', 'support'],
+    priority: 7,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_30',
+    ruleName: 'Reine Orbitale',
+    description: 'La reine doit toujours rester à distance de deux cases du roi',
+    category: 'restriction',
+    affectedPieces: ['queen'],
+    trigger: 'turnBased',
+    conditions: [],
+    effects: [
+      { action: 'distanceConstraint', target: 'self', parameters: { from: 'king', min: 2, max: 2, duration: 'permanent' } }
+    ],
+    tags: ['reine', 'orbite', 'strategie'],
+    priority: 6,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_31',
+    ruleName: 'Fous Télékinésistes',
+    description: 'Les fous peuvent déplacer une pièce ennemie d\'une case au lieu de bouger',
+    category: 'behavior',
+    affectedPieces: ['bishop'],
+    trigger: 'turnBased',
+    conditions: [],
+    effects: [
+      { action: 'moveEnemy', target: 'opponent', parameters: { distance: 1, direction: 'any', duration: 'permanent' } }
+    ],
+    tags: ['fou', 'telekinesie', 'controle'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_32',
+    ruleName: 'Roi Illusionniste',
+    description: 'Le roi peut échanger sa place avec une illusion une fois par partie',
+    category: 'special',
+    affectedPieces: ['king'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'usesRemaining', value: 1, operator: 'greaterThan' }
+    ],
+    effects: [
+      { action: 'swapWithDecoy', target: 'self', parameters: { uses: 1, duration: 'permanent' } }
+    ],
+    tags: ['roi', 'illusion', 'survie'],
+    priority: 10,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_33',
+    ruleName: 'Tour Bifurcation',
+    description: 'Lorsqu\'une tour atteint le centre, elle se divise en deux tours miniatures',
+    category: 'special',
+    affectedPieces: ['rook'],
+    trigger: 'conditional',
+    conditions: [
+      { type: 'positionZone', value: 'center', operator: 'equals' }
+    ],
+    effects: [
+      { action: 'splitPiece', target: 'self', parameters: { newPieces: 2, size: 'mini', duration: 'permanent' } }
+    ],
+    tags: ['tour', 'division', 'centre'],
+    priority: 8,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_34',
+    ruleName: 'Cavaliers Fantaisistes',
+    description: 'Les cavaliers choisissent un motif de saut différent à chaque tour',
+    category: 'movement',
+    affectedPieces: ['knight'],
+    trigger: 'turnBased',
+    conditions: [],
+    effects: [
+      { action: 'cyclePatterns', target: 'self', parameters: { patterns: ['classique', 'long', 'court'], duration: 'permanent' } }
+    ],
+    tags: ['cavalier', 'fantaisie', 'variation'],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_35',
+    ruleName: 'Pions Buvards',
+    description: 'Les pions absorbent les pouvoirs des pièces qu\'ils capturent pendant un tour',
+    category: 'special',
+    affectedPieces: ['pawn'],
+    trigger: 'onCapture',
+    conditions: [],
+    effects: [
+      { action: 'absorbAbility', target: 'self', parameters: { duration: 'turns', turns: 1 } }
+    ],
+    tags: ['pion', 'absorption', 'adaptation'],
+    priority: 7,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_36',
+    ruleName: 'Reine Caduque',
+    description: 'La reine doit être activée par un pion allié adjacent avant chaque déplacement',
+    category: 'condition',
+    affectedPieces: ['queen'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'requireActivation', target: 'self', parameters: { activator: 'pawn', range: 1, duration: 'permanent' } }
+    ],
+    tags: ['reine', 'condition', 'rituel'],
+    priority: 4,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_37',
+    ruleName: 'Fous Lunaires',
+    description: 'Les fous ne se déplacent que sur les cases éclairées par la lune, alternant toutes les trois cases',
+    category: 'restriction',
+    affectedPieces: ['bishop'],
+    trigger: 'turnBased',
+    conditions: [],
+    effects: [
+      { action: 'lunarPattern', target: 'self', parameters: { cycle: 3, duration: 'permanent' } }
+    ],
+    tags: ['fou', 'lune', 'mystique'],
+    priority: 3,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_38',
+    ruleName: 'Tour Hologramme',
+    description: 'Une tour peut créer un hologramme qui détourne la prochaine capture',
+    category: 'defense',
+    affectedPieces: ['rook'],
+    trigger: 'conditional',
+    conditions: [],
+    effects: [
+      { action: 'createHologram', target: 'self', parameters: { blocksCaptures: 1, duration: 'turns', turns: 2 } }
+    ],
+    tags: ['tour', 'hologramme', 'defense'],
+    priority: 6,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_39',
+    ruleName: 'Cavaliers Fantômes',
+    description: 'Après un saut, un cavalier laisse une trace fantôme qui bloque le passage',
+    category: 'restriction',
+    affectedPieces: ['knight'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'leavePhantom', target: 'self', parameters: { duration: 'turns', turns: 1 } }
+    ],
+    tags: ['cavalier', 'fantome', 'blocage'],
+    priority: 5,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  },
+  {
+    ruleId: 'preset_biz_40',
+    ruleName: 'Pions Accordéon',
+    description: 'Les pions peuvent s\'étirer pour occuper deux cases verticales pendant un tour',
+    category: 'special',
+    affectedPieces: ['pawn'],
+    trigger: 'onMove',
+    conditions: [],
+    effects: [
+      { action: 'stretch', target: 'self', parameters: { orientation: 'vertical', duration: 'turns', turns: 1 } }
+    ],
+    tags: ['pion', 'accordeon', 'volume'],
+    priority: 6,
+    isActive: false,
+    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
+  }
+];
+
 export const allPresetRules = [
   ...presetMovementRules,
   ...presetAttackRules,
   ...presetDefenseRules,
-  ...presetBehaviorRules
+  ...presetBehaviorRules,
+  ...presetBizarreRules
 ];
