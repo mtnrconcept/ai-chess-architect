@@ -2,56 +2,52 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
 import { allPresetRules } from '@/lib/presetRules';
 import { analyzeRuleLogic, RuleAnalysisResult } from '@/lib/ruleValidation';
-import type { Tables } from '@/integrations/supabase/types';
-
-type CustomRuleRow = Tables<'custom_chess_rules'>;
+import { useAuth } from '@/contexts/AuthContext';
+import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from '@/lib/customRuleMapper';
 
 const Lobby = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
   const [customRules, setCustomRules] = useState<ChessRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [ruleIssues, setRuleIssues] = useState<Record<string, string[]>>({});
   const [selectedPresetRuleIds, setSelectedPresetRuleIds] = useState<Set<string>>(new Set());
+  const [activatingRules, setActivatingRules] = useState(false);
 
   const fetchRules = useCallback(async () => {
+    if (authLoading) return;
+
+    if (!user) {
+      setCustomRules([]);
+      setRuleIssues({});
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('custom_chess_rules')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       const rows = (data ?? []) as CustomRuleRow[];
+      const mappedRules = mapCustomRuleRowsToChessRules(rows);
 
-      const analyses: RuleAnalysisResult[] = rows.map(row => {
-        const baseRule: ChessRule = {
-          id: row.id,
-          ruleId: row.rule_id,
-          ruleName: row.rule_name,
-          description: row.description,
-          category: row.category as ChessRule['category'],
-          affectedPieces: row.affected_pieces as unknown as string[],
-          trigger: row.trigger as ChessRule['trigger'],
-          conditions: row.conditions as unknown,
-          effects: row.effects as unknown,
-          priority: row.priority ?? 1,
-          isActive: row.is_active ?? false,
-          validationRules: row.validation_rules as unknown,
-          createdAt: row.created_at,
-        };
-
-        return analyzeRuleLogic(baseRule);
-      });
+      const analyses: RuleAnalysisResult[] = mappedRules.map(rule =>
+        analyzeRuleLogic(rule)
+      );
 
       const issues = Object.fromEntries(
         analyses.map(result => [result.rule.ruleId, result.issues])
@@ -71,18 +67,28 @@ const Lobby = () => {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [authLoading, toast, user]);
 
   useEffect(() => {
     fetchRules();
   }, [fetchRules]);
 
   const deleteRule = async (ruleId: string) => {
+    if (!user) {
+      toast({
+        title: 'Connexion requise',
+        description: 'Connectez-vous pour gérer vos règles personnalisées.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('custom_chess_rules')
         .delete()
-        .eq('rule_id', ruleId);
+        .eq('rule_id', ruleId)
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -101,11 +107,21 @@ const Lobby = () => {
   };
 
   const toggleRuleStatus = async (ruleId: string, isActive: boolean) => {
+    if (!user) {
+      toast({
+        title: 'Connexion requise',
+        description: 'Connectez-vous pour gérer vos règles personnalisées.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('custom_chess_rules')
         .update({ is_active: isActive })
-        .eq('rule_id', ruleId);
+        .eq('rule_id', ruleId)
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -148,6 +164,57 @@ const Lobby = () => {
     });
   };
 
+  const handleActivateAllCustomRules = async () => {
+    if (!user) {
+      toast({
+        title: 'Connexion requise',
+        description: 'Connectez-vous pour gérer vos règles personnalisées.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const inactiveRuleIds = customRules
+      .filter(rule => !rule.isActive)
+      .map(rule => rule.ruleId);
+
+    if (inactiveRuleIds.length === 0) {
+      toast({
+        title: 'Toutes vos règles sont déjà actives',
+      });
+      return;
+    }
+
+    setActivatingRules(true);
+    try {
+      const { error } = await supabase
+        .from('custom_chess_rules')
+        .update({ is_active: true })
+        .eq('user_id', user.id)
+        .in('rule_id', inactiveRuleIds);
+
+      if (error) throw error;
+
+      setCustomRules(prev => prev.map(rule => ({ ...rule, isActive: true })));
+
+      toast({
+        title: 'Règles activées',
+        description: `${inactiveRuleIds.length} règle(s) personnalisée(s) activée(s).`,
+      });
+    } catch (error: unknown) {
+      const description = error instanceof Error
+        ? error.message
+        : 'Impossible d\'activer les règles';
+      toast({
+        title: 'Erreur',
+        description,
+        variant: 'destructive',
+      });
+    } finally {
+      setActivatingRules(false);
+    }
+  };
+
   const handleStartGame = () => {
     const activeRules = customRules.filter(rule => rule.isActive);
     const selectedPresetIds = Array.from(selectedPresetRuleIds);
@@ -171,12 +238,13 @@ const Lobby = () => {
 
   const hasActiveCustomRule = customRules.some(rule => rule.isActive);
   const hasSelectedPresetRules = selectedPresetRuleIds.size > 0;
+  const hasInactiveCustomRules = customRules.some(rule => !rule.isActive);
   const canStartGame = hasActiveCustomRule || hasSelectedPresetRules;
 
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <Button variant="ghost" onClick={() => navigate('/')}>
             <ArrowLeft size={20} />
             Retour
@@ -184,7 +252,17 @@ const Lobby = () => {
           <h1 className="text-3xl font-bold bg-gradient-gold bg-clip-text text-transparent">
             Lobby des Règles
           </h1>
-          <div className="flex justify-end w-48">
+          <div className="flex flex-wrap justify-end gap-2">
+            {user && customRules.length > 0 && (
+              <Button
+                variant="gold"
+                onClick={handleActivateAllCustomRules}
+                disabled={activatingRules || !hasInactiveCustomRules}
+              >
+                {activatingRules && <Loader2 className="h-4 w-4 animate-spin" />}
+                Activer mes règles
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={handleStartGame}
@@ -202,22 +280,34 @@ const Lobby = () => {
           </TabsList>
 
           <TabsContent value="custom" className="mt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {customRules.map(rule => (
-                <RuleCard
-                  key={rule.ruleId}
-                  rule={rule}
-                  onDelete={deleteRule}
-                  onToggle={toggleRuleStatus}
-                  issues={ruleIssues[rule.ruleId]}
-                />
-              ))}
-              {customRules.length === 0 && !loading && (
-                <div className="col-span-full text-center py-12 text-muted-foreground">
-                  Aucune règle personnalisée. Créez-en une !
-                </div>
-              )}
-            </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Chargement de vos règles personnalisées...
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {customRules.map(rule => (
+                  <RuleCard
+                    key={rule.ruleId}
+                    rule={rule}
+                    onDelete={deleteRule}
+                    onToggle={toggleRuleStatus}
+                    issues={ruleIssues[rule.ruleId]}
+                  />
+                ))}
+                {!authLoading && !user && (
+                  <div className="col-span-full text-center py-12 text-muted-foreground">
+                    Connectez-vous pour retrouver vos règles personnalisées.
+                  </div>
+                )}
+                {user && customRules.length === 0 && (
+                  <div className="col-span-full text-center py-12 text-muted-foreground">
+                    Aucune règle personnalisée. Créez-en une !
+                  </div>
+                )}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="preset" className="mt-6">
