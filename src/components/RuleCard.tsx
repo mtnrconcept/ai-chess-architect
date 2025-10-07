@@ -43,6 +43,7 @@ const RuleCard = ({
 
   const conditionsCount = Array.isArray(rule.conditions) ? rule.conditions.length : 0;
   const effectsCount = Array.isArray(rule.effects) ? rule.effects.length : 0;
+  const tags = Array.isArray(rule.tags) ? rule.tags.filter(tag => typeof tag === 'string' && tag.length > 0) : [];
 
   const cardClasses = [
     'bg-card/50 border-border backdrop-blur-sm hover:border-primary/50 transition-all',
@@ -161,6 +162,15 @@ const RuleCard = ({
             </div>
           )}
         </div>
+        {tags.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {tags.map(tag => (
+              <Badge key={tag} variant="secondary" className="bg-muted/60 text-xs uppercase tracking-wide">
+                #{tag}
+              </Badge>
+            ))}
+          </div>
+        )}
         {issues.length > 0 && (
           <div className="mt-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
             <AlertTriangle className="h-4 w-4 flex-shrink-0" />

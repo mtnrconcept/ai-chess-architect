@@ -58,6 +58,7 @@ Tu dois générer un objet JSON PARFAITEMENT structuré et exécutable. Voici la
   ],
   "priority": 1,
   "isActive": true,
+  "tags": ["mot-cle-1", "mot-cle-2"],
   "validationRules": {
     "allowedWith": [],
     "conflictsWith": [],
@@ -69,6 +70,7 @@ RÈGLES IMPORTANTES :
 - Réponds UNIQUEMENT avec le JSON, rien d'autre
 - Pas de backticks, pas de markdown
 - Le JSON doit être parfaitement valide
+- Génère entre 2 et 4 tags courts en français pour décrire la règle
 - Sois créatif mais logique`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -112,7 +114,12 @@ RÈGLES IMPORTANTES :
     // Garantir un ID unique
     parsedRule.ruleId = parsedRule.ruleId || `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     parsedRule.createdAt = new Date().toISOString();
-    
+    parsedRule.tags = Array.isArray(parsedRule.tags)
+      ? parsedRule.tags
+          .map((tag: unknown) => typeof tag === "string" ? tag.toLowerCase() : String(tag))
+          .filter((tag: string) => tag.length > 0)
+      : [];
+
     return new Response(
       JSON.stringify({ rule: parsedRule }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

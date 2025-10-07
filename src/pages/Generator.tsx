@@ -69,7 +69,15 @@ const Generator = () => {
       if (error) throw error;
 
       if (data.rule) {
-        setGeneratedRule(data.rule);
+        const normalizedRule: ChessRule = {
+          ...data.rule,
+          tags: Array.isArray(data.rule.tags)
+            ? data.rule.tags
+                .map((tag: unknown) => typeof tag === 'string' ? tag.toLowerCase() : String(tag))
+                .filter(tag => tag.length > 0)
+            : [],
+        };
+        setGeneratedRule(normalizedRule);
         toast({
           title: "Succès !",
           description: "Règle générée avec succès",
@@ -109,6 +117,7 @@ const Generator = () => {
         trigger: generatedRule.trigger,
         conditions: generatedRule.conditions as any,
         effects: generatedRule.effects as any,
+        tags: generatedRule.tags,
         priority: generatedRule.priority,
         is_active: generatedRule.isActive,
         validation_rules: generatedRule.validationRules as any,

@@ -21,6 +21,16 @@ const parseEffects = (effects: CustomRuleRow['effects']): RuleEffect[] => {
   return [];
 };
 
+const parseTags = (tags: CustomRuleRow['tags']): string[] => {
+  if (!tags) return [];
+  if (Array.isArray(tags)) {
+    return tags
+      .map(tag => (typeof tag === 'string' ? tag.toLowerCase() : String(tag)))
+      .filter(tag => tag.length > 0);
+  }
+  return [];
+};
+
 const parseValidation = (
   validation: CustomRuleRow['validation_rules']
 ): ChessRule['validationRules'] => {
@@ -46,6 +56,7 @@ export const mapCustomRuleRowToChessRule = (row: CustomRuleRow): ChessRule => ({
   trigger: row.trigger as ChessRule['trigger'],
   conditions: parseConditions(row.conditions),
   effects: parseEffects(row.effects),
+  tags: parseTags(row.tags),
   priority: row.priority ?? 1,
   isActive: row.is_active ?? false,
   validationRules: parseValidation(row.validation_rules),

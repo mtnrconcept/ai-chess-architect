@@ -194,6 +194,12 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
     issues.push('Pièces affectées invalides, valeurs supprimées.');
   }
 
+  const rawTags = rawRule.tags;
+  const tags = toStringArray(rawTags).map(tag => tag.toLowerCase());
+  if (tags.length === 0 && hasProvidedListValues(rawTags)) {
+    issues.push('Tags invalides supprimés.');
+  }
+
   const conditions = sanitizeConditions(rawRule.conditions, issues);
   const effects = sanitizeEffects(rawRule.effects, issues);
 
@@ -254,6 +260,7 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
       category,
       trigger,
       affectedPieces,
+      tags,
       conditions,
       effects,
       priority: normalizedPriority,

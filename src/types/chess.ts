@@ -54,6 +54,7 @@ export interface ChessRule {
   trigger: 'always' | 'onMove' | 'onCapture' | 'onCheck' | 'onCheckmate' | 'turnBased' | 'conditional';
   conditions: RuleCondition[];
   effects: RuleEffect[];
+  tags: string[];
   priority: number;
   isActive: boolean;
   validationRules: {

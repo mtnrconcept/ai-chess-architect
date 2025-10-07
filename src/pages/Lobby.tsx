@@ -21,6 +21,7 @@ const Lobby = () => {
   const [ruleIssues, setRuleIssues] = useState<Record<string, string[]>>({});
   const [selectedPresetRuleIds, setSelectedPresetRuleIds] = useState<Set<string>>(new Set());
   const [activatingRules, setActivatingRules] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
   const fetchRules = useCallback(async () => {
     if (authLoading) return;
@@ -149,6 +150,48 @@ const Lobby = () => {
     []
   );
 
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    customRules.forEach(rule => {
+      rule.tags?.forEach(tag => tags.add(tag.toLowerCase()));
+    });
+    presetAnalyses.forEach(({ rule }) => {
+      rule.tags?.forEach(tag => tags.add(tag.toLowerCase()));
+    });
+    return Array.from(tags).sort();
+  }, [customRules, presetAnalyses]);
+
+  const filteredCustomRules = useMemo(() => {
+    if (selectedTags.size === 0) return customRules;
+    return customRules.filter(rule => {
+      const ruleTags = new Set(rule.tags?.map(tag => tag.toLowerCase()) ?? []);
+      return Array.from(selectedTags).every(tag => ruleTags.has(tag));
+    });
+  }, [customRules, selectedTags]);
+
+  const filteredPresetAnalyses = useMemo(() => {
+    if (selectedTags.size === 0) return presetAnalyses;
+    return presetAnalyses.filter(({ rule }) => {
+      const ruleTags = new Set(rule.tags?.map(tag => tag.toLowerCase()) ?? []);
+      return Array.from(selectedTags).every(tag => ruleTags.has(tag));
+    });
+  }, [presetAnalyses, selectedTags]);
+
+  const toggleTagFilter = (tag: string) => {
+    setSelectedTags(prev => {
+      const normalized = tag.toLowerCase();
+      const next = new Set(prev);
+      if (next.has(normalized)) {
+        next.delete(normalized);
+      } else {
+        next.add(normalized);
+      }
+      return next;
+    });
+  };
+
+  const clearTagFilters = () => setSelectedTags(new Set());
+
   const togglePresetRule = (ruleId: string, shouldSelect?: boolean) => {
     setSelectedPresetRuleIds(prev => {
       const next = new Set(prev);
@@ -273,10 +316,43 @@ const Lobby = () => {
           </div>
         </div>
 
+        {availableTags.length > 0 && (
+          <div className="rounded-xl border border-border/60 bg-card/40 p-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-muted-foreground">Filtrer par tags :</span>
+              {availableTags.map(tag => {
+                const normalized = tag.toLowerCase();
+                const isActive = selectedTags.has(normalized);
+                return (
+                  <Button
+                    key={normalized}
+                    size="sm"
+                    variant={isActive ? 'premium' : 'outline'}
+                    className="rounded-full px-3 py-1 text-xs uppercase tracking-wide"
+                    onClick={() => toggleTagFilter(tag)}
+                  >
+                    #{tag}
+                  </Button>
+                );
+              })}
+              {selectedTags.size > 0 && (
+                <Button size="sm" variant="ghost" onClick={clearTagFilters}>
+                  Réinitialiser
+                </Button>
+              )}
+            </div>
+            {selectedTags.size > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {selectedTags.size} tag(s) actif(s) · {filteredCustomRules.length + filteredPresetAnalyses.length} règle(s) correspondante(s)
+              </p>
+            )}
+          </div>
+        )}
+
         <Tabs defaultValue="custom" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="custom">Mes Règles ({customRules.length})</TabsTrigger>
-            <TabsTrigger value="preset">Règles Préinstallées ({allPresetRules.length})</TabsTrigger>
+            <TabsTrigger value="custom">Mes Règles ({filteredCustomRules.length}/{customRules.length})</TabsTrigger>
+            <TabsTrigger value="preset">Règles Préinstallées ({filteredPresetAnalyses.length}/{allPresetRules.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="custom" className="mt-6">
@@ -287,7 +363,7 @@ const Lobby = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {customRules.map(rule => (
+                {filteredCustomRules.map(rule => (
                   <RuleCard
                     key={rule.ruleId}
                     rule={rule}
@@ -296,6 +372,11 @@ const Lobby = () => {
                     issues={ruleIssues[rule.ruleId]}
                   />
                 ))}
+                {filteredCustomRules.length === 0 && customRules.length > 0 && (
+                  <div className="col-span-full text-center py-12 text-muted-foreground">
+                    Aucune règle ne correspond aux tags sélectionnés.
+                  </div>
+                )}
                 {!authLoading && !user && (
                   <div className="col-span-full text-center py-12 text-muted-foreground">
                     Connectez-vous pour retrouver vos règles personnalisées.
@@ -312,7 +393,7 @@ const Lobby = () => {
 
           <TabsContent value="preset" className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {presetAnalyses.map(({ rule, issues }) => (
+              {filteredPresetAnalyses.map(({ rule, issues }) => (
                 <RuleCard
                   key={rule.ruleId}
                   rule={rule}
@@ -323,6 +404,11 @@ const Lobby = () => {
                   onSelectChange={selected => togglePresetRule(rule.ruleId, selected)}
                 />
               ))}
+              {filteredPresetAnalyses.length === 0 && (
+                <div className="col-span-full text-center py-12 text-muted-foreground">
+                  Aucun preset ne correspond aux tags sélectionnés.
+                </div>
+              )}
             </div>
             {hasSelectedPresetRules && (
               <div className="mt-4 text-sm text-muted-foreground">
