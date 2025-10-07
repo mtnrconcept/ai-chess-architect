@@ -38,6 +38,22 @@ const toStringArray = (value: unknown): string[] => {
   return [];
 };
 
+const hasProvidedListValues = (value: unknown): boolean => {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0;
+  }
+
+  return true;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
@@ -216,10 +232,10 @@ export const analyzeRuleLogic = (rule: ChessRule): RuleAnalysisResult => {
     const allowedWith = toStringArray(allowedWithSource);
     const conflictsWith = toStringArray(conflictsWithSource);
 
-    if (allowedWithSource !== undefined && allowedWith.length === 0) {
+    if (hasProvidedListValues(allowedWithSource) && allowedWith.length === 0) {
       issues.push('Liste allowedWith invalide réinitialisée.');
     }
-    if (conflictsWithSource !== undefined && conflictsWith.length === 0) {
+    if (hasProvidedListValues(conflictsWithSource) && conflictsWith.length === 0) {
       issues.push('Liste conflictsWith invalide réinitialisée.');
     }
 
