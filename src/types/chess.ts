@@ -83,4 +83,21 @@ export interface GameState {
   abilities?: any[];
   restrictions?: any[];
   events?: string[];
+  forcedMirrorResponse?: {
+    color: PieceColor;
+    file: number;
+  } | null;
+  pendingExtraMoves: Record<PieceColor, number>;
+  freezeEffects: Array<{
+    color: PieceColor;
+    position: Position;
+    remainingTurns: number;
+  }>;
+  freezeUsage: Record<PieceColor, boolean>;
+  positionHistory: Record<string, number>;
+  pendingTransformations: Record<PieceColor, boolean>;
+  lastMoveByColor: Partial<Record<PieceColor, ChessMove>>;
+  replayOpportunities: Partial<Record<PieceColor, { from: Position; to: Position }>>;
+  vipTokens: Record<PieceColor, number>;
+  secretSetupApplied?: boolean;
 }

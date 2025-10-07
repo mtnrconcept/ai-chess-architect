@@ -60,25 +60,39 @@ const Play = () => {
     behavior: 'Comportement',
     vip: 'VIP Magnus Goat'
   };
-  const [gameState, setGameState] = useState<GameState>(() => ({
-    board: ChessEngine.initializeBoard(),
-    currentPlayer: 'white',
-    turnNumber: 1,
-    movesThisTurn: 0,
-    selectedPiece: null,
-    validMoves: [],
-    gameStatus: 'active',
-    capturedPieces: [],
-    moveHistory: [],
-    activeRules: [],
-    extraMoves: 0
-  }));
+  const [gameState, setGameState] = useState<GameState>(() => {
+    const initialBoard = ChessEngine.initializeBoard();
+    return {
+      board: initialBoard,
+      currentPlayer: 'white',
+      turnNumber: 1,
+      movesThisTurn: 0,
+      selectedPiece: null,
+      validMoves: [],
+      gameStatus: 'active',
+      capturedPieces: [],
+      moveHistory: [],
+      activeRules: [],
+      extraMoves: 0,
+      pendingExtraMoves: { white: 0, black: 0 },
+      freezeEffects: [],
+      freezeUsage: { white: false, black: false },
+      positionHistory: { [ChessEngine.getBoardSignature(initialBoard)]: 1 },
+      pendingTransformations: { white: false, black: false },
+      lastMoveByColor: {},
+      replayOpportunities: {},
+      vipTokens: { white: 0, black: 0 },
+      forcedMirrorResponse: null,
+      secretSetupApplied: false
+    };
+  });
 
   useEffect(() => {
     setCustomRules(analyzedCustomRules);
   }, [analyzedCustomRules]);
 
   const lastInitialPresetKey = useRef<string | null>(null);
+  const selectionTimestampRef = useRef<number | null>(null);
 
   useEffect(() => {
     const key = initialPresetRuleIds.join('|');
@@ -95,10 +109,31 @@ const Play = () => {
       .filter(rule => appliedPresetRuleIds.has(rule.ruleId))
       .map(rule => ({ ...rule, isActive: true }));
 
-    setGameState(prev => ({
-      ...prev,
-      activeRules: [...activeCustomRules, ...activePresetRules],
-    }));
+    const secretSetupEnabled = activePresetRules.some(rule => rule.ruleId === 'preset_vip_magnus_01');
+
+    setGameState(prev => {
+      let nextBoard = prev.board;
+      let secretApplied = prev.secretSetupApplied;
+
+      if (secretSetupEnabled && !secretApplied && prev.moveHistory.length === 0) {
+        nextBoard = ChessEngine.applySecretSetup(prev.board);
+        secretApplied = true;
+      }
+
+      const positionHistory = { ...prev.positionHistory };
+      const signature = ChessEngine.getBoardSignature(nextBoard);
+      if (!positionHistory[signature]) {
+        positionHistory[signature] = 1;
+      }
+
+      return {
+        ...prev,
+        board: nextBoard,
+        activeRules: [...activeCustomRules, ...activePresetRules],
+        secretSetupApplied: secretApplied,
+        positionHistory
+      };
+    });
   }, [customRules, appliedPresetRuleIds]);
 
   const toggleRule = (ruleId: string) => {
@@ -129,11 +164,61 @@ const Play = () => {
     }
   };
 
+  const respawnPawn = (board: (ChessPiece | null)[][], color: PieceColor): boolean => {
+    const startRow = color === 'white' ? 6 : 1;
+    for (let col = 0; col < 8; col++) {
+      if (!board[startRow][col]) {
+        board[startRow][col] = {
+          type: 'pawn',
+          color,
+          position: { row: startRow, col },
+          hasMoved: false
+        } as ChessPiece;
+        return true;
+      }
+    }
+    return false;
+  };
+
   const handlePieceClick = (piece: ChessPiece) => {
     if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
     if (piece.color !== gameState.currentPlayer) return;
 
-    const validMoves = ChessEngine.getValidMoves(gameState.board, piece, gameState);
+    const forcedMirror = gameState.forcedMirrorResponse;
+    if (forcedMirror && forcedMirror.color === piece.color) {
+      if (piece.type !== 'pawn' || piece.position.col !== forcedMirror.file) {
+        return;
+      }
+    }
+
+    const frozen = gameState.freezeEffects.some(effect =>
+      effect.color === piece.color &&
+      effect.position.row === piece.position.row &&
+      effect.position.col === piece.position.col &&
+      effect.remainingTurns > 0
+    );
+
+    if (frozen) {
+      return;
+    }
+
+    let validMoves = ChessEngine.getValidMoves(gameState.board, piece, gameState);
+
+    const replayOpportunity = gameState.replayOpportunities[piece.color];
+    if (replayOpportunity &&
+      piece.position.row === replayOpportunity.to.row &&
+      piece.position.col === replayOpportunity.to.col
+    ) {
+      const alreadyIncluded = validMoves.some(pos =>
+        pos.row === replayOpportunity.from.row && pos.col === replayOpportunity.from.col
+      );
+      if (!alreadyIncluded) {
+        validMoves = [...validMoves, replayOpportunity.from];
+      }
+    }
+
+    selectionTimestampRef.current = Date.now();
+
     setGameState(prev => ({
       ...prev,
       selectedPiece: piece,
@@ -145,100 +230,279 @@ const Play = () => {
     if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
     if (!gameState.selectedPiece) return;
 
+    const selectedPiece = gameState.selectedPiece;
+
     const isValid = gameState.validMoves.some(
       move => move.row === position.row && move.col === position.col
     );
 
-    if (isValid) {
-      const move = ChessEngine.createMove(
-        gameState.board,
-        gameState.selectedPiece,
-        position,
-        gameState
-      );
+    if (!isValid) return;
 
-      const extraMovesEarned = ChessEngine.getExtraMovesForPiece(
-        gameState.selectedPiece,
-        gameState
-      );
+    const selectionDuration = selectionTimestampRef.current
+      ? Date.now() - selectionTimestampRef.current
+      : null;
+    selectionTimestampRef.current = null;
 
-      const newBoard = ChessEngine.executeMove(gameState.board, move, gameState);
-      const updatedHistory = [...gameState.moveHistory, move];
-      const updatedCaptured = move.captured
-        ? [...gameState.capturedPieces, move.captured]
-        : [...gameState.capturedPieces];
+    const activeRuleIds = new Set(
+      gameState.activeRules.filter(rule => rule.isActive).map(rule => rule.ruleId)
+    );
+    const hasRule = (ruleId: string) => activeRuleIds.has(ruleId);
 
-      const previousExtraMoves = gameState.extraMoves;
-      const remainingAfterConsumption = previousExtraMoves > 0
-        ? previousExtraMoves - 1
-        : 0;
-      const totalExtraMoves = remainingAfterConsumption + extraMovesEarned;
+    const move = ChessEngine.createMove(
+      gameState.board,
+      selectedPiece,
+      position,
+      gameState
+    );
 
-      const opponentColor: PieceColor = gameState.currentPlayer === 'white' ? 'black' : 'white';
-      const stayOnCurrentPlayer = totalExtraMoves > 0;
-
-      const nextPlayer = stayOnCurrentPlayer ? gameState.currentPlayer : opponentColor;
-      const nextMovesThisTurn = stayOnCurrentPlayer
-        ? gameState.movesThisTurn + 1
-        : 0;
-      const nextExtraMoves = stayOnCurrentPlayer ? totalExtraMoves : 0;
-      const nextTurnNumber = gameState.turnNumber + 1;
-
-      const evaluationState: GameState = {
-        ...gameState,
-        board: newBoard,
-        currentPlayer: opponentColor,
-        turnNumber: nextTurnNumber,
-        movesThisTurn: 0,
-        selectedPiece: null,
-        validMoves: [],
-        gameStatus: 'active',
-        capturedPieces: updatedCaptured,
-        moveHistory: updatedHistory,
-        extraMoves: 0
+    let pendingTransformations = { ...gameState.pendingTransformations };
+    if (
+      hasRule('preset_vip_magnus_06') &&
+      pendingTransformations[gameState.currentPlayer] &&
+      selectedPiece.type === 'pawn'
+    ) {
+      move.promotion = move.promotion ?? 'knight';
+      pendingTransformations = {
+        ...pendingTransformations,
+        [gameState.currentPlayer]: false
       };
-
-      const opponentInCheck = ChessEngine.isInCheck(newBoard, opponentColor, evaluationState);
-      const opponentHasMoves = ChessEngine.hasAnyLegalMoves(newBoard, opponentColor, evaluationState);
-
-      let nextStatus: GameState['gameStatus'] = 'active';
-      if (opponentInCheck && !opponentHasMoves) {
-        nextStatus = 'checkmate';
-      } else if (!opponentInCheck && !opponentHasMoves) {
-        nextStatus = 'stalemate';
-      } else if (opponentInCheck) {
-        nextStatus = 'check';
-      }
-
-      const finalExtraMoves = nextStatus === 'active' || nextStatus === 'check'
-        ? nextExtraMoves
-        : 0;
-      const finalMovesThisTurn = nextStatus === 'active' || nextStatus === 'check'
-        ? nextMovesThisTurn
-        : 0;
-      const finalCurrentPlayer = nextStatus === 'active' || nextStatus === 'check'
-        ? nextPlayer
-        : opponentColor;
-
-      setGameState({
-        ...gameState,
-        board: newBoard,
-        currentPlayer: finalCurrentPlayer,
-        turnNumber: nextTurnNumber,
-        movesThisTurn: finalMovesThisTurn,
-        selectedPiece: null,
-        validMoves: [],
-        gameStatus: nextStatus,
-        capturedPieces: updatedCaptured,
-        moveHistory: updatedHistory,
-        extraMoves: finalExtraMoves
-      });
     }
+
+    const newBoard = ChessEngine.executeMove(gameState.board, move, gameState);
+    const updatedHistory = [...gameState.moveHistory, move];
+    const updatedCaptured = move.captured
+      ? [...gameState.capturedPieces, move.captured]
+      : [...gameState.capturedPieces];
+
+    let forcedMirror = gameState.forcedMirrorResponse;
+    if (
+      forcedMirror &&
+      forcedMirror.color === gameState.currentPlayer &&
+      selectedPiece.type === 'pawn' &&
+      selectedPiece.position.col === forcedMirror.file
+    ) {
+      forcedMirror = null;
+    }
+
+    const opponentColor: PieceColor =
+      gameState.currentPlayer === 'white' ? 'black' : 'white';
+
+    if (hasRule('preset_vip_magnus_02') && selectedPiece.type === 'pawn') {
+      const mirrorFile = 7 - move.to.col;
+      const opponentHasPawn = newBoard.some(row =>
+        row.some(
+          piece =>
+            piece &&
+            piece.type === 'pawn' &&
+            piece.color === opponentColor &&
+            piece.position.col === mirrorFile
+        )
+      );
+
+      if (opponentHasPawn) {
+        forcedMirror = { color: opponentColor, file: mirrorFile };
+      } else if (forcedMirror && forcedMirror.color === opponentColor) {
+        forcedMirror = null;
+      }
+    }
+
+    let pendingExtraMoves = { ...gameState.pendingExtraMoves };
+    if (hasRule('preset_vip_magnus_03') && move.captured) {
+      pendingExtraMoves = {
+        ...pendingExtraMoves,
+        [opponentColor]: (pendingExtraMoves[opponentColor] ?? 0) + 1
+      };
+    }
+
+    let freezeEffects = gameState.freezeEffects
+      .map(effect => ({ ...effect }))
+      .filter(effect => {
+        const target = ChessEngine.getPieceAt(newBoard, effect.position);
+        return target && target.color === effect.color && effect.remainingTurns > 0;
+      });
+
+    const freezeUsage = { ...gameState.freezeUsage };
+
+    if (hasRule('preset_vip_magnus_09') && !freezeUsage[gameState.currentPlayer]) {
+      const attackSquares = ChessEngine.getAttackSquares(newBoard, move.piece);
+      const frozenTarget = attackSquares
+        .map(pos => ChessEngine.getPieceAt(newBoard, pos))
+        .find(piece => piece && piece.color === opponentColor);
+
+      if (frozenTarget) {
+        freezeEffects = [
+          ...freezeEffects,
+          {
+            color: opponentColor,
+            position: { ...frozenTarget.position },
+            remainingTurns: 2
+          }
+        ];
+        freezeUsage[gameState.currentPlayer] = true;
+      }
+    }
+
+    let replayOpportunities = { ...gameState.replayOpportunities };
+    if (replayOpportunities[gameState.currentPlayer]) {
+      replayOpportunities = { ...replayOpportunities };
+      delete replayOpportunities[gameState.currentPlayer];
+    }
+
+    let vipTokens = { ...gameState.vipTokens };
+
+    if (hasRule('preset_vip_magnus_10') && move.captured?.type === 'pawn') {
+      if (vipTokens[move.captured.color]) {
+        const used = respawnPawn(newBoard, move.captured.color);
+        if (used) {
+          vipTokens = {
+            ...vipTokens,
+            [move.captured.color]: vipTokens[move.captured.color] - 1
+          };
+        }
+      }
+    }
+
+    const positionHistory = { ...gameState.positionHistory };
+    const signature = ChessEngine.getBoardSignature(newBoard);
+    positionHistory[signature] = (positionHistory[signature] ?? 0) + 1;
+
+    if (hasRule('preset_vip_magnus_06') && positionHistory[signature] >= 3) {
+      pendingTransformations = {
+        ...pendingTransformations,
+        [gameState.currentPlayer]: true
+      };
+    }
+
+    const lastMoveByColor = {
+      ...gameState.lastMoveByColor,
+      [gameState.currentPlayer]: move
+    };
+
+    const evaluationState: GameState = {
+      ...gameState,
+      board: newBoard,
+      currentPlayer: opponentColor,
+      turnNumber: gameState.turnNumber + 1,
+      movesThisTurn: 0,
+      selectedPiece: null,
+      validMoves: [],
+      gameStatus: 'active',
+      capturedPieces: updatedCaptured,
+      moveHistory: updatedHistory,
+      extraMoves: 0,
+      pendingExtraMoves,
+      freezeEffects,
+      freezeUsage,
+      positionHistory,
+      pendingTransformations,
+      lastMoveByColor,
+      replayOpportunities,
+      vipTokens,
+      forcedMirrorResponse: forcedMirror,
+      secretSetupApplied: gameState.secretSetupApplied
+    };
+
+    if (hasRule('preset_vip_magnus_10') && !move.captured) {
+      if (ChessEngine.isSquareAttacked(newBoard, move.to, opponentColor, evaluationState)) {
+        vipTokens = {
+          ...vipTokens,
+          [gameState.currentPlayer]: vipTokens[gameState.currentPlayer] + 1
+        };
+      }
+    }
+
+    const opponentInCheck = ChessEngine.isInCheck(newBoard, opponentColor, evaluationState);
+    const opponentHasMoves = ChessEngine.hasAnyLegalMoves(newBoard, opponentColor, evaluationState);
+
+    if (hasRule('preset_vip_magnus_08') && opponentInCheck) {
+      const opponentLast = gameState.lastMoveByColor[opponentColor];
+      if (opponentLast) {
+        replayOpportunities = {
+          ...replayOpportunities,
+          [opponentColor]: { from: opponentLast.from, to: opponentLast.to }
+        };
+        pendingExtraMoves = {
+          ...pendingExtraMoves,
+          [opponentColor]: (pendingExtraMoves[opponentColor] ?? 0) + 1
+        };
+      }
+    }
+
+    const extraMovesEarned = ChessEngine.getExtraMovesForPiece(selectedPiece, gameState);
+    const instinctBonus = hasRule('preset_vip_magnus_07') &&
+      selectionDuration !== null &&
+      selectionDuration <= 2000 &&
+      (move.captured || opponentInCheck)
+        ? 1
+        : 0;
+
+    const previousExtraMoves = gameState.extraMoves;
+    const remainingAfterConsumption = previousExtraMoves > 0 ? previousExtraMoves - 1 : 0;
+    const totalExtraMoves = remainingAfterConsumption + extraMovesEarned + instinctBonus;
+
+    const opponentPending = pendingExtraMoves[opponentColor] ?? 0;
+    const stayOnCurrentPlayer = totalExtraMoves > 0;
+    const nextExtraMoves = stayOnCurrentPlayer ? totalExtraMoves : opponentPending;
+    const updatedPendingExtraMoves = stayOnCurrentPlayer
+      ? pendingExtraMoves
+      : { ...pendingExtraMoves, [opponentColor]: 0 };
+
+    let nextStatus: GameState['gameStatus'] = 'active';
+    if (opponentInCheck && !opponentHasMoves) {
+      nextStatus = 'checkmate';
+    } else if (!opponentInCheck && !opponentHasMoves) {
+      nextStatus = 'stalemate';
+    } else if (opponentInCheck) {
+      nextStatus = 'check';
+    }
+
+    const nextMovesThisTurn = stayOnCurrentPlayer ? gameState.movesThisTurn + 1 : 0;
+    const nextTurnNumber = gameState.turnNumber + 1;
+    const nextPlayer = stayOnCurrentPlayer ? gameState.currentPlayer : opponentColor;
+
+    let finalFreezeEffects = freezeEffects;
+    if (!stayOnCurrentPlayer) {
+      finalFreezeEffects = freezeEffects
+        .map(effect => {
+          if (effect.color === opponentColor) {
+            return { ...effect, remainingTurns: effect.remainingTurns - 1 };
+          }
+          return effect;
+        })
+        .filter(effect => {
+          const target = ChessEngine.getPieceAt(newBoard, effect.position);
+          return effect.remainingTurns > 0 && target && target.color === effect.color;
+        });
+    }
+
+    setGameState({
+      ...gameState,
+      board: newBoard,
+      currentPlayer: nextStatus === 'active' || nextStatus === 'check' ? nextPlayer : opponentColor,
+      turnNumber: nextTurnNumber,
+      movesThisTurn: nextStatus === 'active' || nextStatus === 'check' ? nextMovesThisTurn : 0,
+      selectedPiece: null,
+      validMoves: [],
+      gameStatus: nextStatus,
+      capturedPieces: updatedCaptured,
+      moveHistory: updatedHistory,
+      extraMoves: nextStatus === 'active' || nextStatus === 'check' ? nextExtraMoves : 0,
+      pendingExtraMoves: updatedPendingExtraMoves,
+      forcedMirrorResponse: forcedMirror ?? null,
+      freezeEffects: finalFreezeEffects,
+      freezeUsage,
+      positionHistory,
+      pendingTransformations,
+      lastMoveByColor,
+      replayOpportunities,
+      vipTokens
+    });
   };
 
   const resetGame = () => {
+    const initialBoard = ChessEngine.initializeBoard();
     setGameState({
-      board: ChessEngine.initializeBoard(),
+      board: initialBoard,
       currentPlayer: 'white',
       turnNumber: 1,
       movesThisTurn: 0,
@@ -248,7 +512,17 @@ const Play = () => {
       capturedPieces: [],
       moveHistory: [],
       activeRules: gameState.activeRules,
-      extraMoves: 0
+      extraMoves: 0,
+      pendingExtraMoves: { white: 0, black: 0 },
+      freezeEffects: [],
+      freezeUsage: { white: false, black: false },
+      positionHistory: { [ChessEngine.getBoardSignature(initialBoard)]: 1 },
+      pendingTransformations: { white: false, black: false },
+      lastMoveByColor: {},
+      replayOpportunities: {},
+      vipTokens: { white: 0, black: 0 },
+      forcedMirrorResponse: null,
+      secretSetupApplied: false
     });
   };
 
