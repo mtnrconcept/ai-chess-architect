@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RotateCcw, Settings } from 'lucide-react';
@@ -16,11 +16,24 @@ const Play = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const locationState = location.state as {
+    customRules?: ChessRule[];
+    presetRuleIds?: string[];
+  } | undefined;
+
   const rawCustomRules = useMemo(() => {
-    const state = location.state as { customRules?: ChessRule[] } | undefined;
-    if (!state?.customRules) return [] as ChessRule[];
-    return Array.isArray(state.customRules) ? state.customRules : [];
-  }, [location.state]);
+    const custom = locationState?.customRules;
+    if (!Array.isArray(custom)) return [] as ChessRule[];
+    return custom;
+  }, [locationState?.customRules]);
+
+  const initialPresetRuleIds = useMemo(() => {
+    const preset = locationState?.presetRuleIds;
+    if (!Array.isArray(preset)) return [] as string[];
+    return preset.filter(
+      (ruleId): ruleId is string => typeof ruleId === 'string' && ruleId.length > 0
+    );
+  }, [locationState?.presetRuleIds]);
 
   const analyzedCustomRules = useMemo(
     () => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule),
@@ -28,7 +41,12 @@ const Play = () => {
   );
 
   const [customRules, setCustomRules] = useState<ChessRule[]>(analyzedCustomRules);
-  const [selectedRules, setSelectedRules] = useState<Set<string>>(new Set());
+  const [selectedRules, setSelectedRules] = useState<Set<string>>(
+    () => new Set(initialPresetRuleIds)
+  );
+  const [appliedPresetRuleIds, setAppliedPresetRuleIds] = useState<Set<string>>(
+    () => new Set(initialPresetRuleIds)
+  );
   const [isRulesSheetOpen, setIsRulesSheetOpen] = useState(false);
   const [gameState, setGameState] = useState<GameState>(() => ({
     board: ChessEngine.initializeBoard(),
@@ -44,30 +62,32 @@ const Play = () => {
     extraMoves: 0
   }));
 
-  const presetRuleIds = useMemo(
-    () => new Set(allPresetRules.map(rule => rule.ruleId)),
-    []
-  );
-
   useEffect(() => {
     setCustomRules(analyzedCustomRules);
   }, [analyzedCustomRules]);
 
+  const lastInitialPresetKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    const key = initialPresetRuleIds.join('|');
+    if (lastInitialPresetKey.current === key) return;
+
+    lastInitialPresetKey.current = key;
+    setSelectedRules(new Set(initialPresetRuleIds));
+    setAppliedPresetRuleIds(new Set(initialPresetRuleIds));
+  }, [initialPresetRuleIds]);
+
   useEffect(() => {
     const activeCustomRules = customRules.map(rule => ({ ...rule, isActive: true }));
-    const customRuleIds = new Set(customRules.map(rule => rule.ruleId));
+    const activePresetRules = allPresetRules
+      .filter(rule => appliedPresetRuleIds.has(rule.ruleId))
+      .map(rule => ({ ...rule, isActive: true }));
 
     setGameState(prev => ({
       ...prev,
-      activeRules: [
-        ...activeCustomRules,
-        ...prev.activeRules.filter(rule =>
-          !customRuleIds.has(rule.ruleId) &&
-          (presetRuleIds.has(rule.ruleId) || rule.ruleId === undefined)
-        )
-      ]
+      activeRules: [...activeCustomRules, ...activePresetRules],
     }));
-  }, [customRules, presetRuleIds]);
+  }, [customRules, appliedPresetRuleIds]);
 
   const toggleRule = (ruleId: string) => {
     setSelectedRules(prev => {
@@ -82,18 +102,7 @@ const Play = () => {
   };
 
   const applyRules = () => {
-    const presetRules = allPresetRules
-      .filter(rule => selectedRules.has(rule.ruleId))
-      .map(rule => ({ ...rule, isActive: true }));
-
-    setGameState(prev => ({
-      ...prev,
-      activeRules: [
-        ...customRules.map(rule => ({ ...rule, isActive: true })),
-        ...presetRules
-      ]
-    }));
-
+    setAppliedPresetRuleIds(new Set(selectedRules));
     setIsRulesSheetOpen(false);
   };
 
@@ -251,12 +260,12 @@ const Play = () => {
               <SheetTrigger asChild>
                 <Button variant="outline">
                   <Settings size={20} className="mr-2" />
-                  Règles ({selectedRules.size})
+                  Règles ({appliedPresetRuleIds.size})
                 </Button>
               </SheetTrigger>
               <SheetContent className="w-full sm:max-w-2xl">
                 <SheetHeader>
-                  <SheetTitle>Sélectionner les règles personnalisées</SheetTitle>
+                  <SheetTitle>Sélectionner les règles préinstallées</SheetTitle>
                 </SheetHeader>
                 <ScrollArea className="h-[calc(100vh-150px)] mt-6">
                   <div className="space-y-6">
