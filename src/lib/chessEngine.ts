@@ -711,12 +711,15 @@ export class ChessEngine {
     piece: ChessPiece,
     existingMoves: Position[]
   ): Position[] {
-    // Queen can teleport anywhere on board
+    // Queen can teleport anywhere on board except onto kings
     const moves: Position[] = [...existingMoves];
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         if (row !== piece.position.row || col !== piece.position.col) {
           const target = this.getPieceAt(board, { row, col });
+          if (target?.type === 'king') {
+            continue;
+          }
           if (!target || target.color !== piece.color) {
             moves.push({ row, col });
           }
