@@ -8,6 +8,7 @@ import { GameState, Position, ChessPiece, ChessRule, PieceColor } from '@/types/
 import { allPresetRules } from '@/lib/presetRules';
 import { Badge } from '@/components/ui/badge';
 import { analyzeRuleLogic } from '@/lib/ruleValidation';
+import { getCategoryColor } from '@/lib/ruleCategories';
 
 const Play = () => {
   const navigate = useNavigate();
