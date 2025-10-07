@@ -20,19 +20,43 @@ export class ChessEngine {
     // White pieces
     const whiteBackRow: PieceType[] = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'];
     whiteBackRow.forEach((type, col) => {
-      board[7][col] = { type, color: 'white', position: { row: 7, col }, hasMoved: false };
+      board[7][col] = {
+        type,
+        color: 'white',
+        position: { row: 7, col },
+        hasMoved: false,
+        isHidden: false
+      };
     });
     for (let col = 0; col < 8; col++) {
-      board[6][col] = { type: 'pawn', color: 'white', position: { row: 6, col }, hasMoved: false };
+      board[6][col] = {
+        type: 'pawn',
+        color: 'white',
+        position: { row: 6, col },
+        hasMoved: false,
+        isHidden: false
+      };
     }
 
     // Black pieces
     const blackBackRow: PieceType[] = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'];
     blackBackRow.forEach((type, col) => {
-      board[0][col] = { type, color: 'black', position: { row: 0, col }, hasMoved: false };
+      board[0][col] = {
+        type,
+        color: 'black',
+        position: { row: 0, col },
+        hasMoved: false,
+        isHidden: false
+      };
     });
     for (let col = 0; col < 8; col++) {
-      board[1][col] = { type: 'pawn', color: 'black', position: { row: 1, col }, hasMoved: false };
+      board[1][col] = {
+        type: 'pawn',
+        color: 'black',
+        position: { row: 1, col },
+        hasMoved: false,
+        isHidden: false
+      };
     }
 
     return board;
@@ -76,7 +100,8 @@ export class ChessEngine {
       clonedBoard[rowIndex][kingCol] = {
         ...king,
         position: { row: rowIndex, col: kingCol },
-        hasMoved: false
+        hasMoved: false,
+        isHidden: false
       };
 
       majorPieces.forEach((piece, index) => {
@@ -84,7 +109,8 @@ export class ChessEngine {
         clonedBoard[rowIndex][targetCol] = {
           ...piece,
           position: { row: rowIndex, col: targetCol },
-          hasMoved: false
+          hasMoved: false,
+          isHidden: true
         };
       });
     };
@@ -93,6 +119,16 @@ export class ChessEngine {
     rearrange(0, 'black');
 
     return clonedBoard;
+  }
+
+  static revealBackRank(board: (ChessPiece | null)[][], color: PieceColor): void {
+    const targetRow = color === 'white' ? 7 : 0;
+    for (let col = 0; col < 8; col++) {
+      const piece = board[targetRow][col];
+      if (piece && piece.color === color && piece.type !== 'pawn') {
+        board[targetRow][col] = { ...piece, isHidden: false };
+      }
+    }
   }
 
   static getBoardSignature(board: (ChessPiece | null)[][]): string {
@@ -1086,7 +1122,7 @@ export class ChessEngine {
     destination: Position,
     gameState: GameState
   ): ChessMove {
-    const movePiece: ChessPiece = { ...piece };
+    const movePiece: ChessPiece = { ...piece, isHidden: false };
     const move: ChessMove = {
       from: piece.position,
       to: destination,
@@ -1153,7 +1189,8 @@ export class ChessEngine {
         newBoard[move.rookTo.row][move.rookTo.col] = {
           ...rook,
           position: move.rookTo,
-          hasMoved: true
+          hasMoved: true,
+          isHidden: false
         };
       }
     }
@@ -1162,7 +1199,8 @@ export class ChessEngine {
       ...move.piece,
       position: move.to,
       hasMoved: true,
-      type: move.promotion ?? move.piece.type
+      type: move.promotion ?? move.piece.type,
+      isHidden: false
     };
 
     newBoard[move.to.row][move.to.col] = movedPiece;
@@ -1210,7 +1248,8 @@ export class ChessEngine {
       ...finalMove.piece,
       position: finalMove.to,
       hasMoved: true,
-      type: finalMove.promotion ?? finalMove.piece.type
+      type: finalMove.promotion ?? finalMove.piece.type,
+      isHidden: false
     };
 
     Object.assign(move, finalMove);

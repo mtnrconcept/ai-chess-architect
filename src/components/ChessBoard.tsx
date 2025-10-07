@@ -53,7 +53,7 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
                     return;
                   }
 
-                  if (piece) {
+                  if (piece && !piece.isHidden) {
                     onPieceClick(piece);
                   } else {
                     onSquareClick(position);
@@ -83,7 +83,7 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
                         <span className="pointer-events-none absolute h-5 w-5 rounded-full border border-cyan-300/80 animate-ripple" />
                       </>
                     )}
-                    {piece && (
+                    {piece && !piece.isHidden && (
                       <span className="relative flex items-center justify-center">
                         <span
                           className={`
