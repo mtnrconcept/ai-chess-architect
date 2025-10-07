@@ -1386,9 +1386,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     category: 'vip',
     affectedPieces: ['all'],
     trigger: 'onCapture',
-    conditions: [
-      { type: 'exchange', value: 'materialTrade', operator: 'equals' }
-    ],
+    conditions: [],
     effects: [
       { action: 'transferTime', target: 'opponent', parameters: { seconds: 10 } }
     ],
@@ -1406,8 +1404,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     trigger: 'onMove',
     conditions: [
       { type: 'pieceType', value: 'pawn', operator: 'equals' },
-      { type: 'hasMoved', value: false, operator: 'equals' },
-      { type: 'usagePerGame', value: 1, operator: 'lessOrEqual' }
+      { type: 'hasMoved', value: false, operator: 'equals' }
     ],
     effects: [
       { action: 'enableBurstAdvance', target: 'self', parameters: { squares: 3, usage: 1, disableDiagonalCapture: true } }
@@ -1425,7 +1422,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     affectedPieces: ['king'],
     trigger: 'conditional',
     conditions: [
-      { type: 'usagePerGame', value: 1, operator: 'lessOrEqual' }
+      { type: 'hasMoved', value: false, operator: 'equals' }
     ],
     effects: [
       { action: 'grantSpecialMove', target: 'self', parameters: { pattern: 'knight', usage: 1 } }
@@ -1442,9 +1439,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     category: 'vip',
     affectedPieces: ['pawn'],
     trigger: 'conditional',
-    conditions: [
-      { type: 'repetitionCount', value: 3, operator: 'greaterOrEqual' }
-    ],
+    conditions: [],
     effects: [
       { action: 'transformPawn', target: 'self', parameters: { promotion: ['rook', 'bishop', 'knight'], immediate: true } }
     ],
@@ -1460,10 +1455,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     category: 'vip',
     affectedPieces: ['all'],
     trigger: 'conditional',
-    conditions: [
-      { type: 'decisionTime', value: 2, operator: 'lessOrEqual' },
-      { type: 'aiEvaluation', value: 'noBlunder', operator: 'equals' }
-    ],
+    conditions: [],
     effects: [
       { action: 'grantTimeBonus', target: 'self', parameters: { seconds: 30, validation: 'aiQualityCheck' } }
     ],
@@ -1479,9 +1471,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     category: 'vip',
     affectedPieces: ['all'],
     trigger: 'onCheck',
-    conditions: [
-      { type: 'gaveCheck', value: true, operator: 'equals' }
-    ],
+    conditions: [],
     effects: [
       { action: 'allowUndo', target: 'opponent', parameters: { moves: 1, immediate: true, reason: 'mirror' } }
     ],
@@ -1497,9 +1487,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     category: 'vip',
     affectedPieces: ['all'],
     trigger: 'conditional',
-    conditions: [
-      { type: 'usagePerGame', value: 1, operator: 'lessOrEqual' }
-    ],
+    conditions: [],
     effects: [
       { action: 'freezePiece', target: 'opponent', parameters: { turns: 2, usage: 1 } }
     ],
@@ -1515,10 +1503,7 @@ export const presetVipMagnusGoatRules: ChessRule[] = [
     category: 'vip',
     affectedPieces: ['all'],
     trigger: 'conditional',
-    conditions: [
-      { type: 'sacrifice', value: 'voluntary', operator: 'equals' },
-      { type: 'materialBalanceAfterMove', value: 'negative', operator: 'equals' }
-    ],
+    conditions: [],
     effects: [
       { action: 'grantToken', target: 'self', parameters: { token: 'spirit', redeemOptions: ['redoMove', 'replayPawn'], stackable: true } }
     ],

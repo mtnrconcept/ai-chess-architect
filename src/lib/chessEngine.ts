@@ -38,6 +38,130 @@ export class ChessEngine {
     return board;
   }
 
+  static applySecretSetup(board: (ChessPiece | null)[][]): (ChessPiece | null)[][] {
+    const clonedBoard = board.map(row => row.map(piece => (piece ? { ...piece } : null)));
+
+    const shuffle = <T,>(values: T[]): T[] => {
+      const items = [...values];
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+      return items;
+    };
+
+    const rearrange = (rowIndex: number, color: PieceColor) => {
+      const rowPieces = clonedBoard[rowIndex];
+      const king = rowPieces.find(piece => piece && piece.type === 'king' && piece.color === color);
+      if (!king) return;
+
+      const kingCol = king.position.col;
+      const majorPieces = rowPieces
+        .map(piece => (piece && piece.color === color && piece.type !== 'king' ? piece : null))
+        .filter((piece): piece is ChessPiece => Boolean(piece));
+
+      const candidateColumns = rowPieces
+        .map((_, col) => col)
+        .filter(col => col !== kingCol);
+
+      const shuffledColumns = shuffle(candidateColumns).slice(0, majorPieces.length);
+
+      for (let col = 0; col < 8; col++) {
+        const occupant = clonedBoard[rowIndex][col];
+        if (occupant && occupant.color === color) {
+          clonedBoard[rowIndex][col] = null;
+        }
+      }
+
+      clonedBoard[rowIndex][kingCol] = {
+        ...king,
+        position: { row: rowIndex, col: kingCol },
+        hasMoved: false
+      };
+
+      majorPieces.forEach((piece, index) => {
+        const targetCol = shuffledColumns[index] ?? piece.position.col;
+        clonedBoard[rowIndex][targetCol] = {
+          ...piece,
+          position: { row: rowIndex, col: targetCol },
+          hasMoved: false
+        };
+      });
+    };
+
+    rearrange(7, 'white');
+    rearrange(0, 'black');
+
+    return clonedBoard;
+  }
+
+  static getBoardSignature(board: (ChessPiece | null)[][]): string {
+    const pieces: string[] = [];
+    board.forEach((row, rowIndex) => {
+      row.forEach((piece, colIndex) => {
+        if (!piece) return;
+        pieces.push(`${piece.color}-${piece.type}-${rowIndex}-${colIndex}`);
+      });
+    });
+    return pieces.sort().join('|');
+  }
+
+  static getAttackSquares(board: (ChessPiece | null)[][], piece: ChessPiece): Position[] {
+    const { row, col } = piece.position;
+    const inBounds = (pos: Position) => this.isValidPosition(pos);
+    const opponentsOnly = (positions: Position[]) =>
+      positions.filter(pos => {
+        const target = this.getPieceAt(board, pos);
+        return Boolean(target && target.color !== piece.color);
+      });
+
+    switch (piece.type) {
+      case 'pawn': {
+        const direction = piece.color === 'white' ? -1 : 1;
+        const diagonals = [
+          { row: row + direction, col: col - 1 },
+          { row: row + direction, col: col + 1 }
+        ].filter(inBounds);
+        return opponentsOnly(diagonals);
+      }
+      case 'knight': {
+        const offsets = [
+          [-2, -1], [-2, 1],
+          [-1, -2], [-1, 2],
+          [1, -2], [1, 2],
+          [2, -1], [2, 1]
+        ];
+        const potential = offsets
+          .map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+          .filter(inBounds);
+        return opponentsOnly(potential);
+      }
+      case 'bishop':
+        return opponentsOnly(this.getDirectionalMoves(board, piece, [[-1, -1], [-1, 1], [1, -1], [1, 1]]));
+      case 'rook':
+        return opponentsOnly(this.getDirectionalMoves(board, piece, [[-1, 0], [1, 0], [0, -1], [0, 1]]));
+      case 'queen':
+        return opponentsOnly(this.getDirectionalMoves(board, piece, [
+          [-1, -1], [-1, 0], [-1, 1],
+          [0, -1], [0, 1],
+          [1, -1], [1, 0], [1, 1]
+        ]));
+      case 'king': {
+        const offsets = [
+          [-1, -1], [-1, 0], [-1, 1],
+          [0, -1], [0, 1],
+          [1, -1], [1, 0], [1, 1]
+        ];
+        const potential = offsets
+          .map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+          .filter(inBounds);
+        return opponentsOnly(potential);
+      }
+      default:
+        return [];
+    }
+  }
+
   // Check if position is valid
   static isValidPosition(pos: Position): boolean {
     return pos.row >= 0 && pos.row < 8 && pos.col >= 0 && pos.col < 8;
@@ -396,7 +520,14 @@ export class ChessEngine {
       case 'pieceColor': return piece.color;
       case 'turnNumber': return gameState.turnNumber;
       case 'movesThisTurn': return gameState.movesThisTurn;
-      case 'piecesOnBoard': 
+      case 'hasMoved': return Boolean(piece.hasMoved);
+      case 'phase':
+        return gameState.moveHistory.length === 0 ? 'setup' : 'play';
+      case 'repetitionCount': {
+        const signature = this.getBoardSignature(gameState.board);
+        return gameState.positionHistory?.[signature] ?? 1;
+      }
+      case 'piecesOnBoard':
         return gameState.board.flat().filter(p => p && p.color === piece.color).length;
       default: return null;
     }
@@ -424,6 +555,17 @@ export class ChessEngine {
     board: (ChessPiece | null)[][],
     options: MoveGenerationOptions
   ): Position[] {
+    const frozen = gameState.freezeEffects?.some(effect =>
+      effect.color === piece.color &&
+      effect.position.row === piece.position.row &&
+      effect.position.col === piece.position.col &&
+      effect.remainingTurns > 0
+    );
+
+    if (frozen) {
+      return [];
+    }
+
     let modifiedMoves = [...moves];
 
     rule.effects.forEach(effect => {
@@ -490,6 +632,46 @@ export class ChessEngine {
 
         case 'allowExtraMove':
           // Handled at game state level
+          break;
+
+        case 'enableBurstAdvance':
+          if (piece.type === 'pawn' && !piece.hasMoved) {
+            const squares = typeof params.squares === 'number' ? params.squares : 3;
+            const direction = piece.color === 'white' ? -1 : 1;
+            const target: Position = {
+              row: piece.position.row + direction * squares,
+              col: piece.position.col
+            };
+
+            const pathClear = () => {
+              for (let step = 1; step < squares; step++) {
+                const intermediate = {
+                  row: piece.position.row + direction * step,
+                  col: piece.position.col
+                };
+                if (!this.isValidPosition(intermediate)) return false;
+                if (this.getPieceAt(board, intermediate)) return false;
+              }
+              return this.isValidPosition(target) && !this.getPieceAt(board, target);
+            };
+
+            if (pathClear()) {
+              modifiedMoves.push(target);
+            }
+
+            if (params.disableDiagonalCapture) {
+              modifiedMoves = modifiedMoves.filter(pos => pos.col === piece.position.col);
+            }
+          }
+          break;
+
+        case 'grantSpecialMove':
+          if (piece.type === 'king' && (!piece.hasMoved || params.usage === 1)) {
+            if (params.pattern === 'knight') {
+              const knightMoves = this.getKnightMoves(board, { ...piece, type: 'knight' });
+              modifiedMoves.push(...knightMoves);
+            }
+          }
           break;
 
         case 'restrictMovement':
