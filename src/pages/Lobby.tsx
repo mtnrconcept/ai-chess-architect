@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { User } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -12,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -33,6 +35,23 @@ import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from '@/lib/customR
 type StatusFilterValue = 'all' | 'active' | 'inactive';
 type IssueFilterValue = 'all' | 'withIssues' | 'withoutIssues';
 
+type LobbyStatus = 'waiting' | 'matched' | 'cancelled';
+
+interface MultiplayerLobby {
+  id: string;
+  name: string;
+  creator_id: string;
+  active_rules: string[] | null;
+  max_players: number | null;
+  is_active: boolean;
+  mode: 'ai' | 'player';
+  status: LobbyStatus;
+  opponent_id: string | null;
+  opponent_name: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 const Lobby = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -41,7 +60,6 @@ const Lobby = () => {
   const [loading, setLoading] = useState(true);
   const [ruleIssues, setRuleIssues] = useState<Record<string, string[]>>({});
   const [selectedPresetRuleIds, setSelectedPresetRuleIds] = useState<Set<string>>(new Set());
-  const [activatingRules, setActivatingRules] = useState(false);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<Set<ChessRule['category']>>(new Set());
@@ -50,6 +68,37 @@ const Lobby = () => {
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
   const [issueFilter, setIssueFilter] = useState<IssueFilterValue>('all');
   const [showAllTags, setShowAllTags] = useState(false);
+  const [opponentType, setOpponentType] = useState<'ai' | 'player'>('ai');
+  const [waitingLobbies, setWaitingLobbies] = useState<MultiplayerLobby[]>([]);
+  const [lobbiesLoading, setLobbiesLoading] = useState(false);
+  const [creatingLobby, setCreatingLobby] = useState(false);
+  const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
+  const [lobbyName, setLobbyName] = useState('');
+  const [activeLobby, setActiveLobby] = useState<MultiplayerLobby | null>(null);
+
+  const ruleSelectionLocked = useMemo(
+    () => activeLobby?.status === 'waiting',
+    [activeLobby]
+  );
+
+  const resolveUserDisplayName = useCallback((targetUser?: User | null) => {
+    const source = targetUser ?? user;
+    if (!source) return 'Joueur';
+
+    const metadata = (source.user_metadata ?? {}) as Record<string, unknown>;
+    const metadataName = ['full_name', 'name', 'username']
+      .map(key => {
+        const value = metadata[key];
+        return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+      })
+      .find(Boolean);
+
+    if (metadataName) return metadataName;
+    if (typeof source.email === 'string' && source.email.length > 0) {
+      return source.email.split('@')[0] ?? source.email;
+    }
+    return 'Joueur';
+  }, [user]);
 
   const fetchRules = useCallback(async () => {
     if (authLoading) return;
@@ -98,9 +147,92 @@ const Lobby = () => {
     }
   }, [authLoading, toast, user]);
 
+  const fetchWaitingLobbies = useCallback(async () => {
+    setLobbiesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('lobbies')
+        .select('id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at')
+        .eq('mode', 'player')
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const rows = (data ?? []) as MultiplayerLobby[];
+      setWaitingLobbies(rows.filter(lobby => lobby.creator_id !== user?.id));
+    } catch (error: unknown) {
+      const description = error instanceof Error
+        ? error.message
+        : "Impossible de charger les parties en attente";
+      toast({
+        title: 'Erreur',
+        description,
+        variant: 'destructive',
+      });
+    } finally {
+      setLobbiesLoading(false);
+    }
+  }, [toast, user?.id]);
+
+  const fetchActiveLobby = useCallback(async () => {
+    if (!user) {
+      setActiveLobby(null);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('lobbies')
+        .select('id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at')
+        .eq('creator_id', user.id)
+        .in('status', ['waiting', 'matched'])
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (error) throw error;
+
+      const row = (data ?? [])[0] as MultiplayerLobby | undefined;
+      setActiveLobby(row ?? null);
+    } catch (error: unknown) {
+      const description = error instanceof Error
+        ? error.message
+        : "Impossible de récupérer votre partie en attente";
+      toast({
+        title: 'Erreur',
+        description,
+        variant: 'destructive',
+      });
+    }
+  }, [toast, user]);
+
   useEffect(() => {
     fetchRules();
   }, [fetchRules]);
+
+  useEffect(() => {
+    fetchWaitingLobbies();
+  }, [fetchWaitingLobbies]);
+
+  useEffect(() => {
+    fetchActiveLobby();
+  }, [fetchActiveLobby]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('lobbies-watch')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lobbies' }, () => {
+        fetchWaitingLobbies();
+        if (user) {
+          fetchActiveLobby();
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchActiveLobby, fetchWaitingLobbies, user]);
 
   const deleteRule = async (ruleId: string) => {
     if (!user) {
@@ -145,7 +277,26 @@ const Lobby = () => {
       return;
     }
 
+    if (ruleSelectionLocked) {
+      toast({
+        title: 'Règle verrouillée',
+        description: 'Annulez votre partie en attente pour modifier la règle sélectionnée.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
+      if (isActive) {
+        const { error: deactivateError } = await supabase
+          .from('custom_chess_rules')
+          .update({ is_active: false })
+          .eq('user_id', user.id)
+          .neq('rule_id', ruleId);
+
+        if (deactivateError) throw deactivateError;
+      }
+
       const { error } = await supabase
         .from('custom_chess_rules')
         .update({ is_active: isActive })
@@ -154,9 +305,16 @@ const Lobby = () => {
 
       if (error) throw error;
 
-      setCustomRules(prev => prev.map(rule =>
-        rule.ruleId === ruleId ? { ...rule, isActive } : rule
-      ));
+      if (isActive) {
+        setSelectedPresetRuleIds(new Set());
+      }
+
+      setCustomRules(prev => prev.map(rule => {
+        if (rule.ruleId === ruleId) {
+          return { ...rule, isActive };
+        }
+        return isActive ? { ...rule, isActive: false } : rule;
+      }));
 
       toast({
         title: isActive ? 'Règle activée' : 'Règle désactivée',
@@ -173,10 +331,42 @@ const Lobby = () => {
     }
   };
 
+  const deactivateAllCustomRules = useCallback(async () => {
+    if (customRules.length === 0) return;
+
+    if (!user) {
+      setCustomRules(prev => prev.map(rule => ({ ...rule, isActive: false })));
+      return;
+    }
+
+    const activeIds = customRules
+      .filter(rule => rule.isActive)
+      .map(rule => rule.ruleId);
+
+    if (activeIds.length === 0) {
+      setCustomRules(prev => prev.map(rule => ({ ...rule, isActive: false })));
+      return;
+    }
+
+    const { error } = await supabase
+      .from('custom_chess_rules')
+      .update({ is_active: false })
+      .eq('user_id', user.id)
+      .in('rule_id', activeIds);
+
+    if (error) throw error;
+
+    setCustomRules(prev => prev.map(rule => ({ ...rule, isActive: false })));
+  }, [customRules, user]);
+
   const presetAnalyses = useMemo(
     () => allPresetRules.map(rule => analyzeRuleLogic(rule)),
     []
   );
+
+  const presetRuleMap = useMemo(() => new Map(
+    allPresetRules.map(rule => [rule.ruleId, rule])
+  ), []);
 
   const priorityBounds = useMemo(() => {
     const allRules = [
@@ -213,6 +403,17 @@ const Lobby = () => {
   }, [priorityBounds.min, priorityBounds.max]);
 
   const TAG_DISPLAY_LIMIT = 8;
+
+  const selectedPresetRuleId = useMemo(() => {
+    const iterator = selectedPresetRuleIds.values();
+    const first = iterator.next();
+    return first.done ? null : first.value;
+  }, [selectedPresetRuleIds]);
+
+  const activeCustomRule = useMemo(
+    () => customRules.find(rule => rule.isActive) ?? null,
+    [customRules]
+  );
 
   const availableTags = useMemo(() => {
     const tags = new Set<string>();
@@ -514,97 +715,359 @@ const Lobby = () => {
     });
   };
 
-  const togglePresetRule = (ruleId: string, shouldSelect?: boolean) => {
-    setSelectedPresetRuleIds(prev => {
-      const next = new Set(prev);
-      const willSelect = typeof shouldSelect === 'boolean' ? shouldSelect : !next.has(ruleId);
-
-      if (willSelect) {
-        next.add(ruleId);
-      } else {
-        next.delete(ruleId);
-      }
-
-      return next;
-    });
-  };
-
-  const handleActivateAllCustomRules = async () => {
-    if (!user) {
+  const handlePresetSelection = (ruleId: string, selected: boolean) => {
+    if (ruleSelectionLocked) {
       toast({
-        title: 'Connexion requise',
-        description: 'Connectez-vous pour gérer vos règles personnalisées.',
+        title: 'Règle verrouillée',
+        description: 'Annulez votre partie en attente pour modifier la règle sélectionnée.',
         variant: 'destructive',
       });
       return;
     }
 
-    const inactiveRuleIds = customRules
-      .filter(rule => !rule.isActive)
-      .map(rule => rule.ruleId);
+    if (selected) {
+      deactivateAllCustomRules()
+        .then(() => {
+          setSelectedPresetRuleIds(new Set([ruleId]));
+        })
+        .catch((error: unknown) => {
+          const description = error instanceof Error
+            ? error.message
+            : "Impossible de mettre à jour les règles personnalisées";
+          toast({
+            title: 'Erreur',
+            description,
+            variant: 'destructive',
+          });
+        });
+    } else {
+      setSelectedPresetRuleIds(new Set());
+    }
+  };
 
-    if (inactiveRuleIds.length === 0) {
+  const totalSelectedRules = useMemo(() => (
+    (activeCustomRule ? 1 : 0) + (selectedPresetRuleId ? 1 : 0)
+  ), [activeCustomRule, selectedPresetRuleId]);
+
+  const selectedRuleInfo = useMemo(() => {
+    if (activeCustomRule) {
+      return { type: 'custom' as const, rule: activeCustomRule };
+    }
+
+    if (selectedPresetRuleId) {
+      const presetRule = presetRuleMap.get(selectedPresetRuleId);
+      if (presetRule) {
+        return { type: 'preset' as const, rule: presetRule };
+      }
+    }
+
+    return null;
+  }, [activeCustomRule, presetRuleMap, selectedPresetRuleId]);
+
+  const canStartGame = totalSelectedRules === 1;
+
+  const loadRuleForLobby = useCallback(async (ruleId: string): Promise<ChessRule | null> => {
+    const presetRule = presetRuleMap.get(ruleId);
+    if (presetRule) return presetRule;
+
+    const ownedRule = customRules.find(rule => rule.ruleId === ruleId);
+    if (ownedRule) return ownedRule;
+
+    const { data, error } = await supabase
+      .from('custom_chess_rules')
+      .select('*')
+      .eq('rule_id', ruleId)
+      .limit(1);
+
+    if (error) throw error;
+
+    const row = (data ?? [])[0] as CustomRuleRow | undefined;
+    if (!row) return null;
+
+    return mapCustomRuleRowsToChessRules([row])[0];
+  }, [customRules, presetRuleMap]);
+
+  const activeLobbyRule = useMemo(() => {
+    if (!activeLobby || !Array.isArray(activeLobby.active_rules) || activeLobby.active_rules.length === 0) {
+      return null;
+    }
+    const ruleId = activeLobby.active_rules[0];
+    return presetRuleMap.get(ruleId) ?? customRules.find(rule => rule.ruleId === ruleId) ?? null;
+  }, [activeLobby, customRules, presetRuleMap]);
+
+  const getRuleLabel = useCallback((ruleId: string) => {
+    const preset = presetRuleMap.get(ruleId);
+    if (preset) return preset.ruleName;
+    const owned = customRules.find(rule => rule.ruleId === ruleId);
+    if (owned) return owned.ruleName;
+    return 'Règle personnalisée';
+  }, [customRules, presetRuleMap]);
+
+  const startAiGame = () => {
+    if (!selectedRuleInfo || !canStartGame) {
       toast({
-        title: 'Toutes vos règles sont déjà actives',
+        title: 'Aucune règle sélectionnée',
+        description: 'Choisissez exactement une règle avant de lancer une partie.',
+        variant: 'destructive',
       });
       return;
     }
 
-    setActivatingRules(true);
+    if (selectedRuleInfo.type === 'custom') {
+      const preparedRule = { ...selectedRuleInfo.rule, isActive: true };
+      navigate('/play', {
+        state: {
+          customRules: [preparedRule],
+          presetRuleIds: [],
+          opponentType: 'ai',
+          playerName: resolveUserDisplayName(user),
+        },
+      });
+    } else {
+      navigate('/play', {
+        state: {
+          customRules: [],
+          presetRuleIds: [selectedRuleInfo.rule.ruleId],
+          opponentType: 'ai',
+          playerName: resolveUserDisplayName(user),
+        },
+      });
+    }
+  };
+
+  const handleCreateLobby = async () => {
+    if (!user) {
+      toast({
+        title: 'Connexion requise',
+        description: 'Connectez-vous pour créer une partie multijoueur.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!selectedRuleInfo || !canStartGame) {
+      toast({
+        title: 'Aucune règle sélectionnée',
+        description: 'Choisissez exactement une règle avant de créer une partie.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (ruleSelectionLocked && activeLobby) {
+      toast({
+        title: 'Partie déjà en attente',
+        description: 'Annulez votre partie actuelle avant d\'en créer une nouvelle.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const ruleId = selectedRuleInfo.rule.ruleId;
+    const displayName = resolveUserDisplayName(user);
+    const trimmedName = lobbyName.trim();
+
+    setCreatingLobby(true);
     try {
-      const { error } = await supabase
-        .from('custom_chess_rules')
-        .update({ is_active: true })
-        .eq('user_id', user.id)
-        .in('rule_id', inactiveRuleIds);
+      const { data, error } = await supabase
+        .from('lobbies')
+        .insert({
+          name: trimmedName.length > 0 ? trimmedName : `Partie de ${displayName}`,
+          creator_id: user.id,
+          active_rules: [ruleId],
+          max_players: 2,
+          is_active: true,
+          mode: 'player',
+          status: 'waiting',
+          opponent_id: null,
+          opponent_name: null,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      setCustomRules(prev => prev.map(rule => ({ ...rule, isActive: true })));
-
+      setLobbyName('');
+      setActiveLobby(data as MultiplayerLobby);
       toast({
-        title: 'Règles activées',
-        description: `${inactiveRuleIds.length} règle(s) personnalisée(s) activée(s).`,
+        title: 'Partie créée',
+        description: 'Votre partie est en attente d\'un adversaire.',
       });
+      fetchWaitingLobbies();
     } catch (error: unknown) {
       const description = error instanceof Error
         ? error.message
-        : 'Impossible d\'activer les règles';
+        : "Impossible de créer la partie";
       toast({
         title: 'Erreur',
         description,
         variant: 'destructive',
       });
     } finally {
-      setActivatingRules(false);
+      setCreatingLobby(false);
     }
   };
 
-  const handleStartGame = () => {
-    const activeRules = customRules.filter(rule => rule.isActive);
-    const selectedPresetIds = Array.from(selectedPresetRuleIds);
+  const handleCancelLobby = async () => {
+    if (!user || !activeLobby) return;
 
-    if (activeRules.length === 0 && selectedPresetIds.length === 0) {
+    try {
+      const { error } = await supabase
+        .from('lobbies')
+        .update({ status: 'cancelled', is_active: false })
+        .eq('id', activeLobby.id)
+        .eq('creator_id', user.id);
+
+      if (error) throw error;
+
+      setActiveLobby(null);
+      toast({ title: 'Partie annulée' });
+      fetchWaitingLobbies();
+    } catch (error: unknown) {
+      const description = error instanceof Error
+        ? error.message
+        : "Impossible d'annuler la partie";
       toast({
-        title: 'Aucune règle sélectionnée',
-        description: 'Activez vos règles personnalisées ou sélectionnez des règles préinstallées avant de lancer une partie.',
+        title: 'Erreur',
+        description,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleJoinLobby = async (lobby: MultiplayerLobby) => {
+    if (!user) {
+      toast({
+        title: 'Connexion requise',
+        description: 'Connectez-vous pour rejoindre une partie.',
         variant: 'destructive',
       });
       return;
     }
 
-    navigate('/play', {
-      state: {
-        customRules: activeRules,
-        presetRuleIds: selectedPresetIds,
-      },
-    });
+    if (!Array.isArray(lobby.active_rules) || lobby.active_rules.length === 0) {
+      toast({
+        title: 'Partie invalide',
+        description: 'Cette partie n\'a pas de règle associée.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const ruleId = lobby.active_rules[0];
+    setJoiningLobbyId(lobby.id);
+    try {
+      const rule = await loadRuleForLobby(ruleId);
+      if (!rule) {
+        toast({
+          title: 'Règle introuvable',
+          description: 'La règle associée à cette partie est inaccessible.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('lobbies')
+        .update({
+          status: 'matched',
+          is_active: false,
+          opponent_id: user.id,
+          opponent_name: resolveUserDisplayName(user),
+        })
+        .eq('id', lobby.id)
+        .eq('status', 'waiting')
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const preparedRule = { ...rule, isActive: true };
+      const isPreset = presetRuleMap.has(rule.ruleId);
+
+      navigate('/play', {
+        state: {
+          customRules: isPreset ? [] : [preparedRule],
+          presetRuleIds: isPreset ? [rule.ruleId] : [],
+          opponentType: 'player',
+          lobbyId: lobby.id,
+          role: 'opponent',
+          lobbyName: lobby.name,
+          opponentName: lobby.name,
+          playerName: resolveUserDisplayName(user),
+        },
+      });
+
+      fetchWaitingLobbies();
+      if (data) {
+        fetchActiveLobby();
+      }
+    } catch (error: unknown) {
+      const description = error instanceof Error
+        ? error.message
+        : "Impossible de rejoindre la partie";
+      toast({
+        title: 'Erreur',
+        description,
+        variant: 'destructive',
+      });
+    } finally {
+      setJoiningLobbyId(null);
+    }
   };
 
-  const hasActiveCustomRule = customRules.some(rule => rule.isActive);
-  const hasSelectedPresetRules = selectedPresetRuleIds.size > 0;
-  const hasInactiveCustomRules = customRules.some(rule => !rule.isActive);
-  const canStartGame = hasActiveCustomRule || hasSelectedPresetRules;
+  const handleLaunchMatchedGame = async () => {
+    if (!user || !activeLobby || activeLobby.status !== 'matched') {
+      return;
+    }
+
+    if (!Array.isArray(activeLobby.active_rules) || activeLobby.active_rules.length === 0) {
+      toast({
+        title: 'Aucune règle trouvée',
+        description: 'Impossible de lancer la partie sans règle associée.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const ruleId = activeLobby.active_rules[0];
+    try {
+      const rule = await loadRuleForLobby(ruleId);
+      if (!rule) {
+        toast({
+          title: 'Règle introuvable',
+          description: 'La règle associée à cette partie est inaccessible.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const preparedRule = { ...rule, isActive: true };
+      const isPreset = presetRuleMap.has(rule.ruleId);
+
+      navigate('/play', {
+        state: {
+          customRules: isPreset ? [] : [preparedRule],
+          presetRuleIds: isPreset ? [rule.ruleId] : [],
+          opponentType: 'player',
+          lobbyId: activeLobby.id,
+          role: 'creator',
+          lobbyName: activeLobby.name,
+          opponentName: activeLobby.opponent_name ?? 'Adversaire',
+          playerName: resolveUserDisplayName(user),
+        },
+      });
+    } catch (error: unknown) {
+      const description = error instanceof Error
+        ? error.message
+        : "Impossible de lancer la partie";
+      toast({
+        title: 'Erreur',
+        description,
+        variant: 'destructive',
+      });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -617,23 +1080,45 @@ const Lobby = () => {
           <h1 className="text-3xl font-bold bg-gradient-gold bg-clip-text text-transparent">
             Lobby des Règles
           </h1>
-          <div className="flex flex-wrap justify-end gap-2">
-            {user && customRules.length > 0 && (
-              <Button
-                variant="gold"
-                onClick={handleActivateAllCustomRules}
-                disabled={activatingRules || !hasInactiveCustomRules}
-              >
-                {activatingRules && <Loader2 className="h-4 w-4 animate-spin" />}
-                Activer mes règles
-              </Button>
-            )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Adversaire
+                </Label>
+                <Select
+                  value={opponentType}
+                  onValueChange={value => setOpponentType(value as 'ai' | 'player')}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Choisir l'adversaire" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ai">Intelligence artificielle</SelectItem>
+                    <SelectItem value="player">Autre joueur</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {opponentType === 'player' && (
+                <Input
+                  value={lobbyName}
+                  onChange={event => setLobbyName(event.target.value)}
+                  placeholder="Nom de votre partie"
+                  className="w-full sm:w-64"
+                  disabled={ruleSelectionLocked}
+                />
+              )}
+            </div>
             <Button
               variant="outline"
-              onClick={handleStartGame}
-              disabled={!canStartGame}
+              onClick={opponentType === 'ai' ? startAiGame : handleCreateLobby}
+              disabled={!canStartGame || (opponentType === 'player' && (ruleSelectionLocked || creatingLobby))}
             >
-              Lancer la partie
+              {opponentType === 'player' && creatingLobby && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              {opponentType === 'ai' && 'Jouer contre l\'IA'}
+              {opponentType === 'player' && (ruleSelectionLocked ? 'Partie en attente' : 'Créer une partie multijoueur')}
             </Button>
           </div>
         </div>
@@ -825,6 +1310,136 @@ const Lobby = () => {
           )}
         </div>
 
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="rounded-xl border border-border/60 bg-card/50 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Ma partie multijoueur</h2>
+              {activeLobby && (
+                <Badge variant={activeLobby.status === 'matched' ? 'secondary' : 'outline'}>
+                  {activeLobby.status === 'waiting' && 'En attente'}
+                  {activeLobby.status === 'matched' && 'Adversaire trouvé'}
+                  {activeLobby.status === 'cancelled' && 'Annulée'}
+                </Badge>
+              )}
+            </div>
+
+            {!user && (
+              <p className="text-sm text-muted-foreground">
+                Connectez-vous pour créer une partie et inviter un autre joueur.
+              </p>
+            )}
+
+            {user && !activeLobby && (
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>Sélectionnez une règle unique puis créez votre partie multijoueur.</p>
+                <p>Votre partie apparaîtra automatiquement dans la liste des joueurs en attente.</p>
+              </div>
+            )}
+
+            {user && activeLobby && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Nom de la partie</p>
+                  <p className="font-semibold">{activeLobby.name}</p>
+                </div>
+                {activeLobbyRule && (
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Règle sélectionnée</p>
+                    <p className="font-semibold">{activeLobbyRule.ruleName}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">Priorité {activeLobbyRule.priority}</Badge>
+                      <Badge variant="outline">{categoryLabels[activeLobbyRule.category]}</Badge>
+                    </div>
+                  </div>
+                )}
+                {activeLobby.status === 'waiting' && (
+                  <p className="text-sm text-muted-foreground">
+                    Partagez ce lobby ou attendez qu'un joueur vous rejoigne.
+                  </p>
+                )}
+                {activeLobby.status === 'matched' && (
+                  <p className="text-sm text-muted-foreground">
+                    Adversaire : {activeLobby.opponent_name ?? 'Adversaire inconnu'}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={handleCancelLobby}
+                    size="sm"
+                  >
+                    Annuler la partie
+                  </Button>
+                  {activeLobby.status === 'matched' && (
+                    <Button variant="gold" size="sm" onClick={handleLaunchMatchedGame}>
+                      Lancer la partie
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-border/60 bg-card/50 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Joueurs en attente</h2>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={fetchWaitingLobbies}
+                disabled={lobbiesLoading}
+              >
+                {lobbiesLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Actualiser
+              </Button>
+            </div>
+
+            {lobbiesLoading && (
+              <p className="text-sm text-muted-foreground">Chargement des parties en attente...</p>
+            )}
+
+            {!lobbiesLoading && waitingLobbies.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Aucun joueur n'attend actuellement. Créez une partie pour être le premier !
+              </p>
+            )}
+
+            {!lobbiesLoading && waitingLobbies.length > 0 && (
+              <div className="space-y-3">
+                {waitingLobbies.map(lobby => {
+                  const ruleId = Array.isArray(lobby.active_rules) ? lobby.active_rules[0] : undefined;
+                  return (
+                    <div
+                      key={lobby.id}
+                      className="rounded-lg border border-border/60 bg-card/40 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">{lobby.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Règle : {ruleId ? getRuleLabel(ruleId) : 'Inconnue'}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="gold"
+                          onClick={() => handleJoinLobby(lobby)}
+                          disabled={joiningLobbyId === lobby.id}
+                        >
+                          {joiningLobbyId === lobby.id && (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          )}
+                          Rejoindre
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
         <Tabs defaultValue="custom" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="custom">Mes Règles ({filteredCustomRules.length}/{customRules.length})</TabsTrigger>
@@ -877,7 +1492,7 @@ const Lobby = () => {
                   issues={issues}
                   selectable
                   isSelected={selectedPresetRuleIds.has(rule.ruleId)}
-                  onSelectChange={selected => togglePresetRule(rule.ruleId, selected)}
+                  onSelectChange={selected => handlePresetSelection(rule.ruleId, selected)}
                 />
               ))}
               {filteredPresetAnalyses.length === 0 && (

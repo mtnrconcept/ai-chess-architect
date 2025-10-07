@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RotateCcw, Settings } from 'lucide-react';
+import { ArrowLeft, RotateCcw } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
 import { GameState, Position, ChessPiece, ChessRule, PieceColor } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { analyzeRuleLogic } from '@/lib/ruleValidation';
 
 const Play = () => {
@@ -19,7 +16,22 @@ const Play = () => {
   const locationState = location.state as {
     customRules?: ChessRule[];
     presetRuleIds?: string[];
+    opponentType?: 'ai' | 'player';
+    lobbyId?: string;
+    role?: 'creator' | 'opponent';
+    lobbyName?: string;
+    opponentName?: string;
+    playerName?: string;
   } | undefined;
+
+  const opponentType = locationState?.opponentType === 'player' ? 'player' : 'ai';
+  const lobbyId = typeof locationState?.lobbyId === 'string' ? locationState.lobbyId : undefined;
+  const lobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent'
+    ? locationState.role
+    : undefined;
+  const lobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
+  const opponentName = typeof locationState?.opponentName === 'string' ? locationState.opponentName : undefined;
+  const playerName = typeof locationState?.playerName === 'string' ? locationState.playerName : undefined;
 
   const rawCustomRules = useMemo(() => {
     const custom = locationState?.customRules;
@@ -41,25 +53,16 @@ const Play = () => {
   );
 
   const [customRules, setCustomRules] = useState<ChessRule[]>(analyzedCustomRules);
-  const [selectedRules, setSelectedRules] = useState<Set<string>>(
-    () => new Set(initialPresetRuleIds)
+  const activePresetRule = useMemo(() => {
+    if (initialPresetRuleIds.length === 0) return null;
+    const [firstRuleId] = initialPresetRuleIds;
+    return allPresetRules.find(rule => rule.ruleId === firstRuleId) ?? null;
+  }, [initialPresetRuleIds]);
+  const appliedPresetRuleIds = useMemo(
+    () => new Set(initialPresetRuleIds),
+    [initialPresetRuleIds]
   );
-  const [appliedPresetRuleIds, setAppliedPresetRuleIds] = useState<Set<string>>(
-    () => new Set(initialPresetRuleIds)
-  );
-  const [isRulesSheetOpen, setIsRulesSheetOpen] = useState(false);
-  const presetCategoryOrder: ChessRule['category'][] = ['vip', 'movement', 'capture', 'defense', 'behavior'];
-  const presetCategoryLabels: Record<ChessRule['category'], string> = {
-    movement: 'Mouvement',
-    capture: 'Attaque',
-    special: 'Spécial',
-    condition: 'Condition',
-    victory: 'Victoire',
-    restriction: 'Restriction',
-    defense: 'Défense',
-    behavior: 'Comportement',
-    vip: 'VIP Magnus Goat'
-  };
+  const selectionTimestampRef = useRef<number | null>(null);
   const [gameState, setGameState] = useState<GameState>(() => {
     const initialBoard = ChessEngine.initializeBoard();
     return {
@@ -90,18 +93,6 @@ const Play = () => {
   useEffect(() => {
     setCustomRules(analyzedCustomRules);
   }, [analyzedCustomRules]);
-
-  const lastInitialPresetKey = useRef<string | null>(null);
-  const selectionTimestampRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const key = initialPresetRuleIds.join('|');
-    if (lastInitialPresetKey.current === key) return;
-
-    lastInitialPresetKey.current = key;
-    setSelectedRules(new Set(initialPresetRuleIds));
-    setAppliedPresetRuleIds(new Set(initialPresetRuleIds));
-  }, [initialPresetRuleIds]);
 
   useEffect(() => {
     const activeCustomRules = customRules.map(rule => ({ ...rule, isActive: true }));
@@ -135,34 +126,6 @@ const Play = () => {
       };
     });
   }, [customRules, appliedPresetRuleIds]);
-
-  const toggleRule = (ruleId: string) => {
-    setSelectedRules(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(ruleId)) {
-        newSet.delete(ruleId);
-      } else {
-        newSet.add(ruleId);
-      }
-      return newSet;
-    });
-  };
-
-  const applyRules = () => {
-    setAppliedPresetRuleIds(new Set(selectedRules));
-    setIsRulesSheetOpen(false);
-  };
-
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'movement': return 'bg-blue-500';
-      case 'capture': return 'bg-red-500';
-      case 'defense': return 'bg-green-500';
-      case 'behavior': return 'bg-purple-500';
-      case 'vip': return 'bg-amber-400';
-      default: return 'bg-gray-500';
-    }
-  };
 
   const respawnPawn = (board: (ChessPiece | null)[][], color: PieceColor): boolean => {
     const startRow = color === 'white' ? 6 : 1;
@@ -526,6 +489,7 @@ const Play = () => {
     });
   };
 
+  const primaryRule = customRules[0] ?? activePresetRule ?? null;
   const activeCustomRulesCount = customRules.length;
 
   return (
@@ -542,76 +506,52 @@ const Play = () => {
           <h1 className="text-3xl font-bold bg-gradient-gold bg-clip-text text-transparent">
             Partie d'Échecs
           </h1>
-          <div className="flex gap-2">
-            <Sheet open={isRulesSheetOpen} onOpenChange={open => setIsRulesSheetOpen(open)}>
-              <SheetTrigger asChild>
-                <Button variant="outline">
-                  <Settings size={20} className="mr-2" />
-                  Règles ({appliedPresetRuleIds.size})
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="w-full sm:max-w-2xl">
-                <SheetHeader>
-                  <SheetTitle>Sélectionner les règles préinstallées</SheetTitle>
-                </SheetHeader>
-                <ScrollArea className="h-[calc(100vh-150px)] mt-6">
-                  <div className="space-y-6">
-                    {presetCategoryOrder.map(category => {
-                      const categoryRules = allPresetRules.filter(r => r.category === category);
-                      const categoryLabel = presetCategoryLabels[category] ?? category;
-
-                      return (
-                        <div key={category} className="space-y-3">
-                          <h3 className="font-bold text-lg flex items-center gap-2">
-                            <div className={`w-3 h-3 rounded-full ${getCategoryColor(category)}`} />
-                            {categoryLabel} ({categoryRules.length})
-                          </h3>
-                          <div className="space-y-2">
-                            {categoryRules.map(rule => (
-                              <div
-                                key={rule.ruleId}
-                                className="flex items-start gap-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors"
-                              >
-                                <Checkbox
-                                  checked={selectedRules.has(rule.ruleId)}
-                                  onCheckedChange={() => toggleRule(rule.ruleId)}
-                                  className="mt-1"
-                                />
-                                <div className="flex-1 space-y-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold">{rule.ruleName}</span>
-                                    <Badge variant="outline" className="text-xs">
-                                      Priorité {rule.priority}
-                                    </Badge>
-                                  </div>
-                                  <p className="text-sm text-muted-foreground">{rule.description}</p>
-                                  <div className="flex flex-wrap gap-1 mt-2">
-                                    {rule.affectedPieces.map(piece => (
-                                      <Badge key={piece} variant="secondary" className="text-xs">
-                                        {piece}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-                <div className="absolute bottom-0 left-0 right-0 p-6 bg-background border-t">
-                  <Button onClick={applyRules} className="w-full">
-                    Appliquer {selectedRules.size} règle(s)
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Badge variant="outline" className="text-xs uppercase tracking-wide">
+              Mode : {opponentType === 'ai' ? "IA" : 'Multijoueur'}
+            </Badge>
+            {opponentType === 'player' && lobbyRole && (
+              <Badge variant="secondary" className="text-xs uppercase tracking-wide">
+                {lobbyRole === 'creator' ? 'Hôte' : 'Adversaire'}
+              </Badge>
+            )}
             <Button variant="outline" onClick={resetGame}>
               <RotateCcw size={20} />
               Nouvelle partie
             </Button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-white/5 p-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-muted-foreground">Règle active :</span>
+            {primaryRule ? (
+              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+                {primaryRule.ruleName}
+              </Badge>
+            ) : (
+              <span className="font-semibold">Standard</span>
+            )}
+            {opponentType === 'player' && lobbyName && (
+              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+                Lobby : {lobbyName}
+              </Badge>
+            )}
+            {opponentType === 'player' && opponentName && (
+              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+                Adversaire : {opponentName}
+              </Badge>
+            )}
+            {opponentType === 'player' && lobbyId && (
+              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+                ID : {lobbyId.slice(0, 8)}…
+              </Badge>
+            )}
+            {playerName && (
+              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+                Joueur : {playerName}
+              </Badge>
+            )}
           </div>
         </div>
 
