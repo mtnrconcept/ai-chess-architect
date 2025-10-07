@@ -19,6 +19,7 @@ const Lobby = () => {
   const [customRules, setCustomRules] = useState<ChessRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [ruleIssues, setRuleIssues] = useState<Record<string, string[]>>({});
+  const [selectedPresetRuleIds, setSelectedPresetRuleIds] = useState<Set<string>>(new Set());
 
   const fetchRules = useCallback(async () => {
     setLoading(true);
@@ -132,22 +133,45 @@ const Lobby = () => {
     []
   );
 
-  const handlePlayWithCustomRules = () => {
-    const activeRules = customRules.filter(rule => rule.isActive);
+  const togglePresetRule = (ruleId: string, shouldSelect?: boolean) => {
+    setSelectedPresetRuleIds(prev => {
+      const next = new Set(prev);
+      const willSelect = typeof shouldSelect === 'boolean' ? shouldSelect : !next.has(ruleId);
 
-    if (activeRules.length === 0) {
+      if (willSelect) {
+        next.add(ruleId);
+      } else {
+        next.delete(ruleId);
+      }
+
+      return next;
+    });
+  };
+
+  const handleStartGame = () => {
+    const activeRules = customRules.filter(rule => rule.isActive);
+    const selectedPresetIds = Array.from(selectedPresetRuleIds);
+
+    if (activeRules.length === 0 && selectedPresetIds.length === 0) {
       toast({
-        title: 'Aucune règle active',
-        description: 'Activez au moins une règle personnalisée avant de lancer une partie.',
+        title: 'Aucune règle sélectionnée',
+        description: 'Activez vos règles personnalisées ou sélectionnez des règles préinstallées avant de lancer une partie.',
         variant: 'destructive',
       });
       return;
     }
 
-    navigate('/play', { state: { customRules: activeRules } });
+    navigate('/play', {
+      state: {
+        customRules: activeRules,
+        presetRuleIds: selectedPresetIds,
+      },
+    });
   };
 
   const hasActiveCustomRule = customRules.some(rule => rule.isActive);
+  const hasSelectedPresetRules = selectedPresetRuleIds.size > 0;
+  const canStartGame = hasActiveCustomRule || hasSelectedPresetRules;
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -163,10 +187,10 @@ const Lobby = () => {
           <div className="flex justify-end w-48">
             <Button
               variant="outline"
-              onClick={handlePlayWithCustomRules}
-              disabled={!hasActiveCustomRule}
+              onClick={handleStartGame}
+              disabled={!canStartGame}
             >
-              Jouer avec mes règles
+              Lancer la partie
             </Button>
           </div>
         </div>
@@ -174,7 +198,7 @@ const Lobby = () => {
         <Tabs defaultValue="custom" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="custom">Mes Règles ({customRules.length})</TabsTrigger>
-            <TabsTrigger value="preset">Règles Préinstallées (40)</TabsTrigger>
+            <TabsTrigger value="preset">Règles Préinstallées ({allPresetRules.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="custom" className="mt-6">
@@ -204,9 +228,17 @@ const Lobby = () => {
                   rule={rule}
                   showActions={false}
                   issues={issues}
+                  selectable
+                  isSelected={selectedPresetRuleIds.has(rule.ruleId)}
+                  onSelectChange={selected => togglePresetRule(rule.ruleId, selected)}
                 />
               ))}
             </div>
+            {hasSelectedPresetRules && (
+              <div className="mt-4 text-sm text-muted-foreground">
+                {selectedPresetRuleIds.size} règle(s) préinstallée(s) sélectionnée(s).
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

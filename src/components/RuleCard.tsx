@@ -2,6 +2,7 @@ import { ChessRule } from '@/types/chess';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Trash2, Power, PowerOff, AlertTriangle } from 'lucide-react';
 
 interface RuleCardProps {
@@ -10,6 +11,9 @@ interface RuleCardProps {
   onToggle?: (ruleId: string, isActive: boolean) => void;
   showActions?: boolean;
   issues?: string[];
+  selectable?: boolean;
+  isSelected?: boolean;
+  onSelectChange?: (selected: boolean) => void;
 }
 
 const categoryColors = {
@@ -23,7 +27,16 @@ const categoryColors = {
   behavior: 'bg-pink-500/20 text-pink-300 border-pink-500/30'
 };
 
-const RuleCard = ({ rule, onDelete, onToggle, showActions = true, issues = [] }: RuleCardProps) => {
+const RuleCard = ({
+  rule,
+  onDelete,
+  onToggle,
+  showActions = true,
+  issues = [],
+  selectable = false,
+  isSelected = false,
+  onSelectChange,
+}: RuleCardProps) => {
   const affectedPiecesLabel = Array.isArray(rule.affectedPieces) && rule.affectedPieces.length > 0
     ? rule.affectedPieces.join(', ')
     : 'Aucune pièce spécifique';
@@ -31,8 +44,34 @@ const RuleCard = ({ rule, onDelete, onToggle, showActions = true, issues = [] }:
   const conditionsCount = Array.isArray(rule.conditions) ? rule.conditions.length : 0;
   const effectsCount = Array.isArray(rule.effects) ? rule.effects.length : 0;
 
+  const cardClasses = [
+    'bg-card/50 border-border backdrop-blur-sm hover:border-primary/50 transition-all',
+    selectable ? 'cursor-pointer' : '',
+    selectable && isSelected ? 'border-primary/60 shadow-[0_0_0_1px_rgba(34,211,238,0.45)]' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const handleSelectToggle = () => {
+    if (!selectable || !onSelectChange) return;
+    onSelectChange(!isSelected);
+  };
+
   return (
-    <Card className="bg-card/50 border-border backdrop-blur-sm hover:border-primary/50 transition-all">
+    <Card
+      className={cardClasses}
+      onClick={handleSelectToggle}
+      role={selectable ? 'button' : undefined}
+      tabIndex={selectable ? 0 : undefined}
+      aria-pressed={selectable ? isSelected : undefined}
+      onKeyDown={event => {
+        if (!selectable || !onSelectChange) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelectChange(!isSelected);
+        }
+      }}
+    >
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
@@ -54,30 +93,47 @@ const RuleCard = ({ rule, onDelete, onToggle, showActions = true, issues = [] }:
             </div>
           </div>
           
-          {showActions && (
-            <div className="flex gap-2">
-              {onToggle && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => onToggle(rule.ruleId, !rule.isActive)}
-                  className="h-8 w-8"
-                >
-                  {rule.isActive ? <Power size={16} /> : <PowerOff size={16} />}
-                </Button>
-              )}
-              {onDelete && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => onDelete(rule.ruleId)}
-                  className="h-8 w-8 text-destructive hover:text-destructive"
-                >
-                  <Trash2 size={16} />
-                </Button>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {selectable && (
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={checked => onSelectChange?.(checked === true)}
+                onClick={event => event.stopPropagation()}
+                onKeyDown={event => event.stopPropagation()}
+                className="mt-1"
+              />
+            )}
+            {showActions && (
+              <div className="flex gap-2">
+                {onToggle && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={event => {
+                      event.stopPropagation();
+                      onToggle(rule.ruleId, !rule.isActive);
+                    }}
+                    className="h-8 w-8"
+                  >
+                    {rule.isActive ? <Power size={16} /> : <PowerOff size={16} />}
+                  </Button>
+                )}
+                {onDelete && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={event => {
+                      event.stopPropagation();
+                      onDelete(rule.ruleId);
+                    }}
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         <CardDescription className="mt-2">{rule.description}</CardDescription>
       </CardHeader>
