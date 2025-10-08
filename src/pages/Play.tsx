@@ -522,121 +522,279 @@ const Play = () => {
 
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
   const activeCustomRulesCount = customRules.length;
+  const tierControlSections = [
+    'Régénération',
+    'Analyse IA',
+    'Exécution dynamique',
+    'Mouvements spéciaux'
+  ];
+  const coachCyberSections = [
+    'Niveaux d’attention',
+    'Réactions tactiques',
+    'Évaluation Elo',
+    'Taux de réussite',
+    'Graphique de progression'
+  ];
+  const coachGraphPoints = [30, 50, 75, 100];
+
+  const coachGraphPath = useMemo(() => {
+    if (coachGraphPoints.length < 2) return '';
+    const min = Math.min(...coachGraphPoints);
+    const max = Math.max(...coachGraphPoints);
+    const range = max - min || 1;
+    const verticalPadding = 10;
+
+    return coachGraphPoints
+      .map((value, index) => {
+        const x = (index / (coachGraphPoints.length - 1)) * 100;
+        const normalized = (value - min) / range;
+        const y = 100 - normalized * (100 - verticalPadding * 2) - verticalPadding;
+        return `${index === 0 ? 'M' : 'L'} ${x},${y}`;
+      })
+      .join(' ');
+  }, [coachGraphPoints]);
+
+  const coachGraphAreaPath = useMemo(() => {
+    if (!coachGraphPath) return '';
+    return `${coachGraphPath} L 100,100 L 0,100 Z`;
+  }, [coachGraphPath]);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#050210] text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-neon-grid opacity-40" />
-      <div className="pointer-events-none absolute -top-32 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-cyan-400/20 blur-3xl animate-neonPulse" />
-      <div className="pointer-events-none absolute -bottom-40 right-0 h-80 w-80 rounded-full bg-fuchsia-500/20 blur-3xl animate-neonPulse" />
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <Button variant="ghost" onClick={() => navigate('/')}> 
-            <ArrowLeft size={20} />
-            Retour
-          </Button>
-          <h1 className="text-3xl font-bold bg-gradient-gold bg-clip-text text-transparent">
-            Partie d'Échecs
-          </h1>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Badge variant="outline" className="text-xs uppercase tracking-wide">
-              Mode : {opponentType === 'ai' ? "IA" : 'Multijoueur'}
-            </Badge>
-            {opponentType === 'player' && lobbyRole && (
-              <Badge variant="secondary" className="text-xs uppercase tracking-wide">
-                {lobbyRole === 'creator' ? 'Hôte' : 'Adversaire'}
-              </Badge>
-            )}
-            <Button variant="outline" onClick={resetGame}>
-              <RotateCcw size={20} />
-              Nouvelle partie
-            </Button>
-          </div>
-        </div>
+    <div className="relative min-h-screen overflow-hidden text-white">
+      <div className="absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(40,18,78,0.58),rgba(4,3,19,0.92)_70%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(59,130,246,0.28)_0%,transparent_42%,rgba(236,72,153,0.22)_100%)] mix-blend-screen" />
+        <div className="absolute inset-0 bg-[#040313]/80 backdrop-blur-[2px]" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(45,182,255,0.16),transparent_60%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-[radial-gradient(circle_at_top,rgba(255,0,128,0.18),transparent_65%)]" />
+      </div>
 
-        <div className="rounded-xl border border-border/60 bg-white/5 p-4 text-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-muted-foreground">Règle active :</span>
+      <div className="relative z-10">
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-10 sm:px-8 lg:px-12">
+          <header className="flex flex-wrap items-center justify-between gap-4">
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/')}
+              className="group flex items-center gap-2 rounded-full border border-transparent bg-black/40 px-5 py-2 text-sm font-medium text-cyan-200/90 transition-all duration-200 hover:border-cyan-400/50 hover:bg-cyan-400/10 hover:text-white"
+            >
+              <ArrowLeft size={18} className="transition-transform duration-200 group-hover:-translate-x-1" />
+              Retour
+            </Button>
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-[0.4em] text-cyan-200/70">Chess Coach 3D</p>
+              <h1 className="mt-2 text-3xl font-semibold text-white drop-shadow-[0_0_18px_rgba(59,130,246,0.55)] sm:text-4xl">
+                Interface IA Néon Cyberpunk
+              </h1>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Badge className="border-cyan-500/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
+                Mode : {opponentType === 'ai' ? 'IA' : 'Multijoueur'}
+              </Badge>
+              {opponentType === 'player' && lobbyRole && (
+                <Badge className="border-fuchsia-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-fuchsia-200">
+                  {lobbyRole === 'creator' ? 'Hôte' : 'Adversaire'}
+                </Badge>
+              )}
+              <Button
+                variant="outline"
+                onClick={resetGame}
+                className="flex items-center gap-2 rounded-full border-cyan-400/60 bg-cyan-400/10 px-5 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-200 shadow-[0_0_25px_rgba(59,130,246,0.35)] transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-400/20 hover:text-white"
+              >
+                <RotateCcw size={16} />
+                Réinitialiser
+              </Button>
+            </div>
+          </header>
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-[0.2em] text-cyan-100/70">
+            <span className="text-cyan-200/90">Règle active :</span>
             {primaryRule ? (
-              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+              <Badge className="border-cyan-400/60 bg-cyan-500/10 px-3 py-1 text-[0.7rem] font-semibold text-cyan-100">
                 {primaryRule.ruleName}
               </Badge>
             ) : (
-              <span className="font-semibold">Standard</span>
+              <span className="rounded-full border border-cyan-400/40 bg-black/40 px-3 py-1 font-semibold text-cyan-100">
+                Standard
+              </span>
             )}
             {opponentType === 'player' && lobbyName && (
-              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
                 Lobby : {lobbyName}
               </Badge>
             )}
             {opponentType === 'player' && opponentName && (
-              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
                 Adversaire : {opponentName}
               </Badge>
             )}
             {opponentType === 'player' && lobbyId && (
-              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
                 ID : {lobbyId.slice(0, 8)}…
               </Badge>
             )}
             {playerName && (
-              <Badge variant="outline" className="text-xs uppercase tracking-wide">
+              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
                 Joueur : {playerName}
               </Badge>
             )}
           </div>
-        </div>
 
-        {activeCustomRulesCount > 0 && (
-          <div className="rounded-xl border border-primary/30 bg-primary/15 p-4 text-sm text-primary backdrop-blur">
-            {activeCustomRulesCount} règle(s) personnalisée(s) ont été importées depuis le lobby.
-          </div>
-        )}
-
-        <div className="grid gap-8 justify-items-center lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex w-full justify-center">
-            <ChessBoard
-              gameState={gameState}
-              onSquareClick={handleSquareClick}
-              onPieceClick={handlePieceClick}
-            />
-          </div>
-
-          <div className="w-full max-w-lg space-y-4 lg:w-80 lg:max-w-none">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_18px_45px_-20px_rgba(59,130,246,0.55)] backdrop-blur">
-              <h3 className="text-lg font-bold mb-4">Informations</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Joueur actuel:</span>
-                  <span className="font-bold capitalize">{gameState.currentPlayer}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tour:</span>
-                  <span className="font-bold">{gameState.turnNumber}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Coups joués:</span>
-                  <span className="font-bold">{gameState.moveHistory.length}</span>
-                </div>
-              </div>
+          {activeCustomRulesCount > 0 && (
+            <div className="mt-6 rounded-3xl border border-cyan-500/30 bg-cyan-500/10 px-6 py-4 text-center text-xs font-semibold uppercase tracking-[0.25em] text-cyan-200 backdrop-blur">
+              {activeCustomRulesCount} règle(s) personnalisée(s) synchronisée(s) depuis le lobby.
             </div>
+          )}
 
-            {gameState.activeRules.length > 0 && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_18px_45px_-20px_rgba(236,72,153,0.5)] backdrop-blur">
-                <h3 className="text-lg font-bold mb-4">Règles actives</h3>
-                <div className="space-y-2">
-                  {gameState.activeRules.map(rule => (
-                    <div key={rule.ruleId} className="rounded-xl border border-accent/40 bg-accent/20 p-3 shadow-[0_0_18px_rgba(236,72,153,0.35)]">
-                      <div className="mb-1 flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${getCategoryColor(rule.category)}`} />
-                        <span className="text-xs font-semibold">{rule.ruleName}</span>
+          <main className="mt-10 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+            <aside className="relative overflow-hidden rounded-3xl border border-cyan-400/40 bg-black/50 p-6 shadow-[0_0_45px_-12px_rgba(56,189,248,0.65)] backdrop-blur-xl">
+              <div className="pointer-events-none absolute -left-24 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-cyan-500/20 blur-3xl" />
+              <div className="pointer-events-none absolute inset-0 border border-cyan-300/10" />
+              <div className="relative z-10">
+                <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">HUD gauche</p>
+                <h2 className="mt-2 text-xl font-semibold text-cyan-100">Tiers Controls</h2>
+
+                <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-cyan-500/10 px-4 py-3 text-center shadow-[0_0_25px_rgba(56,189,248,0.35)]">
+                  <p className="text-[0.65rem] uppercase tracking-[0.45em] text-cyan-200/80">Chrono IA</p>
+                  <p className="mt-2 text-3xl font-bold text-white">13:5 <span className="text-sm font-semibold text-cyan-200/70">+2+5</span></p>
+                </div>
+
+                <div className="mt-6 space-y-3">
+                  {tierControlSections.map((section, index) => (
+                    <div
+                      key={section}
+                      className="relative overflow-hidden rounded-2xl border border-cyan-300/20 bg-black/40 p-4 shadow-[0_0_22px_rgba(56,189,248,0.35)] transition-all duration-200 hover:border-cyan-200/60 hover:bg-cyan-500/10"
+                    >
+                      <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-cyan-300 via-cyan-500 to-fuchsia-400" />
+                      <div className="ml-3">
+                        <p className="text-[0.65rem] uppercase tracking-[0.5em] text-cyan-200/80">Phase {index + 1}</p>
+                        <p className="mt-1 text-sm font-semibold text-white">{section}</p>
                       </div>
-                      <p className="text-xs text-muted-foreground">{rule.description}</p>
                     </div>
                   ))}
                 </div>
               </div>
-            )}
-          </div>
+            </aside>
+
+            <section className="relative flex flex-col items-center gap-6">
+              <div className="relative w-full max-w-3xl">
+                <div className="absolute -inset-8 rounded-[40px] border border-white/10 bg-gradient-to-r from-cyan-500/10 via-transparent to-fuchsia-500/10 opacity-70 blur-2xl" />
+                <div className="relative rounded-[30px] border border-white/20 bg-white/5/60 p-6 backdrop-blur-xl shadow-[0_45px_75px_-35px_rgba(59,130,246,0.65)]">
+                  <div className="absolute inset-0 rounded-[30px] border border-white/10" />
+                  <div className="relative flex justify-center">
+                    <ChessBoard
+                      gameState={gameState}
+                      onSquareClick={handleSquareClick}
+                      onPieceClick={handlePieceClick}
+                    />
+                  </div>
+                  <div className="pointer-events-none absolute inset-x-12 bottom-4 h-24 rounded-full bg-gradient-to-b from-transparent via-cyan-400/10 to-cyan-400/30 blur-3xl" />
+                </div>
+              </div>
+
+              <div className="grid w-full max-w-3xl gap-4 rounded-3xl border border-white/10 bg-black/40 px-6 py-4 backdrop-blur-xl sm:grid-cols-2 lg:grid-cols-4">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Joueur actuel</span>
+                  <span className="text-lg font-semibold capitalize text-white">{gameState.currentPlayer}</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Tour</span>
+                  <span className="text-lg font-semibold text-white">{gameState.turnNumber}</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Coups joués</span>
+                  <span className="text-lg font-semibold text-white">{gameState.moveHistory.length}</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Statut</span>
+                  <span className="text-lg font-semibold capitalize text-white">{gameState.gameStatus}</span>
+                </div>
+              </div>
+
+              {gameState.activeRules.length > 0 && (
+                <div className="w-full max-w-3xl space-y-3">
+                  <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Règles actives</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {gameState.activeRules.map(rule => (
+                      <div
+                        key={rule.ruleId}
+                        className="rounded-3xl border border-white/10 bg-black/50 p-4 shadow-[0_0_25px_rgba(236,72,153,0.35)] backdrop-blur-xl"
+                      >
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className={`h-2 w-2 rounded-full ${getCategoryColor(rule.category)}`} />
+                          <span className="text-sm font-semibold text-white">{rule.ruleName}</span>
+                        </div>
+                        <p className="text-xs leading-relaxed text-white/70">{rule.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <aside className="space-y-6">
+              <div className="relative overflow-hidden rounded-3xl border border-fuchsia-500/40 bg-black/40 p-6 shadow-[0_0_45px_-12px_rgba(236,72,153,0.65)] backdrop-blur-xl">
+                <div className="pointer-events-none absolute inset-0 border border-fuchsia-300/10" />
+                <div className="pointer-events-none absolute -right-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-fuchsia-500/20 blur-3xl" />
+                <div className="relative z-10">
+                  <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-200/80">HUD droite</p>
+                  <h2 className="mt-2 text-xl font-semibold text-fuchsia-100">Coach CyberIA</h2>
+
+                  <div className="mt-6 space-y-3">
+                    {coachCyberSections.map(section => (
+                      <div
+                        key={section}
+                        className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 px-4 py-3 text-sm font-semibold text-white/90 shadow-[0_0_25px_rgba(236,72,153,0.35)]"
+                      >
+                        {section}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-6 rounded-3xl border border-fuchsia-300/20 bg-black/60 p-4">
+                    <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.4em] text-fuchsia-200/80">
+                      <span>Progression</span>
+                      <span>100%</span>
+                    </div>
+                    <div className="mt-4 h-36 w-full rounded-2xl bg-gradient-to-b from-fuchsia-500/10 via-transparent to-cyan-500/10 p-3">
+                      <svg viewBox="0 0 100 100" className="h-full w-full" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="coach-line" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#22d3ee" />
+                            <stop offset="100%" stopColor="#ec4899" />
+                          </linearGradient>
+                          <linearGradient id="coach-fill" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="rgba(34,211,238,0.35)" />
+                            <stop offset="100%" stopColor="rgba(236,72,153,0.05)" />
+                          </linearGradient>
+                        </defs>
+                        {coachGraphAreaPath && (
+                          <path d={coachGraphAreaPath} fill="url(#coach-fill)" stroke="none" />
+                        )}
+                        {coachGraphPath && (
+                          <path d={coachGraphPath} stroke="url(#coach-line)" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        )}
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <Button
+                      variant="outline"
+                      className="flex-1 rounded-full border-fuchsia-400/60 bg-fuchsia-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-100 transition-all duration-200 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white"
+                    >
+                      Explain Like I'm Five
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 rounded-full border-cyan-400/60 bg-cyan-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white"
+                    >
+                      AI Settings
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </main>
         </div>
       </div>
     </div>
