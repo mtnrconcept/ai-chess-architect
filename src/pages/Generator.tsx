@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, Sparkles, Save, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors';
 import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
@@ -83,11 +84,15 @@ const Generator = () => {
           description: "Règle générée avec succès",
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error generating rule:', error);
+      const description = getSupabaseFunctionErrorMessage(
+        error,
+        "Erreur lors de la génération de la règle"
+      );
       toast({
         title: "Erreur",
-        description: error.message || "Erreur lors de la génération de la règle",
+        description,
         variant: "destructive"
       });
     } finally {
