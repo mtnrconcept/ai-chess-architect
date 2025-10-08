@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ArrowLeft, ChevronDown, Loader2, Search } from 'lucide-react';
+import { ArrowLeft, Bot, ChevronDown, Globe, Loader2, Search, Users } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
@@ -30,6 +30,7 @@ import { allPresetRules } from '@/lib/presetRules';
 import { analyzeRuleLogic, RuleAnalysisResult } from '@/lib/ruleValidation';
 import { useAuth } from '@/contexts/AuthContext';
 import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from '@/lib/customRuleMapper';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type StatusFilterValue = 'all' | 'active' | 'inactive';
 type IssueFilterValue = 'all' | 'withIssues' | 'withoutIssues';
@@ -50,6 +51,12 @@ interface MultiplayerLobby {
   created_at: string | null;
   updated_at: string | null;
 }
+
+type CombinedRuleEntry = {
+  origin: 'custom' | 'preset';
+  rule: ChessRule;
+  issues: string[];
+};
 
 const Lobby = () => {
   const navigate = useNavigate();
@@ -74,6 +81,11 @@ const Lobby = () => {
   const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
   const [lobbyName, setLobbyName] = useState('');
   const [activeLobby, setActiveLobby] = useState<MultiplayerLobby | null>(null);
+  const [playOptionsOpen, setPlayOptionsOpen] = useState(false);
+  const [selectedQuickPlayEntry, setSelectedQuickPlayEntry] = useState<CombinedRuleEntry | null>(null);
+  const [quickPlayOnlineLoading, setQuickPlayOnlineLoading] = useState(false);
+  const [waitingDialogOpen, setWaitingDialogOpen] = useState(false);
+  const [isQuickPlayOnline, setIsQuickPlayOnline] = useState(false);
 
   const ruleSelectionLocked = useMemo(
     () => activeLobby?.status === 'waiting',
@@ -216,6 +228,16 @@ const Lobby = () => {
   useEffect(() => {
     fetchActiveLobby();
   }, [fetchActiveLobby]);
+
+  useEffect(() => {
+    if (!isQuickPlayOnline) return;
+    if (!activeLobby || activeLobby.status !== 'waiting') {
+      setWaitingDialogOpen(false);
+      setIsQuickPlayOnline(false);
+      setQuickPlayOnlineLoading(false);
+      setSelectedQuickPlayEntry(null);
+    }
+  }, [activeLobby, isQuickPlayOnline]);
 
   useEffect(() => {
     const channel = supabase
@@ -635,7 +657,7 @@ const Lobby = () => {
     statusFilter,
   ]);
 
-  const combinedRuleEntries = useMemo(() => {
+  const combinedRuleEntries = useMemo<CombinedRuleEntry[]>(() => {
     const customEntries = filteredCustomRules.map(rule => ({
       origin: 'custom' as const,
       rule,
@@ -830,6 +852,126 @@ const Lobby = () => {
     if (owned) return owned.ruleName;
     return 'Règle personnalisée';
   }, [customRules, presetRuleMap]);
+
+  const handleOpenQuickPlay = useCallback((entry: CombinedRuleEntry) => {
+    setSelectedQuickPlayEntry(entry);
+    setPlayOptionsOpen(true);
+  }, []);
+
+  const startQuickPlayGame = useCallback((entry: CombinedRuleEntry, mode: 'ai' | 'local') => {
+    const playerName = resolveUserDisplayName(user);
+
+    if (entry.origin === 'custom') {
+      const preparedRule = { ...entry.rule, isActive: true };
+      navigate('/play', {
+        state: {
+          customRules: [preparedRule],
+          presetRuleIds: [],
+          opponentType: mode,
+          playerName,
+        },
+      });
+    } else {
+      navigate('/play', {
+        state: {
+          customRules: [],
+          presetRuleIds: [entry.rule.ruleId],
+          opponentType: mode,
+          playerName,
+        },
+      });
+    }
+  }, [navigate, resolveUserDisplayName, user]);
+
+  const createQuickOnlineLobby = useCallback(async (entry: CombinedRuleEntry) => {
+    if (!user) {
+      toast({
+        title: 'Connexion requise',
+        description: 'Connectez-vous pour créer une partie en ligne.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (ruleSelectionLocked && activeLobby) {
+      toast({
+        title: 'Partie déjà en attente',
+        description: 'Annulez votre partie actuelle avant d\'en créer une nouvelle.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const ruleId = entry.rule.ruleId;
+    const displayName = resolveUserDisplayName(user);
+    const defaultName = `Défi ${entry.rule.ruleName}`.slice(0, 80);
+
+    setIsQuickPlayOnline(true);
+    setQuickPlayOnlineLoading(true);
+    setWaitingDialogOpen(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('lobbies')
+        .insert({
+          name: defaultName.length > 0 ? defaultName : `Partie de ${displayName}`,
+          creator_id: user.id,
+          active_rules: [ruleId],
+          max_players: 2,
+          is_active: true,
+          mode: 'player',
+          status: 'waiting',
+          opponent_id: null,
+          opponent_name: null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setActiveLobby(data as MultiplayerLobby);
+      toast({
+        title: 'Recherche d\'adversaire lancée',
+        description: 'Nous prévenons la communauté de votre défi.',
+      });
+      fetchWaitingLobbies();
+    } catch (error: unknown) {
+      const description = error instanceof Error
+        ? error.message
+        : "Impossible de créer la partie en ligne";
+      toast({
+        title: 'Erreur',
+        description,
+        variant: 'destructive',
+      });
+      setWaitingDialogOpen(false);
+      setIsQuickPlayOnline(false);
+    } finally {
+      setQuickPlayOnlineLoading(false);
+    }
+  }, [
+    activeLobby,
+    fetchWaitingLobbies,
+    resolveUserDisplayName,
+    ruleSelectionLocked,
+    toast,
+    user,
+  ]);
+
+  const handleQuickPlayModeSelect = useCallback((mode: 'ai' | 'local' | 'online') => {
+    if (!selectedQuickPlayEntry) return;
+
+    if (mode === 'ai' || mode === 'local') {
+      startQuickPlayGame(selectedQuickPlayEntry, mode);
+      setPlayOptionsOpen(false);
+      setSelectedQuickPlayEntry(null);
+      setIsQuickPlayOnline(false);
+      return;
+    }
+
+    setPlayOptionsOpen(false);
+    void createQuickOnlineLobby(selectedQuickPlayEntry);
+  }, [createQuickOnlineLobby, selectedQuickPlayEntry, startQuickPlayGame]);
 
   const startAiGame = () => {
     if (!selectedRuleInfo || !canStartGame) {
@@ -1499,6 +1641,8 @@ const Lobby = () => {
                     handlePresetSelection(entry.rule.ruleId, selected);
                   }
                 }}
+                showPlayButton
+                onPlay={() => handleOpenQuickPlay(entry)}
               />
             ))}
           </div>
@@ -1521,15 +1665,101 @@ const Lobby = () => {
             </p>
           )}
 
-          {hasSelectedPresetRules && (
-            <div className="text-sm text-muted-foreground">
-              {selectedPresetRuleIds.size} règle(s) préinstallée(s) sélectionnée(s).
-            </div>
-          )}
-        </div>
+        {hasSelectedPresetRules && (
+          <div className="text-sm text-muted-foreground">
+            {selectedPresetRuleIds.size} règle(s) préinstallée(s) sélectionnée(s).
+          </div>
+        )}
       </div>
     </div>
-  );
+
+    <Dialog
+      open={playOptionsOpen}
+      onOpenChange={open => {
+        setPlayOptionsOpen(open);
+        if (!open && !isQuickPlayOnline) {
+          setSelectedQuickPlayEntry(null);
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Choisissez votre mode de jeu</DialogTitle>
+          <DialogDescription>
+            Sélectionnez comment vous souhaitez lancer « {selectedQuickPlayEntry?.rule.ruleName ?? 'cette variante'} ».
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3">
+          <Button
+            variant="outline"
+            className="justify-start gap-3"
+            onClick={() => handleQuickPlayModeSelect('ai')}
+          >
+            <Bot className="h-4 w-4" />
+            Contre l'IA
+          </Button>
+          <Button
+            variant="outline"
+            className="justify-start gap-3"
+            onClick={() => handleQuickPlayModeSelect('local')}
+          >
+            <Users className="h-4 w-4" />
+            Partie locale
+          </Button>
+          <Button
+            variant="gold"
+            className="justify-start gap-3"
+            onClick={() => handleQuickPlayModeSelect('online')}
+            disabled={quickPlayOnlineLoading}
+          >
+            {quickPlayOnlineLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Globe className="h-4 w-4" />
+            )}
+            Jouer en ligne
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog
+      open={waitingDialogOpen}
+      onOpenChange={open => {
+        if (open) {
+          setWaitingDialogOpen(true);
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Recherche d'adversaire</DialogTitle>
+          <DialogDescription>
+            Nous attendons qu'un joueur rejoigne votre partie « {activeLobby ? getRuleLabel((activeLobby.active_rules ?? [])[0] ?? '') : selectedQuickPlayEntry?.rule.ruleName ?? 'Variante'} ».
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col items-center gap-4 py-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-center text-sm text-muted-foreground">
+            Cette fenêtre se fermera automatiquement dès qu'un adversaire aura rejoint votre défi.
+          </p>
+          <div className="w-full">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleCancelLobby}
+              disabled={quickPlayOnlineLoading || !activeLobby}
+            >
+              Annuler la recherche
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </div>
+);
 };
 
 export default Lobby;

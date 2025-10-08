@@ -94,7 +94,7 @@ const Play = () => {
   const locationState = location.state as {
     customRules?: ChessRule[];
     presetRuleIds?: string[];
-    opponentType?: 'ai' | 'player';
+    opponentType?: 'ai' | 'player' | 'local';
     lobbyId?: string;
     role?: 'creator' | 'opponent';
     lobbyName?: string;
@@ -102,7 +102,11 @@ const Play = () => {
     playerName?: string;
   } | undefined;
 
-  const opponentType = locationState?.opponentType === 'player' ? 'player' : 'ai';
+  const opponentType = locationState?.opponentType === 'player'
+    ? 'player'
+    : locationState?.opponentType === 'local'
+      ? 'local'
+      : 'ai';
   const lobbyId = typeof locationState?.lobbyId === 'string' ? locationState.lobbyId : undefined;
   const lobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent' ? locationState.role : undefined;
   const lobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
@@ -960,7 +964,7 @@ const Play = () => {
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Badge className="border-cyan-500/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
-                Mode : {opponentType === 'ai' ? 'IA' : 'Multijoueur'}
+                Mode : {opponentType === 'ai' ? 'IA' : opponentType === 'local' ? 'Local' : 'Multijoueur en ligne'}
               </Badge>
               {opponentType === 'player' && lobbyRole && (
                 <Badge className="border-fuchsia-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-fuchsia-200">
