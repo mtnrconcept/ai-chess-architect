@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, BrainCircuit, Loader2, Minus, RotateCcw, Sparkles, TrendingDown, TrendingUp } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { ArrowLeft, Loader2, MessageSquareText, RotateCcw, Send, Sparkles, User } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
 import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove } from '@/types/chess';
@@ -13,85 +14,23 @@ import { getCategoryColor } from '@/lib/ruleCategories';
 import { supabase } from '@/integrations/supabase/client';
 import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors';
 import { useToast } from '@/hooks/use-toast';
-import {
-  AiSettingSuggestion,
-  AttentionLevel,
-  CoachEvaluation,
-  CoachInsights,
-  CoachInsightsResponse,
-  EloEvaluation,
-  OpeningInsight,
-  ProgressionInsight,
-  SuccessRate,
-  TacticalReaction
-} from '@/types/coach';
-import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 
-const DEFAULT_COACH_GRAPH_POINTS = [25, 45, 65, 85] as const;
-
-// --- petites utilitaires robustes ---
-const clampNumber = (value: number, min = 0, max = 100) => {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, value));
-};
-
-const toFiniteNumber = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed)) return parsed;
+const createChatMessageId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
   }
-  return null;
+  return Math.random().toString(36).slice(2);
 };
 
-const ensureString = (value: unknown, fallback = ''): string => {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : fallback;
-  }
-  if (value == null) return fallback;
-  const converted = String(value).trim();
-  return converted.length > 0 ? converted : fallback;
-};
-
-const ensureStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
-  return value.map(item => ensureString(item)).filter((item): item is string => item.length > 0);
-};
-
-const ensureNumberArray = (value: unknown): number[] => {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map(item => toFiniteNumber(item))
-    .filter((item): item is number => item != null)
-    .map(item => clampNumber(item));
-};
-
-const normalizeTrend = (value: unknown): 'up' | 'down' | 'stable' => {
-  if (typeof value !== 'string') return 'stable';
-  const normalized = value.toLowerCase();
-  if (normalized.includes('up') || normalized.includes('hausse') || normalized.includes('posit')) return 'up';
-  if (normalized.includes('down') || normalized.includes('baisse') || normalized.includes('nég') || normalized.includes('neg')) return 'down';
-  return 'stable';
-};
-
-const normalizeGraphPoints = (points: unknown): number[] => {
-  const sanitized = ensureNumberArray(points).map(point => Math.round(point)).slice(-6);
-  if (sanitized.length < 4) return [...DEFAULT_COACH_GRAPH_POINTS];
-  return sanitized.reduce<number[]>((acc, point, index) => {
-    const clamped = clampNumber(point);
-    if (index === 0) { acc.push(clamped); return acc; }
-    const previous = acc[index - 1];
-    acc.push(clamped < previous ? previous : clamped);
-    return acc;
-  }, []);
-};
-
-const clampRange = (value: number, min: number, max: number) => {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, value));
-};
+const createWelcomeMessage = (): CoachChatMessage => ({
+  id: createChatMessageId(),
+  role: 'system',
+  content: "Le coach conversationnel est prêt. Jouez un coup ou posez une question pour lancer l'analyse.",
+  createdAt: new Date().toISOString(),
+  trigger: 'initial',
+});
 
 const isCarnivorousPlantRule = (rule: ChessRule): boolean => {
   const id = rule.ruleId.toLowerCase();
@@ -102,171 +41,6 @@ const isCarnivorousPlantRule = (rule: ChessRule): boolean => {
     (normalizedId.includes('plante') && normalizedId.includes('carniv')) ||
     (normalizedName.includes('plante') && normalizedName.includes('carniv'))
   );
-};
-
-const createLocalCoachInsights = (
-  state: GameState,
-  trigger: 'initial' | 'auto' | 'manual',
-  reason?: string | null
-): CoachInsights => {
-  const materialDelta = state.board.reduce((total, row) => {
-    return (
-      total +
-      row.reduce((rowTotal, piece) => {
-        if (!piece) return rowTotal;
-        const weight = PIECE_WEIGHTS[piece.type] ?? 0;
-        return rowTotal + (piece.color === 'white' ? weight : -weight);
-      }, 0)
-    );
-  }, 0);
-
-  const centipawns = clampRange(materialDelta, -2000, 2000);
-  const perspective = state.currentPlayer === 'white' ? centipawns : -centipawns;
-  const pawnsAdvantage = Math.round((centipawns / 100) * 10) / 10;
-  const advantageLabel = Math.abs(pawnsAdvantage) < 0.05 ? 'égalité' : `${pawnsAdvantage > 0 ? '+' : ''}${pawnsAdvantage.toFixed(1)}`;
-  const trend = perspective > 80 ? 'up' : perspective < -80 ? 'down' : 'stable';
-  const successBase = clampRange(50 + Math.round((centipawns / 1000) * 20), 5, 95);
-  const turnPhase = state.turnNumber <= 12 ? 'ouverture' : state.turnNumber <= 28 ? 'milieu de jeu' : 'finale';
-  const momentum = clampRange(successBase + (trigger === 'initial' ? 5 : 0), 5, 98);
-  const moveCount = state.moveHistory.length;
-  const baseGraph = clampRange(40 + moveCount * 3, 10, 80);
-  const lastGraph = clampRange(baseGraph + Math.round(perspective / 120), 15, 95);
-
-  const graphPoints = [baseGraph - 15, baseGraph - 5, baseGraph + 5, lastGraph].reduce<number[]>((acc, raw) => {
-    const normalized = clampRange(Math.round(raw), 0, 100);
-    const value = acc.length > 0 ? Math.max(acc[acc.length - 1], normalized) : normalized;
-    acc.push(value);
-    return acc;
-  }, []);
-
-  const openingSummary = (() => {
-    if (turnPhase === 'ouverture') {
-      return 'Continuez à développer vos pièces mineures rapidement.';
-    }
-    if (turnPhase === 'milieu de jeu') {
-      return 'Coordonnez vos pièces pour viser les faiblesses adverses.';
-    }
-    return 'Activez le roi et créez un pion passé dans le final.';
-  })();
-
-  const successComment = perspective > 0
-    ? "L'avantage matériel actuel vous donne de bonnes perspectives."
-    : perspective < 0
-      ? "Restez vigilant : l'adversaire a une légère avance matérielle."
-      : 'La position est équilibrée, cherchez les meilleures cases pour vos pièces.';
-
-  const tacticalAdvice = perspective >= 0
-    ? 'Profitez des colonnes ouvertes pour doubler vos tours.'
-    : 'Éliminez les menaces directes avant de lancer une contre-attaque.';
-
-  const activeRule = state.activeRules[0]?.ruleName;
-  const keyFactors = [
-    perspective >= 0 ? 'Supériorité matérielle' : 'Initiative adverse',
-    turnPhase === 'ouverture' ? 'Développement' : 'Plan de milieu de jeu'
-  ];
-  if (activeRule) {
-    keyFactors.push(`Règle active : ${activeRule}`);
-  }
-
-  const reasonLabel = reason?.trim().length ? reason.trim() : null;
-  const baseSummary = perspective > 0
-    ? 'Vous disposez d’une marge à convertir proprement.'
-    : perspective < 0
-      ? 'Stabilisez la position avant de relancer l’attaque.'
-      : 'Position neutre : privilégiez les coups actifs.';
-
-  const analysisSummary = reasonLabel
-    ? `Analyse heuristique locale (${reasonLabel}). ${baseSummary}`
-    : `Analyse heuristique locale activée. ${baseSummary}`;
-
-  const eloEstimate = clampRange(1500 + Math.round(centipawns / 50), 800, 2400);
-  const eloRangeLow = clampRange(1400 + Math.round(centipawns / 80), 700, 2200);
-  const eloRangeHigh = clampRange(1600 + Math.round(centipawns / 80), 900, 2600);
-
-  return {
-    analysisSummary,
-    evaluation: {
-      score: advantageLabel,
-      trend,
-      bestMoves: perspective >= 0
-        ? ['Renforcez la pression sur le centre', 'Coordonnez vos pièces lourdes']
-        : ['Sécurisez votre roi immédiatement', 'Cherchez des échanges favorables'],
-      threats: perspective <= 0
-        ? ['Surveillez les percées de pions adverses', 'Attention aux tactiques sur cases faibles']
-        : ['Consolidez vos cases sensibles', 'Empêchez les sacrifices tactiques'],
-      recommendation: perspective >= 0
-        ? "Consolidez l'avantage matériel avant de lancer un assaut décisif."
-        : "Simplifiez le centre et neutralisez l'initiative adverse."
-    },
-    attentionLevels: [
-      {
-        label: 'Structure de pions',
-        status: perspective >= 0 ? 'modéré' : 'élevé',
-        detail: "Identifiez les faiblesses fixes et organisez vos plans autour d'elles."
-      },
-      {
-        label: 'Sécurité du roi',
-        status: turnPhase === 'ouverture' ? 'modéré' : 'faible',
-        detail: 'Vérifiez la coordination des pièces défensives avant chaque coup.'
-      }
-    ],
-    tacticalReactions: [
-      {
-        pattern: perspective >= 0 ? 'Faiblesse sur colonnes ouvertes' : 'Pression adverse sur le centre',
-        advice: tacticalAdvice
-      }
-    ],
-    eloEvaluation: {
-      estimate: Math.round(eloEstimate),
-      range: `${Math.round(eloRangeLow)}-${Math.round(eloRangeHigh)}`,
-      comment: perspective >= 0
-        ? 'Le niveau affiché montre une bonne maîtrise stratégique.'
-        : 'Renforcez votre vision tactique pour inverser la dynamique.',
-      confidence: moveCount >= 12 ? 'élevée' : 'moyenne',
-      improvementTips: [
-        'Analysez vos transitions ouverture / milieu de jeu',
-        activeRule ? `Exploitez les opportunités offertes par ${activeRule}` : 'Travaillez les finales basiques pour convertir'
-      ]
-    },
-    successRate: {
-      percentage: Math.round(momentum),
-      trend,
-      comment: successComment,
-      keyFactors
-    },
-    progression: {
-      percentage: clampRange(momentum + (trend === 'up' ? 4 : trend === 'down' ? -4 : 0), 5, 99),
-      summary: openingSummary,
-      graphPoints,
-      nextActions: perspective >= 0
-        ? ['Centralisez vos pièces majeures', "Préparez une percée sur l'aile cible"]
-        : ['Réduisez les menaces immédiates', 'Activez vos pièces passives']
-    },
-    opening: {
-      name: turnPhase === 'ouverture' ? 'Ouverture standard' : 'Transition stratégique',
-      variation: turnPhase === 'ouverture' ? 'Structure classique' : 'Plan dynamique',
-      phase: turnPhase,
-      plan: openingSummary,
-      confidence: moveCount >= 6 ? 'moyenne' : 'faible'
-    },
-    explainLikeImFive: perspective >= 0
-      ? 'Tu as un peu plus de pièces fortes : protège-les et avance calmement.'
-      : "L'autre joueur attaque beaucoup : garde ton roi en sécurité et échange les pièces dangereuses.",
-    aiSettings: [
-      {
-        label: 'Style du bot',
-        current: perspective >= 0 ? 'équilibré' : 'défensif',
-        suggestion: perspective >= 0 ? 'Augmente la prise de risque pour convertir' : 'Stabilise avant de contre-attaquer'
-      },
-      {
-        label: 'Cadence d’analyse',
-        current: trigger,
-        suggestion: trigger === 'manual'
-          ? "Active l’analyse automatique pour suivre chaque coup"
-          : 'Relance une analyse manuelle après un changement majeur'
-      }
-    ]
-  };
 };
 
 // --- constantes stables hors composant ---
@@ -312,84 +86,6 @@ const AI_DIFFICULTY_LEVELS: Record<
 const isAIDifficulty = (value: string): value is AIDifficulty => value in AI_DIFFICULTY_LEVELS;
 
 type AiMoveResolver = (state: GameState) => { from: Position; to: Position } | null;
-
-const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined): CoachInsights => {
-  const evaluationRaw = (raw?.evaluation ?? {}) as Partial<CoachEvaluation>;
-  const successRateRaw = (raw?.successRate ?? {}) as Partial<SuccessRate>;
-  const progressionRaw = (raw?.progression ?? {}) as Partial<ProgressionInsight>;
-  const openingRaw = (raw?.opening ?? {}) as Partial<OpeningInsight>;
-  const eloRaw = (raw?.eloEvaluation ?? {}) as Partial<EloEvaluation>;
-  const attentionLevelsRaw = Array.isArray(raw?.attentionLevels) ? (raw.attentionLevels as Partial<AttentionLevel>[]) : [];
-  const tacticalReactionsRaw = Array.isArray(raw?.tacticalReactions) ? (raw.tacticalReactions as Partial<TacticalReaction>[]) : [];
-  const aiSettingsRaw = Array.isArray(raw?.aiSettings) ? (raw.aiSettings as Partial<AiSettingSuggestion>[]) : [];
-
-  const evaluation: CoachEvaluation = {
-    score: ensureString(evaluationRaw?.score, '—'),
-    trend: normalizeTrend(evaluationRaw?.trend),
-    bestMoves: ensureStringArray(evaluationRaw?.bestMoves),
-    threats: ensureStringArray(evaluationRaw?.threats),
-    recommendation: ensureString(evaluationRaw?.recommendation, "L'analyse détaillée sera disponible après quelques coups.")
-  };
-
-  const successPercentage = clampNumber(toFiniteNumber(successRateRaw?.percentage) ?? 0);
-  const successRate: SuccessRate = {
-    percentage: successPercentage,
-    trend: normalizeTrend(successRateRaw?.trend),
-    comment: ensureString(successRateRaw?.comment, ''),
-    keyFactors: ensureStringArray(successRateRaw?.keyFactors)
-  };
-
-  const progressionPoints = normalizeGraphPoints(progressionRaw?.graphPoints);
-  const lastProgressPoint = progressionPoints[progressionPoints.length - 1] ?? 0;
-  const progression: ProgressionInsight = {
-    percentage: clampNumber(toFiniteNumber(progressionRaw?.percentage) ?? lastProgressPoint),
-    summary: ensureString(progressionRaw?.summary, ''),
-    graphPoints: progressionPoints,
-    nextActions: ensureStringArray(progressionRaw?.nextActions)
-  };
-
-  const eloEstimate = toFiniteNumber(eloRaw?.estimate);
-  const eloEvaluation: EloEvaluation = {
-    estimate: eloEstimate != null ? Math.round(eloEstimate) : 1500,
-    range: ensureString(eloRaw?.range, '1500-1600'),
-    comment: ensureString(eloRaw?.comment, "L'évaluation Elo sera affinée après plus de coups."),
-    confidence: ensureString(eloRaw?.confidence, 'moyenne'),
-    improvementTips: ensureStringArray(eloRaw?.improvementTips)
-  };
-
-  const opening: OpeningInsight = {
-    name: ensureString(openingRaw?.name, 'Ouverture en cours de détection'),
-    variation: ensureString(openingRaw?.variation, 'Variation à identifier'),
-    phase: ensureString(openingRaw?.phase, 'ouverture'),
-    plan: ensureString(openingRaw?.plan, 'Suivez vos principes de développement en attendant une analyse complète.'),
-    confidence: ensureString(openingRaw?.confidence, 'moyenne')
-  };
-
-  const attentionLevels: AttentionLevel[] = attentionLevelsRaw
-    .map(level => ({ label: ensureString(level?.label, ''), status: ensureString(level?.status, ''), detail: ensureString(level?.detail, '') }))
-    .filter(level => level.label.length > 0 || level.detail.length > 0);
-
-  const tacticalReactions: TacticalReaction[] = tacticalReactionsRaw
-    .map(reaction => ({ pattern: ensureString(reaction?.pattern, ''), advice: ensureString(reaction?.advice, '') }))
-    .filter(reaction => reaction.pattern.length > 0 || reaction.advice.length > 0);
-
-  const aiSettings: AiSettingSuggestion[] = aiSettingsRaw
-    .map(setting => ({ label: ensureString(setting?.label, ''), current: ensureString(setting?.current, '—'), suggestion: ensureString(setting?.suggestion, '') }))
-    .filter(setting => setting.label.length > 0 || setting.suggestion.length > 0);
-
-  return {
-    analysisSummary: ensureString(raw?.analysisSummary, 'Lancez l’analyse pour obtenir des recommandations personnalisées.'),
-    evaluation,
-    attentionLevels,
-    tacticalReactions,
-    eloEvaluation,
-    successRate,
-    progression,
-    opening,
-    explainLikeImFive: ensureString(raw?.explainLikeImFive, "L’explication simplifiée sera disponible après l’analyse."),
-    aiSettings
-  };
-};
 
 const Play = () => {
   const navigate = useNavigate();
@@ -479,36 +175,31 @@ const Play = () => {
     };
   });
 
-  const [coachInsights, setCoachInsights] = useState<CoachInsights | null>(null);
+  const [coachMessages, setCoachMessages] = useState<CoachChatMessage[]>(() => [createWelcomeMessage()]);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
-  const [showExplain, setShowExplain] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [chatInput, setChatInput] = useState('');
 
   // --- refs utilitaires ---
   const latestGameStateRef = useRef<GameState>(gameState);
-  const lastAnalyzedMoveRef = useRef<number | null>(null);
+  const lastDiscussedMoveRef = useRef<number | null>(null);
   const inFlightRef = useRef<AbortController | null>(null);
   const initialAnalysisRef = useRef(false);
   const mountedRef = useRef(true);
   const aiMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const findBestAIMoveRef = useRef<AiMoveResolver | null>(null);
+  const coachMessagesRef = useRef<CoachChatMessage[]>(coachMessages);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    coachMessagesRef.current = coachMessages;
+  }, [coachMessages]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('ai-difficulty', aiDifficulty);
     }
   }, [aiDifficulty]);
-
-  const applyFallbackInsights = useCallback(
-    (state: GameState, trigger: 'initial' | 'auto' | 'manual', reason?: string | null) => {
-      if (!mountedRef.current) return;
-      const fallback = createLocalCoachInsights(state, trigger, reason);
-      setCoachInsights(normalizeCoachInsights(fallback));
-      lastAnalyzedMoveRef.current = state.moveHistory.length;
-    },
-    [setCoachInsights]
-  );
 
   useEffect(() => { latestGameStateRef.current = gameState; }, [gameState]);
   useEffect(() => () => {
@@ -552,100 +243,132 @@ const Play = () => {
     return `${positionToNotation(move.from)}${sep}${positionToNotation(move.to)}${promo}${special}`;
   }, [positionToNotation]);
 
-  const statusToValue = useCallback((status: string) => {
-    const normalized = status.toLowerCase();
-    if (normalized.includes('élev')) return 90;
-    if (normalized.includes('modéré') || normalized.includes('moyen')) return 60;
-    if (normalized.includes('faible')) return 35;
-    return 50;
-  }, []);
+  const requestCoachUpdate = useCallback(
+    async (trigger: 'initial' | 'auto' | 'manual', userMessage: string) => {
+      inFlightRef.current?.abort();
+      const ac = new AbortController();
+      inFlightRef.current = ac;
 
-  const getTrendInfo = useCallback((trend?: string) => {
-    const normalized = trend?.toLowerCase() ?? '';
-    if (normalized.includes('up') || normalized.includes('hausse') || normalized.includes('posit')) {
-      return { icon: <TrendingUp className="h-4 w-4 text-emerald-300" />, label: 'Tendance positive', color: 'text-emerald-300' };
-    }
-    if (normalized.includes('down') || normalized.includes('baisse') || normalized.includes('nég') || normalized.includes('neg')) {
-      return { icon: <TrendingDown className="h-4 w-4 text-rose-300" />, label: 'Tendance négative', color: 'text-rose-300' };
-    }
-    return { icon: <Minus className="h-4 w-4 text-cyan-200" />, label: 'Stable', color: 'text-cyan-200' };
-  }, []);
+      const currentState = latestGameStateRef.current;
+      const board = serializeBoardForAi(currentState.board);
+      const moveHistory = currentState.moveHistory.map(formatMoveForAi);
+      const activeRules = currentState.activeRules.map(rule => `${rule.ruleName}: ${rule.description}`);
+      const moveCount = currentState.moveHistory.length;
 
-  // --- appel Edge Function robuste ---
-  const analyzeWithCoach = useCallback(async (trigger: 'initial' | 'auto' | 'manual') => {
-    // éviter les doublons: annule l'appel précédent encore en vol
-    inFlightRef.current?.abort();
-    const ac = new AbortController();
-    inFlightRef.current = ac;
+      const history = coachMessagesRef.current
+        .filter(message => message.role !== 'system')
+        .slice(-8)
+        .map(message => ({
+          role: message.role === 'coach' ? 'assistant' : 'user',
+          content: message.content,
+        }));
 
-    const currentState = latestGameStateRef.current;
-    const board = serializeBoardForAi(currentState.board);
-    const moveHistory = currentState.moveHistory.map(formatMoveForAi);
-    const activeRules = currentState.activeRules.map(rule => `${rule.ruleName}: ${rule.description}`);
-    const moveCount = currentState.moveHistory.length;
+      setCoachLoading(true);
+      setCoachError(null);
 
-    setCoachLoading(true);
-    setCoachError(null);
+      try {
+        const { data, error } = await supabase.functions.invoke<CoachChatResponse>('chess-insights', {
+          body: {
+            board,
+            moveHistory,
+            currentPlayer: currentState.currentPlayer,
+            turnNumber: currentState.turnNumber,
+            gameStatus: currentState.gameStatus,
+            activeRules,
+            trigger,
+            userMessage,
+            history,
+          },
+          signal: ac.signal,
+        });
 
-    try {
-      const { data, error } = await supabase.functions.invoke<CoachInsightsResponse>('chess-insights', {
-        body: {
-          board,
-          moveHistory,
-          currentPlayer: currentState.currentPlayer,
-          turnNumber: currentState.turnNumber,
-          gameStatus: currentState.gameStatus,
-          activeRules,
-          trigger
-        },
-        signal: ac.signal
-      });
+        if (ac.signal.aborted) return;
 
-      if (ac.signal.aborted) return; // un nouvel appel a pris la main
+        if (error) throw new Error(error.message ?? 'Erreur lors de la réponse du coach');
 
-      if (error) throw new Error(error.message ?? 'Erreur lors de l’analyse IA');
+        const content = data?.message?.trim();
+        if (!content) throw new Error('Réponse vide du coach');
 
-      if (data?.insights) {
-        const normalized = normalizeCoachInsights(data.insights);
         if (!mountedRef.current) return;
-        setCoachInsights(normalized);
-        // ✅ on ne marque le coup comme "analysé" que si succès
-        lastAnalyzedMoveRef.current = moveCount;
+
+        const coachMessage: CoachChatMessage = {
+          id: createChatMessageId(),
+          role: 'coach',
+          content,
+          createdAt: new Date().toISOString(),
+          trigger,
+        };
+
+        setCoachMessages(prev => [...prev, coachMessage]);
+        lastDiscussedMoveRef.current = moveCount;
         setCoachError(null);
-      } else {
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        const message = getSupabaseFunctionErrorMessage(err, 'Le coach IA est indisponible pour le moment');
         if (!mountedRef.current) return;
-        const reason = 'réponse distante vide';
-        setCoachError("L’IA n’a renvoyé aucun insight. Application d’une estimation heuristique locale.");
-        applyFallbackInsights(currentState, trigger, reason);
+        setCoachError(message);
+        toast({ title: 'Coach IA indisponible', description: message, variant: 'destructive' });
+      } finally {
+        if (mountedRef.current) {
+          setCoachLoading(false);
+        }
       }
-    } catch (err: unknown) {
-      if (ac.signal.aborted) return;
-      const message = getSupabaseFunctionErrorMessage(err, 'Erreur lors de la génération des insights');
-      if (!mountedRef.current) return;
-      const displayedMessage = `${message} — utilisation de l’analyse heuristique locale.`;
-      setCoachError(displayedMessage);
-      applyFallbackInsights(currentState, trigger, message);
-      // un retry manuel reste possible via le bouton d’analyse
-      toast({ title: 'Analyse IA indisponible', description: message, variant: 'destructive' });
-    } finally {
-      if (mountedRef.current) {
-        setCoachLoading(false);
-      }
+    },
+    [formatMoveForAi, serializeBoardForAi, toast]
+  );
+
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
     }
-  }, [applyFallbackInsights, formatMoveForAi, serializeBoardForAi, toast]);
+  }, [coachMessages]);
+
+  const handleManualRefresh = useCallback(() => {
+    requestCoachUpdate(
+      'manual',
+      "Peux-tu analyser la position actuelle et me rappeler le plan prioritaire ?"
+    );
+  }, [requestCoachUpdate]);
+
+  const handleSendChatMessage = useCallback(() => {
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+
+    const newMessage: CoachChatMessage = {
+      id: createChatMessageId(),
+      role: 'player',
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+      trigger: 'manual',
+    };
+
+    setCoachMessages(prev => [...prev, newMessage]);
+    setChatInput('');
+    requestCoachUpdate('manual', trimmed);
+  }, [chatInput, requestCoachUpdate]);
 
   // déclenchement initial + auto sur nouveaux coups
   useEffect(() => {
-    // premier rendu
     if (!initialAnalysisRef.current) {
       initialAnalysisRef.current = true;
-      analyzeWithCoach('initial');
+      requestCoachUpdate(
+        'initial',
+        "Analyse la position actuelle, décris les coups joués et donne des conseils pour le camp au trait."
+      );
       return;
     }
-    // sur changement du nombre de coups, si différent du dernier analysé
+
     const len = gameState.moveHistory.length;
-    if (len !== lastAnalyzedMoveRef.current) analyzeWithCoach('auto');
-  }, [gameState.moveHistory.length, analyzeWithCoach]);
+    if (len !== lastDiscussedMoveRef.current) {
+      const state = latestGameStateRef.current;
+      const lastMove = state.moveHistory[state.moveHistory.length - 1];
+      const autoPrompt = lastMove
+        ? `Nous venons de jouer ${formatMoveForAi(lastMove)}. Analyse la position et propose un plan pour ${state.currentPlayer}.`
+        : "Analyse la position actuelle et propose un plan.";
+      requestCoachUpdate('auto', autoPrompt);
+    }
+  }, [gameState.moveHistory.length, formatMoveForAi, requestCoachUpdate]);
 
   useEffect(() => { setCustomRules(analyzedCustomRules); }, [analyzedCustomRules]);
 
@@ -1200,32 +923,14 @@ const Play = () => {
     });
     // on permet une nouvelle analyse initiale
     initialAnalysisRef.current = false;
-    lastAnalyzedMoveRef.current = null;
+    lastDiscussedMoveRef.current = null;
+    const systemMessage = createWelcomeMessage();
+    setCoachMessages([systemMessage]);
+    coachMessagesRef.current = [systemMessage];
   };
 
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
   const activeCustomRulesCount = customRules.length;
-  const coachGraphPoints = useMemo(() => (coachInsights?.progression?.graphPoints?.length ? coachInsights.progression.graphPoints : [...DEFAULT_COACH_GRAPH_POINTS]), [coachInsights]);
-
-  const coachGraphPath = useMemo(() => {
-    if (coachGraphPoints.length < 2) return '';
-    const min = Math.min(...coachGraphPoints);
-    const max = Math.max(...coachGraphPoints);
-    const range = max - min || 1;
-    const verticalPadding = 10;
-
-    return coachGraphPoints
-      .map((value, index) => {
-        const x = (index / (coachGraphPoints.length - 1)) * 100;
-        const normalized = (value - min) / range;
-        const y = 100 - normalized * (100 - verticalPadding * 2) - verticalPadding;
-        return `${index === 0 ? 'M' : 'L'} ${x},${y}`;
-      })
-      .join(' ');
-  }, [coachGraphPoints]);
-
-  const coachGraphAreaPath = useMemo(() => (coachGraphPath ? `${coachGraphPath} L 100,100 L 0,100 Z` : ''), [coachGraphPath]);
-
   return (
     <div className="relative min-h-screen overflow-hidden text-white">
       <div className="absolute inset-0">
@@ -1413,17 +1118,15 @@ const Play = () => {
                   <div className="relative flex flex-col gap-4">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Analyse IA</p>
-                        <h3 className="mt-2 text-2xl font-semibold text-white">
-                          {coachInsights?.evaluation?.score ?? '—'}
-                        </h3>
+                        <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Coach conversationnel</p>
+                        <h3 className="mt-2 text-2xl font-semibold text-white">Conseils en temps réel</h3>
                         <p className="mt-2 text-sm leading-relaxed text-white/70">
-                          {coachInsights?.analysisSummary ?? 'Lancez l’analyse pour obtenir des recommandations personnalisées à chaque coup.'}
+                          Le coach IA commente vos coups, suggère des plans et identifie les ouvertures. Retrouvez toutes les réponses dans le panneau de chat à droite.
                         </p>
                       </div>
                       <Button
                         variant="outline"
-                        onClick={() => analyzeWithCoach('manual')}
+                        onClick={handleManualRefresh}
                         disabled={coachLoading}
                         className="flex items-center gap-2 rounded-full border-cyan-300/60 bg-cyan-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white"
                       >
@@ -1431,137 +1134,9 @@ const Play = () => {
                         {coachLoading ? 'Analyse…' : 'Actualiser'}
                       </Button>
                     </div>
-
-                    {coachLoading && (
-                      <div className="flex items-center gap-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Calcul de nouvelles recommandations…
-                      </div>
-                    )}
-
-                    {!coachLoading && coachInsights && (
-                      <div className="grid gap-6 md:grid-cols-2">
-                        <div className="space-y-4">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Recommandation clé</p>
-                            <p className="mt-2 text-sm leading-relaxed text-white/80">{coachInsights.evaluation.recommendation}</p>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Meilleurs coups</p>
-                            <div className="flex flex-wrap gap-2">
-                              {coachInsights.evaluation.bestMoves.map(move => (
-                                <span
-                                  key={move}
-                                  className="rounded-full border border-cyan-300/40 bg-cyan-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-100"
-                                >
-                                  {move}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between rounded-2xl border border-cyan-300/20 bg-cyan-500/10 px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <BrainCircuit className="h-5 w-5 text-cyan-200" />
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Tendance</p>
-                                {(() => {
-                                  const evaluationTrend = getTrendInfo(coachInsights.evaluation.trend);
-                                  return (
-                                    <div className="mt-1 flex items-center gap-2 text-sm font-semibold">
-                                      {evaluationTrend.icon}
-                                      <span className={cn('uppercase tracking-[0.3em] text-xs', evaluationTrend.color)}>
-                                        {evaluationTrend.label}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            </div>
-                          </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Menaces à surveiller</p>
-                            <ul className="mt-2 space-y-2 text-sm text-white/70">
-                              {coachInsights.evaluation.threats.map(threat => (
-                                <li key={threat} className="flex items-start gap-2">
-                                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-300" />
-                                  <span>{threat}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {!coachLoading && !coachInsights && (
-                      <p className="rounded-2xl border border-cyan-300/20 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100/80">
-                        L’IA se prépare à analyser votre partie. Jouez un premier coup ou lancez l’analyse manuellement.
-                      </p>
-                    )}
-
-                    {coachError && (
-                      <p className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
-                        {coachError}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="relative overflow-hidden rounded-3xl border border-fuchsia-400/40 bg-black/40 p-5 shadow-[0_0_35px_-18px_rgba(236,72,153,0.65)] backdrop-blur-xl">
-                    <div className="pointer-events-none absolute inset-0 border border-fuchsia-300/10" />
-                    <div className="relative">
-                      <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-200/80">Ouverture détectée</p>
-                      <h4 className="mt-2 text-lg font-semibold text-white">
-                        {coachInsights?.opening?.name ?? 'Analyse en cours'}
-                      </h4>
-                      <p className="mt-1 text-sm text-white/70">
-                        {coachInsights?.opening?.variation ?? 'Les premiers coups permettront d’identifier l’ouverture.'}
-                      </p>
-                      {coachInsights && (
-                        <>
-                          <p className="mt-4 text-xs leading-relaxed text-white/70">{coachInsights.opening.plan}</p>
-                          <div className="mt-4 flex items-center justify-between text-[0.65rem] uppercase tracking-[0.35em] text-fuchsia-200/70">
-                            <span>{coachInsights.opening.phase}</span>
-                            <span className="text-fuchsia-200">{coachInsights.opening.confidence}</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="relative overflow-hidden rounded-3xl border border-cyan-400/40 bg-black/40 p-5 shadow-[0_0_35px_-18px_rgba(34,211,238,0.65)] backdrop-blur-xl">
-                    <div className="pointer-events-none absolute inset-0 border border-cyan-300/10" />
-                    <div className="relative">
-                      <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/80">Évaluation Elo</p>
-                      <h4 className="mt-2 text-lg font-semibold text-white">
-                        {coachInsights ? `${coachInsights.eloEvaluation.estimate} Elo` : '—'}
-                      </h4>
-                      <p className="text-sm text-white/70">
-                        {coachInsights?.eloEvaluation?.range ?? 'L’évaluation apparaîtra après l’analyse de quelques coups.'}
-                      </p>
-                      {coachInsights && (
-                        <>
-                          <p className="mt-4 text-xs leading-relaxed text-white/70">{coachInsights.eloEvaluation.comment}</p>
-                          <div className="mt-4 space-y-2">
-                            <p className="text-[0.65rem] uppercase tracking-[0.35em] text-cyan-200/70">Axes de progression</p>
-                            <ul className="space-y-1 text-xs text-white/70">
-                              {coachInsights.eloEvaluation.improvementTips.map(tip => (
-                                <li key={tip} className="flex items-start gap-2">
-                                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-300" />
-                                  <span>{tip}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          <p className="mt-4 text-[0.65rem] uppercase tracking-[0.35em] text-cyan-200/70">
-                            Confiance : <span className="ml-2 text-cyan-100">{coachInsights.eloEvaluation.confidence}</span>
-                          </p>
-                        </>
-                      )}
-                    </div>
+                    <p className="text-xs leading-relaxed text-white/60">
+                      L’analyse se relance automatiquement après chaque coup. Vous pouvez aussi envoyer vos propres questions.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1591,164 +1166,97 @@ const Play = () => {
               <div className="relative overflow-hidden rounded-3xl border border-fuchsia-500/40 bg-black/40 p-6 shadow-[0_0_45px_-12px_rgba(236,72,153,0.65)] backdrop-blur-xl">
                 <div className="pointer-events-none absolute inset-0 border border-fuchsia-300/10" />
                 <div className="pointer-events-none absolute -right-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-fuchsia-500/20 blur-3xl" />
-                <div className="relative z-10 space-y-6">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-200/80">HUD droite</p>
-                    <h2 className="mt-2 text-xl font-semibold text-fuchsia-100">Coach CyberIA</h2>
+                <div className="relative z-10 flex h-full flex-col gap-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-200/80">Coach IA</p>
+                      <h2 className="mt-2 text-xl font-semibold text-fuchsia-100">Coach CyberIA</h2>
+                      <p className="mt-2 text-sm text-fuchsia-100/80">
+                        Discutez avec le coach pour obtenir des plans, des explications de coups et le nom des ouvertures.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={handleManualRefresh}
+                      disabled={coachLoading}
+                      className="flex items-center gap-2 rounded-full border-fuchsia-300/60 bg-fuchsia-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-100 transition-all duration-200 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white"
+                    >
+                      {coachLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      {coachLoading ? 'Analyse…' : 'Actualiser'}
+                    </Button>
                   </div>
 
-                  <div className="space-y-5">
-                    <div className="rounded-3xl border border-fuchsia-300/30 bg-black/50 p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">Niveaux d’attention</p>
-                        <BrainCircuit className="h-5 w-5 text-fuchsia-200" />
-                      </div>
-                      <div className="mt-4 space-y-4">
-                        {(coachInsights?.attentionLevels ?? []).map(level => (
-                          <div key={`${level.label}-${level.status}`} className="space-y-2 rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 p-3">
-                            <div className="flex items-center justify-between text-sm font-semibold text-white/90">
-                              <span>{level.label}</span>
-                              <span className="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">{level.status}</span>
-                            </div>
-                            <Progress value={statusToValue(level.status)} className="h-2 bg-fuchsia-500/20 [&>div]:bg-gradient-to-r [&>div]:from-fuchsia-400 [&>div]:to-cyan-300" />
-                            <p className="text-xs leading-relaxed text-white/70">{level.detail}</p>
+                  <div
+                    ref={chatContainerRef}
+                    className="flex-1 space-y-3 overflow-y-auto rounded-3xl border border-fuchsia-300/20 bg-black/40 p-4"
+                  >
+                    {coachMessages.map(message => {
+                      const isCoach = message.role === 'coach';
+                      const isPlayer = message.role === 'player';
+                      const bubbleClasses = cn(
+                        'w-full rounded-2xl border px-4 py-3 text-sm leading-relaxed',
+                        isCoach && 'border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100',
+                        isPlayer && 'ml-auto border-cyan-400/40 bg-cyan-500/10 text-cyan-100',
+                        message.role === 'system' && 'border-white/10 bg-white/5 text-white/70'
+                      );
+                      const label = message.role === 'coach' ? 'Coach' : message.role === 'player' ? 'Vous' : 'Système';
+                      return (
+                        <div key={message.id} className={bubbleClasses}>
+                          <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.35em]">
+                            {message.role === 'coach' ? (
+                              <MessageSquareText className="h-4 w-4 text-fuchsia-200" />
+                            ) : message.role === 'player' ? (
+                              <User className="h-4 w-4 text-cyan-200" />
+                            ) : (
+                              <Sparkles className="h-4 w-4 text-white/60" />
+                            )}
+                            <span className={cn('font-semibold', message.role === 'system' ? 'text-white/70' : '')}>{label}</span>
                           </div>
-                        ))}
-                        {!coachInsights?.attentionLevels?.length && !coachLoading && (
-                          <p className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 px-3 py-2 text-xs text-fuchsia-100/80">
-                            Les données apparaîtront après l’analyse IA.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-fuchsia-300/20 bg-black/50 p-4">
-                      <p className="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">Réactions tactiques</p>
-                      <div className="mt-4 space-y-3">
-                        {(coachInsights?.tacticalReactions ?? []).map(reaction => (
-                          <div key={`${reaction.pattern}-${reaction.advice}`} className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/10 px-4 py-3">
-                            <p className="text-sm font-semibold text-white">{reaction.pattern}</p>
-                            <p className="mt-1 text-xs leading-relaxed text-white/75">{reaction.advice}</p>
-                          </div>
-                        ))}
-                        {!coachInsights?.tacticalReactions?.length && !coachLoading && (
-                          <p className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/10 px-3 py-2 text-xs text-fuchsia-100/80">
-                            L’IA remplira ce module après quelques coups.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-fuchsia-300/20 bg-black/50 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">Taux de réussite</p>
-                        {(() => {
-                          const successTrend = getTrendInfo(coachInsights?.successRate?.trend);
-                          return (
-                            <span className={cn('flex items-center gap-2 rounded-full border border-fuchsia-400/30 px-3 py-1 text-[0.6rem] uppercase tracking-[0.3em]', successTrend.color)}>
-                              {successTrend.icon}
-                              {successTrend.label}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      <div className="mt-4 space-y-3">
-                        <div>
-                          <Progress value={coachInsights?.successRate?.percentage ?? 0} className="h-2 bg-fuchsia-500/20 [&>div]:bg-gradient-to-r [&>div]:from-cyan-400 [&>div]:to-fuchsia-400" />
-                          <p className="mt-2 text-lg font-semibold text-white">
-                            {coachInsights ? `${coachInsights.successRate.percentage}%` : '—'}
-                          </p>
+                          <p className="mt-2 whitespace-pre-line">{message.content}</p>
                         </div>
-                        {coachInsights?.successRate?.comment && (
-                          <p className="text-xs leading-relaxed text-white/70">{coachInsights.successRate.comment}</p>
-                        )}
-                        {coachInsights?.successRate?.keyFactors?.length && (
-                          <ul className="space-y-1 text-xs text-white/70">
-                            {coachInsights.successRate.keyFactors.map(factor => (
-                              <li key={factor} className="flex items-start gap-2">
-                                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-fuchsia-300" />
-                                <span>{factor}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
+                      );
+                    })}
+                    {coachLoading && (
+                      <div className="flex items-center gap-3 rounded-2xl border border-fuchsia-300/30 bg-fuchsia-500/10 px-4 py-3 text-sm text-fuchsia-100">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Le coach analyse votre position…
                       </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-fuchsia-300/20 bg-black/60 p-4">
-                      <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.4em] text-fuchsia-200/80">
-                        <span>Progression</span>
-                        <span>{coachInsights?.progression?.percentage ? `${coachInsights.progression.percentage}%` : '—'}</span>
-                      </div>
-                      <div className="mt-4 h-36 w-full rounded-2xl bg-gradient-to-b from-fuchsia-500/10 via-transparent to-cyan-500/10 p-3">
-                        <svg viewBox="0 0 100 100" className="h-full w-full" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="coach-line" x1="0%" y1="0%" x2="100%" y2="0%">
-                              <stop offset="0%" stopColor="#22d3ee" />
-                              <stop offset="100%" stopColor="#ec4899" />
-                            </linearGradient>
-                            <linearGradient id="coach-fill" x1="0%" y1="0%" x2="0%" y2="100%">
-                              <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.35" />
-                              <stop offset="100%" stopColor="#ec4899" stopOpacity="0.05" />
-                            </linearGradient>
-                          </defs>
-                          {coachGraphAreaPath && <path d={coachGraphAreaPath} fill="url(#coach-fill)" stroke="none" />}
-                          {coachGraphPath && <path d={coachGraphPath} stroke="url(#coach-line)" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />}
-                        </svg>
-                      </div>
-                      {coachInsights?.progression?.summary && (
-                        <p className="mt-3 text-xs leading-relaxed text-white/70">{coachInsights.progression.summary}</p>
-                      )}
-                      {coachInsights?.progression?.nextActions?.length && (
-                        <ul className="mt-3 space-y-1 text-[0.7rem] text-fuchsia-100/80">
-                          {coachInsights.progression.nextActions.map(action => (
-                            <li key={action} className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-300" />
-                              <span>{action}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
+                    )}
                   </div>
 
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowExplain(value => !value)}
-                      className="flex-1 rounded-full border-fuchsia-400/60 bg-fuchsia-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-100 transition-all duration-200 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white"
-                    >
-                      Explain Like I'm Five
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowSettings(value => !value)}
-                      className="flex-1 rounded-full border-cyan-400/60 bg-cyan-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white"
-                    >
-                      AI Settings
-                    </Button>
+                  {coachError && (
+                    <p className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
+                      {coachError}
+                    </p>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={chatInput}
+                        onChange={event => setChatInput(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            handleSendChatMessage();
+                          }
+                        }}
+                        placeholder="Demandez un plan ou des explications…"
+                        className="flex-1 rounded-2xl border-fuchsia-300/40 bg-black/40 text-sm text-white placeholder:text-white/40"
+                      />
+                      <Button
+                        type="button"
+                        onClick={handleSendChatMessage}
+                        disabled={coachLoading || chatInput.trim().length === 0}
+                        className="rounded-2xl border-fuchsia-300/60 bg-fuchsia-500/20 p-3 text-fuchsia-100 transition-colors hover:border-fuchsia-200 hover:bg-fuchsia-500/30"
+                      >
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-[0.65rem] leading-relaxed text-fuchsia-100/70">
+                      Exemple : 'Quel est le meilleur plan dans cette position ?' ou 'Comment s'appelle cette ouverture ?'
+                    </p>
                   </div>
-
-                  {showExplain && coachInsights && (
-                    <div className="rounded-3xl border border-fuchsia-300/20 bg-fuchsia-500/10 p-4 text-sm leading-relaxed text-white/85">
-                      {coachInsights.explainLikeImFive}
-                    </div>
-                  )}
-
-                  {showSettings && coachInsights && (
-                    <div className="space-y-3 rounded-3xl border border-cyan-300/30 bg-cyan-500/10 p-4">
-                      <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Paramètres IA suggérés</p>
-                      <div className="space-y-3 text-sm text-white/85">
-                        {coachInsights.aiSettings.map(setting => (
-                          <div key={`${setting.label}-${setting.suggestion}`} className="rounded-2xl border border-cyan-400/30 bg-black/40 p-3">
-                            <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/70">{setting.label}</p>
-                            <p className="mt-1 text-xs text-cyan-100/80">Actuel : {setting.current}</p>
-                            <p className="mt-2 text-sm text-white/85">{setting.suggestion}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </aside>
