@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { analyzeRuleLogic } from '@/lib/ruleValidation';
 import { getCategoryColor } from '@/lib/ruleCategories';
 import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors';
 import { useToast } from '@/hooks/use-toast';
 import {
   AiSettingSuggestion,
@@ -424,7 +425,10 @@ const Play = () => {
         setCoachInsights(normalized);
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Erreur lors de la génération des insights';
+      const message = getSupabaseFunctionErrorMessage(
+        error,
+        'Erreur lors de la génération des insights'
+      );
       setCoachError(message);
       toast({
         title: 'Analyse IA indisponible',
