@@ -749,10 +749,15 @@ const Play = () => {
     for (const candidate of candidates) {
       const nextMaximizing = candidate.resultingState.currentPlayer === AI_COLOR;
       const score = minimax(candidate.resultingState, AI_SEARCH_DEPTH - 1, nextMaximizing, -Infinity, Infinity);
-      if (score > bestScore) {
+      if (chosenMove === null || score > bestScore) {
         bestScore = score;
         chosenMove = { from: candidate.from, to: candidate.to };
       }
+    }
+
+    if (!chosenMove) {
+      const random = candidates[Math.floor(Math.random() * candidates.length)];
+      return { from: random.from, to: random.to };
     }
 
     return chosenMove;
