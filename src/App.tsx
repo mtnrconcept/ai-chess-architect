@@ -11,6 +11,9 @@ import NotFound from "./pages/NotFound";
 import SignUp from "./pages/SignUp";
 import Profile from "./pages/Profile";
 import Leaderboard from "./pages/Leaderboard";
+import Settings from "./pages/Settings";
+import MatchAnalysis from "./pages/MatchAnalysis";
+import Tournaments from "./pages/Tournaments";
 import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
@@ -30,6 +33,9 @@ const App = () => (
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/analysis" element={<MatchAnalysis />} />
+            <Route path="/tournaments" element={<Tournaments />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
