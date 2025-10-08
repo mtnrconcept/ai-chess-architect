@@ -125,6 +125,53 @@ export const useSoundEffects = () => {
   );
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let cancelled = false;
+
+    const interactionEvents: Array<keyof WindowEventMap> = ['pointerdown', 'touchstart', 'mousedown', 'keydown'];
+
+    const visibilityHandler = () => {
+      if (document.visibilityState === 'visible') {
+        void unlockAudioContext();
+      }
+    };
+
+    async function unlockAudioContext() {
+      if (cancelled) return;
+      const context = await ensureAudioContext();
+      if (!context) return;
+
+      if (context.state === 'suspended') {
+        try {
+          await context.resume();
+        } catch (error) {
+          console.warn('Impossible de déverrouiller le contexte audio:', error);
+          return;
+        }
+      }
+
+      if (context.state === 'running') {
+        removeListeners();
+      }
+    }
+
+    function removeListeners() {
+      interactionEvents.forEach(event => window.removeEventListener(event, unlockAudioContext));
+      document.removeEventListener('visibilitychange', visibilityHandler);
+    }
+    interactionEvents.forEach(event => window.addEventListener(event, unlockAudioContext, { passive: true }));
+    document.addEventListener('visibilitychange', visibilityHandler);
+
+    void unlockAudioContext();
+
+    return () => {
+      cancelled = true;
+      removeListeners();
+    };
+  }, [ensureAudioContext]);
+
+  useEffect(() => {
     return () => {
       const context = audioContextRef.current;
       if (context && typeof context.close === 'function') {
