@@ -12,6 +12,13 @@ export interface ChessPiece {
   position: Position;
   hasMoved?: boolean;
   isHidden?: boolean;
+  specialState?: {
+    carnivorousPlant?: {
+      active: boolean;
+      transformedAtTurn?: number;
+    };
+    [key: string]: unknown;
+  };
 }
 
 export interface ChessMove {
@@ -24,6 +31,11 @@ export interface ChessMove {
   rookFrom?: Position;
   rookTo?: Position;
   promotion?: PieceType;
+  specialCaptures?: Array<{
+    type: 'carnivorousPlant';
+    by: Position;
+    piece: ChessPiece;
+  }>;
 }
 
 export interface RuleCondition {

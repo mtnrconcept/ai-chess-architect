@@ -136,7 +136,8 @@ export class ChessEngine {
     board.forEach((row, rowIndex) => {
       row.forEach((piece, colIndex) => {
         if (!piece) return;
-        pieces.push(`${piece.color}-${piece.type}-${rowIndex}-${colIndex}`);
+        const specialTag = piece.specialState?.carnivorousPlant?.active ? '-carnivorous' : '';
+        pieces.push(`${piece.color}-${piece.type}${specialTag}-${rowIndex}-${colIndex}`);
       });
     });
     return pieces.sort().join('|');
@@ -285,6 +286,10 @@ export class ChessEngine {
     gameState: GameState,
     options: MoveGenerationOptions = {}
   ): Position[] {
+    if (piece.specialState?.carnivorousPlant?.active) {
+      return [];
+    }
+
     const moves: Position[] = [];
     const { row, col } = piece.position;
     const direction = piece.color === 'white' ? -1 : 1;
