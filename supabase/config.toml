@@ -2,3 +2,6 @@ project_id = "pfcaolibtgvynnwaxvol"
 
 [functions.generate-chess-rule]
 verify_jwt = false
+
+[functions.chess-insights]
+verify_jwt = false
