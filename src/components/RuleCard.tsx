@@ -15,6 +15,8 @@ interface RuleCardProps {
   selectable?: boolean;
   isSelected?: boolean;
   onSelectChange?: (selected: boolean) => void;
+  onPlay?: (rule: ChessRule) => void;
+  showPlayButton?: boolean;
 }
 
 const categoryLabels: Record<ChessRule['category'], string> = {
@@ -38,6 +40,8 @@ const RuleCard = ({
   selectable = false,
   isSelected = false,
   onSelectChange,
+  onPlay,
+  showPlayButton = false,
 }: RuleCardProps) => {
   const affectedPiecesLabel = Array.isArray(rule.affectedPieces) && rule.affectedPieces.length > 0
     ? rule.affectedPieces.join(', ')
@@ -181,6 +185,20 @@ const RuleCard = ({
                 <p key={index}>{issue}</p>
               ))}
             </div>
+          </div>
+        )}
+        {showPlayButton && onPlay && (
+          <div className="mt-6 flex justify-end">
+            <Button
+              size="sm"
+              variant="gold"
+              onClick={event => {
+                event.stopPropagation();
+                onPlay(rule);
+              }}
+            >
+              Jouer à cette variante
+            </Button>
           </div>
         )}
       </CardContent>
