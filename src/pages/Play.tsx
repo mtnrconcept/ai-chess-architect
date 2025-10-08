@@ -87,6 +87,176 @@ const normalizeGraphPoints = (points: unknown): number[] => {
   }, []);
 };
 
+const clampRange = (value: number, min: number, max: number) => {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+};
+
+const createLocalCoachInsights = (
+  state: GameState,
+  trigger: 'initial' | 'auto' | 'manual',
+  reason?: string | null
+): CoachInsights => {
+  const materialDelta = state.board.reduce((total, row) => {
+    return (
+      total +
+      row.reduce((rowTotal, piece) => {
+        if (!piece) return rowTotal;
+        const weight = PIECE_WEIGHTS[piece.type] ?? 0;
+        return rowTotal + (piece.color === 'white' ? weight : -weight);
+      }, 0)
+    );
+  }, 0);
+
+  const centipawns = clampRange(materialDelta, -2000, 2000);
+  const perspective = state.currentPlayer === 'white' ? centipawns : -centipawns;
+  const pawnsAdvantage = Math.round((centipawns / 100) * 10) / 10;
+  const advantageLabel = Math.abs(pawnsAdvantage) < 0.05 ? 'égalité' : `${pawnsAdvantage > 0 ? '+' : ''}${pawnsAdvantage.toFixed(1)}`;
+  const trend = perspective > 80 ? 'up' : perspective < -80 ? 'down' : 'stable';
+  const successBase = clampRange(50 + Math.round((centipawns / 1000) * 20), 5, 95);
+  const turnPhase = state.turnNumber <= 12 ? 'ouverture' : state.turnNumber <= 28 ? 'milieu de jeu' : 'finale';
+  const momentum = clampRange(successBase + (trigger === 'initial' ? 5 : 0), 5, 98);
+  const moveCount = state.moveHistory.length;
+  const baseGraph = clampRange(40 + moveCount * 3, 10, 80);
+  const lastGraph = clampRange(baseGraph + Math.round(perspective / 120), 15, 95);
+
+  const graphPoints = [baseGraph - 15, baseGraph - 5, baseGraph + 5, lastGraph].reduce<number[]>((acc, raw) => {
+    const normalized = clampRange(Math.round(raw), 0, 100);
+    const value = acc.length > 0 ? Math.max(acc[acc.length - 1], normalized) : normalized;
+    acc.push(value);
+    return acc;
+  }, []);
+
+  const openingSummary = (() => {
+    if (turnPhase === 'ouverture') {
+      return 'Continuez à développer vos pièces mineures rapidement.';
+    }
+    if (turnPhase === 'milieu de jeu') {
+      return 'Coordonnez vos pièces pour viser les faiblesses adverses.';
+    }
+    return 'Activez le roi et créez un pion passé dans le final.';
+  })();
+
+  const successComment = perspective > 0
+    ? "L'avantage matériel actuel vous donne de bonnes perspectives."
+    : perspective < 0
+      ? "Restez vigilant : l'adversaire a une légère avance matérielle."
+      : 'La position est équilibrée, cherchez les meilleures cases pour vos pièces.';
+
+  const tacticalAdvice = perspective >= 0
+    ? 'Profitez des colonnes ouvertes pour doubler vos tours.'
+    : 'Éliminez les menaces directes avant de lancer une contre-attaque.';
+
+  const activeRule = state.activeRules[0]?.ruleName;
+  const keyFactors = [
+    perspective >= 0 ? 'Supériorité matérielle' : 'Initiative adverse',
+    turnPhase === 'ouverture' ? 'Développement' : 'Plan de milieu de jeu'
+  ];
+  if (activeRule) {
+    keyFactors.push(`Règle active : ${activeRule}`);
+  }
+
+  const reasonLabel = reason?.trim().length ? reason.trim() : null;
+  const baseSummary = perspective > 0
+    ? 'Vous disposez d’une marge à convertir proprement.'
+    : perspective < 0
+      ? 'Stabilisez la position avant de relancer l’attaque.'
+      : 'Position neutre : privilégiez les coups actifs.';
+
+  const analysisSummary = reasonLabel
+    ? `Analyse heuristique locale (${reasonLabel}). ${baseSummary}`
+    : `Analyse heuristique locale activée. ${baseSummary}`;
+
+  const eloEstimate = clampRange(1500 + Math.round(centipawns / 50), 800, 2400);
+  const eloRangeLow = clampRange(1400 + Math.round(centipawns / 80), 700, 2200);
+  const eloRangeHigh = clampRange(1600 + Math.round(centipawns / 80), 900, 2600);
+
+  return {
+    analysisSummary,
+    evaluation: {
+      score: advantageLabel,
+      trend,
+      bestMoves: perspective >= 0
+        ? ['Renforcez la pression sur le centre', 'Coordonnez vos pièces lourdes']
+        : ['Sécurisez votre roi immédiatement', 'Cherchez des échanges favorables'],
+      threats: perspective <= 0
+        ? ['Surveillez les percées de pions adverses', 'Attention aux tactiques sur cases faibles']
+        : ['Consolidez vos cases sensibles', 'Empêchez les sacrifices tactiques'],
+      recommendation: perspective >= 0
+        ? "Consolidez l'avantage matériel avant de lancer un assaut décisif."
+        : "Simplifiez le centre et neutralisez l'initiative adverse."
+    },
+    attentionLevels: [
+      {
+        label: 'Structure de pions',
+        status: perspective >= 0 ? 'modéré' : 'élevé',
+        detail: "Identifiez les faiblesses fixes et organisez vos plans autour d'elles."
+      },
+      {
+        label: 'Sécurité du roi',
+        status: turnPhase === 'ouverture' ? 'modéré' : 'faible',
+        detail: 'Vérifiez la coordination des pièces défensives avant chaque coup.'
+      }
+    ],
+    tacticalReactions: [
+      {
+        pattern: perspective >= 0 ? 'Faiblesse sur colonnes ouvertes' : 'Pression adverse sur le centre',
+        advice: tacticalAdvice
+      }
+    ],
+    eloEvaluation: {
+      estimate: Math.round(eloEstimate),
+      range: `${Math.round(eloRangeLow)}-${Math.round(eloRangeHigh)}`,
+      comment: perspective >= 0
+        ? 'Le niveau affiché montre une bonne maîtrise stratégique.'
+        : 'Renforcez votre vision tactique pour inverser la dynamique.',
+      confidence: moveCount >= 12 ? 'élevée' : 'moyenne',
+      improvementTips: [
+        'Analysez vos transitions ouverture / milieu de jeu',
+        activeRule ? `Exploitez les opportunités offertes par ${activeRule}` : 'Travaillez les finales basiques pour convertir'
+      ]
+    },
+    successRate: {
+      percentage: Math.round(momentum),
+      trend,
+      comment: successComment,
+      keyFactors
+    },
+    progression: {
+      percentage: clampRange(momentum + (trend === 'up' ? 4 : trend === 'down' ? -4 : 0), 5, 99),
+      summary: openingSummary,
+      graphPoints,
+      nextActions: perspective >= 0
+        ? ['Centralisez vos pièces majeures', "Préparez une percée sur l'aile cible"]
+        : ['Réduisez les menaces immédiates', 'Activez vos pièces passives']
+    },
+    opening: {
+      name: turnPhase === 'ouverture' ? 'Ouverture standard' : 'Transition stratégique',
+      variation: turnPhase === 'ouverture' ? 'Structure classique' : 'Plan dynamique',
+      phase: turnPhase,
+      plan: openingSummary,
+      confidence: moveCount >= 6 ? 'moyenne' : 'faible'
+    },
+    explainLikeImFive: perspective >= 0
+      ? 'Tu as un peu plus de pièces fortes : protège-les et avance calmement.'
+      : "L'autre joueur attaque beaucoup : garde ton roi en sécurité et échange les pièces dangereuses.",
+    aiSettings: [
+      {
+        label: 'Style du bot',
+        current: perspective >= 0 ? 'équilibré' : 'défensif',
+        suggestion: perspective >= 0 ? 'Augmente la prise de risque pour convertir' : 'Stabilise avant de contre-attaquer'
+      },
+      {
+        label: 'Cadence d’analyse',
+        current: trigger,
+        suggestion: trigger === 'manual'
+          ? "Active l’analyse automatique pour suivre chaque coup"
+          : 'Relance une analyse manuelle après un changement majeur'
+      }
+    ]
+  };
+};
+
 // --- constantes stables hors composant ---
 const FILES = 'abcdefgh';
 
@@ -269,6 +439,16 @@ const Play = () => {
   const mountedRef = useRef(true);
   const aiMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const applyFallbackInsights = useCallback(
+    (state: GameState, trigger: 'initial' | 'auto' | 'manual', reason?: string | null) => {
+      if (!mountedRef.current) return;
+      const fallback = createLocalCoachInsights(state, trigger, reason);
+      setCoachInsights(normalizeCoachInsights(fallback));
+      lastAnalyzedMoveRef.current = state.moveHistory.length;
+    },
+    [setCoachInsights]
+  );
+
   useEffect(() => { latestGameStateRef.current = gameState; }, [gameState]);
   useEffect(() => () => {
     mountedRef.current = false;
@@ -370,24 +550,28 @@ const Play = () => {
         setCoachInsights(normalized);
         // ✅ on ne marque le coup comme "analysé" que si succès
         lastAnalyzedMoveRef.current = moveCount;
+        setCoachError(null);
       } else {
-        // pas d’insights → on n’avance pas le curseur pour autoriser un retry manuel/auto
         if (!mountedRef.current) return;
-        setCoachError("L’IA n’a renvoyé aucun insight.");
+        const reason = 'réponse distante vide';
+        setCoachError("L’IA n’a renvoyé aucun insight. Application d’une estimation heuristique locale.");
+        applyFallbackInsights(currentState, trigger, reason);
       }
     } catch (err: unknown) {
       if (ac.signal.aborted) return;
       const message = getSupabaseFunctionErrorMessage(err, 'Erreur lors de la génération des insights');
       if (!mountedRef.current) return;
-      setCoachError(message);
-      // on n’avance PAS lastAnalyzedMoveRef : on laisse la possibilité d’un retry
+      const displayedMessage = `${message} — utilisation de l’analyse heuristique locale.`;
+      setCoachError(displayedMessage);
+      applyFallbackInsights(currentState, trigger, message);
+      // un retry manuel reste possible via le bouton d’analyse
       toast({ title: 'Analyse IA indisponible', description: message, variant: 'destructive' });
     } finally {
       if (mountedRef.current) {
         setCoachLoading(false);
       }
     }
-  }, [formatMoveForAi, serializeBoardForAi, toast]);
+  }, [applyFallbackInsights, formatMoveForAi, serializeBoardForAi, toast]);
 
   // déclenchement initial + auto sur nouveaux coups
   useEffect(() => {
