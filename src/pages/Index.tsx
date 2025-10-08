@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Library, PlayCircle, Crown, UserCircle } from 'lucide-react';
+import { Sparkles, Library, PlayCircle, Crown, UserCircle, Trophy } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const Index = () => {
@@ -44,6 +44,16 @@ const Index = () => {
               <Button variant="secondary" size="lg" className="text-lg px-8 py-6">
                 <PlayCircle size={24} />
                 Jouer
+              </Button>
+            </Link>
+
+            <Link to="/leaderboard">
+              <Button
+                size="lg"
+                className="text-lg px-8 py-6 bg-gradient-to-r from-[#14e6ff] via-[#ff00c8] to-[#ff6c00] text-black shadow-[0_0_25px_rgba(20,230,255,0.45)] hover:shadow-[0_0_35px_rgba(255,0,200,0.55)]"
+              >
+                <Trophy size={24} />
+                Classement Néon
               </Button>
             </Link>
 

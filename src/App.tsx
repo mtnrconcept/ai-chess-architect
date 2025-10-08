@@ -10,6 +10,7 @@ import Play from "./pages/Play";
 import NotFound from "./pages/NotFound";
 import SignUp from "./pages/SignUp";
 import Profile from "./pages/Profile";
+import Leaderboard from "./pages/Leaderboard";
 import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/generator" element={<Generator />} />
             <Route path="/lobby" element={<Lobby />} />
             <Route path="/play" element={<Play />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
