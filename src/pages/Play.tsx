@@ -7,6 +7,7 @@ import { ChessEngine } from '@/lib/chessEngine';
 import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { analyzeRuleLogic } from '@/lib/ruleValidation';
 import { getCategoryColor } from '@/lib/ruleCategories';
 import { supabase } from '@/integrations/supabase/client';
@@ -281,7 +282,36 @@ const PIECE_WEIGHTS: Record<ChessPiece['type'], number> = {
   knight: 320,
   pawn: 100
 };
-const AI_SEARCH_DEPTH = 2;
+
+type AIDifficulty = 'novice' | 'standard' | 'expert';
+
+const AI_DIFFICULTY_LEVELS: Record<
+  AIDifficulty,
+  { depth: number; label: string; description: string; selectionRange: number }
+> = {
+  novice: {
+    depth: 1,
+    label: 'Débutant',
+    description: 'Vision limitée et choix parfois aventureux pour un entraînement détendu.',
+    selectionRange: 3
+  },
+  standard: {
+    depth: 2,
+    label: 'Intermédiaire',
+    description: 'Équilibre entre temps de réflexion et précision stratégique.',
+    selectionRange: 2
+  },
+  expert: {
+    depth: 3,
+    label: 'Maître',
+    description: 'Recherche profonde et coups optimisés pour un vrai défi.',
+    selectionRange: 1
+  }
+};
+
+const isAIDifficulty = (value: string): value is AIDifficulty => value in AI_DIFFICULTY_LEVELS;
+
+type AiMoveResolver = (state: GameState) => { from: Position; to: Position } | null;
 
 const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined): CoachInsights => {
   const evaluationRaw = (raw?.evaluation ?? {}) as Partial<CoachEvaluation>;
@@ -406,6 +436,19 @@ const Play = () => {
   }, [initialPresetRuleIds]);
   const appliedPresetRuleIds = useMemo(() => new Set(initialPresetRuleIds), [initialPresetRuleIds]);
 
+  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem('ai-difficulty');
+      if (stored && isAIDifficulty(stored)) {
+        return stored;
+      }
+    }
+    return 'standard';
+  });
+
+  const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
+  const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
+
   const selectionTimestampRef = useRef<number | null>(null);
 
   const [gameState, setGameState] = useState<GameState>(() => {
@@ -449,6 +492,13 @@ const Play = () => {
   const initialAnalysisRef = useRef(false);
   const mountedRef = useRef(true);
   const aiMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const findBestAIMoveRef = useRef<AiMoveResolver | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ai-difficulty', aiDifficulty);
+    }
+  }, [aiDifficulty]);
 
   const applyFallbackInsights = useCallback(
     (state: GameState, trigger: 'initial' | 'auto' | 'manual', reason?: string | null) => {
@@ -1009,25 +1059,30 @@ const Play = () => {
     const candidates = generateMoves(state, AI_COLOR);
     if (candidates.length === 0) return null;
 
-    let bestScore = -Infinity;
-    let chosenMove: { from: Position; to: Position } | null = null;
-
-    for (const candidate of candidates) {
+    const evaluatedMoves = candidates.map(candidate => {
       const nextMaximizing = candidate.resultingState.currentPlayer === AI_COLOR;
-      const score = minimax(candidate.resultingState, AI_SEARCH_DEPTH - 1, nextMaximizing, -Infinity, Infinity);
-      if (chosenMove === null || score > bestScore) {
-        bestScore = score;
-        chosenMove = { from: candidate.from, to: candidate.to };
-      }
-    }
+      const score = minimax(candidate.resultingState, aiSearchDepth - 1, nextMaximizing, -Infinity, Infinity);
+      return { ...candidate, score };
+    });
+
+    evaluatedMoves.sort((a, b) => b.score - a.score);
+
+    const selectionRange = AI_DIFFICULTY_LEVELS[aiDifficulty].selectionRange;
+    const poolSize = Math.max(1, Math.min(evaluatedMoves.length, selectionRange));
+    const chosenIndex = poolSize === 1 ? 0 : Math.floor(Math.random() * poolSize);
+    const chosenMove = evaluatedMoves[chosenIndex];
 
     if (!chosenMove) {
       const random = candidates[Math.floor(Math.random() * candidates.length)];
       return { from: random.from, to: random.to };
     }
 
-    return chosenMove;
-  }, [generateMoves, minimax]);
+    return { from: chosenMove.from, to: chosenMove.to };
+  }, [generateMoves, minimax, aiSearchDepth, aiDifficulty]);
+
+  useEffect(() => {
+    findBestAIMoveRef.current = findBestAIMove;
+  }, [findBestAIMove]);
 
   const handlePieceClick = (piece: ChessPiece) => {
     if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
@@ -1098,7 +1153,8 @@ const Play = () => {
         return;
       }
 
-      const bestMove = findBestAIMove(currentState);
+      const resolver = findBestAIMoveRef.current ?? findBestAIMove;
+      const bestMove = resolver(currentState);
       if (!bestMove) return;
 
       setGameState(prev => {
@@ -1216,6 +1272,36 @@ const Play = () => {
               </Button>
             </div>
           </header>
+
+          {opponentType === 'ai' && (
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+              <div className="flex items-center gap-3 rounded-full border border-cyan-400/40 bg-black/40 px-4 py-2">
+                <span className="text-[0.6rem] uppercase tracking-[0.35em] text-cyan-200/80">Niveau IA</span>
+                <Select value={aiDifficulty} onValueChange={value => setAiDifficulty(value as AIDifficulty)}>
+                  <SelectTrigger className="h-8 w-[170px] rounded-full border-cyan-400/40 bg-black/60 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-100 focus:ring-cyan-400">
+                    <SelectValue placeholder="Sélectionner" />
+                  </SelectTrigger>
+                  <SelectContent className="border-cyan-400/40 bg-black/80 text-cyan-100">
+                    {Object.entries(AI_DIFFICULTY_LEVELS).map(([value, meta]) => (
+                      <SelectItem
+                        key={value}
+                        value={value}
+                        className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100 focus:bg-cyan-500/20 focus:text-white"
+                      >
+                        {meta.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Badge className="border-cyan-400/40 bg-cyan-500/10 text-[0.6rem] uppercase tracking-[0.35em] text-cyan-100">
+                Profondeur {aiSearchDepth}
+              </Badge>
+              <p className="max-w-xs text-right text-[0.7rem] text-cyan-200/70">
+                {aiDifficultyMeta.description}
+              </p>
+            </div>
+          )}
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-[0.2em] text-cyan-100/70">
             <span className="text-cyan-200/90">Règle active :</span>
