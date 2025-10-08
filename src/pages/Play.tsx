@@ -92,6 +92,17 @@ const clampRange = (value: number, min: number, max: number) => {
   return Math.min(max, Math.max(min, value));
 };
 
+const isCarnivorousPlantRule = (rule: ChessRule): boolean => {
+  const id = rule.ruleId.toLowerCase();
+  const name = rule.ruleName.toLowerCase();
+  const normalizedId = id.replace(/[^a-z0-9]/g, '');
+  const normalizedName = name.replace(/[^a-z0-9]/g, '');
+  return (
+    (normalizedId.includes('plante') && normalizedId.includes('carniv')) ||
+    (normalizedName.includes('plante') && normalizedName.includes('carniv'))
+  );
+};
+
 const createLocalCoachInsights = (
   state: GameState,
   trigger: 'initial' | 'auto' | 'manual',
@@ -657,8 +668,79 @@ const Play = () => {
     }
 
     const newBoard = ChessEngine.executeMove(state.board, move, state);
+
+    const carnivorousPlantActive = state.activeRules.some(rule => rule.isActive && isCarnivorousPlantRule(rule));
+    const plantCapturedPieces: ChessPiece[] = [];
+
+    if (carnivorousPlantActive) {
+      const movedPieceAfterMove = ChessEngine.getPieceAt(newBoard, move.to);
+
+      if (
+        selectedPiece.type === 'pawn' &&
+        movedPieceAfterMove &&
+        movedPieceAfterMove.color === state.currentPlayer &&
+        !movedPieceAfterMove.specialState?.carnivorousPlant?.active
+      ) {
+        const targetRow = movedPieceAfterMove.color === 'white' ? 1 : 6;
+        if (movedPieceAfterMove.position.row === targetRow) {
+          const transformedPiece: ChessPiece = {
+            ...movedPieceAfterMove,
+            specialState: {
+              ...(movedPieceAfterMove.specialState ?? {}),
+              carnivorousPlant: {
+                active: true,
+                transformedAtTurn: state.turnNumber + 1,
+              },
+            },
+          };
+          newBoard[targetRow][movedPieceAfterMove.position.col] = transformedPiece;
+        }
+      }
+
+      const survivorAfterPlantCheck = ChessEngine.getPieceAt(newBoard, move.to);
+      if (survivorAfterPlantCheck) {
+        const hostilePlants: ChessPiece[] = [];
+        for (let row = 0; row < 8; row++) {
+          for (let col = 0; col < 8; col++) {
+            const candidate = newBoard[row][col];
+            if (candidate?.specialState?.carnivorousPlant?.active) {
+              hostilePlants.push(candidate);
+            }
+          }
+        }
+
+        for (const plant of hostilePlants) {
+          if (plant.color === survivorAfterPlantCheck.color) continue;
+          const dRow = Math.abs(plant.position.row - survivorAfterPlantCheck.position.row);
+          const dCol = Math.abs(plant.position.col - survivorAfterPlantCheck.position.col);
+          if ((dRow !== 0 || dCol !== 0) && dRow <= 1 && dCol <= 1) {
+            const victim: ChessPiece = { ...survivorAfterPlantCheck };
+            plantCapturedPieces.push(victim);
+            newBoard[survivorAfterPlantCheck.position.row][survivorAfterPlantCheck.position.col] = null;
+            if (!move.specialCaptures) {
+              move.specialCaptures = [];
+            }
+            move.specialCaptures.push({
+              type: 'carnivorousPlant',
+              by: { ...plant.position },
+              piece: victim,
+            });
+            break;
+          }
+        }
+      }
+    }
+
     const updatedHistory = [...state.moveHistory, move];
-    const updatedCaptured = move.captured ? [...state.capturedPieces, move.captured] : [...state.capturedPieces];
+    let updatedCaptured = [...state.capturedPieces];
+    if (move.captured) {
+      updatedCaptured = [...updatedCaptured, move.captured];
+    }
+    if (plantCapturedPieces.length > 0) {
+      updatedCaptured = [...updatedCaptured, ...plantCapturedPieces];
+    }
+
+    const survivingPieceAfterMove = ChessEngine.getPieceAt(newBoard, move.to);
 
     let forcedMirror = state.forcedMirrorResponse;
     if (forcedMirror && forcedMirror.color === state.currentPlayer && selectedPiece.type === 'pawn' && selectedPiece.position.col === forcedMirror.file) {
@@ -758,8 +840,8 @@ const Play = () => {
       blindOpeningRevealed
     };
 
-    if (hasRule('preset_vip_magnus_10') && !move.captured) {
-      if (ChessEngine.isSquareAttacked(newBoard, move.to, opponentColor, evaluationState)) {
+    if (hasRule('preset_vip_magnus_10') && !move.captured && survivingPieceAfterMove) {
+      if (ChessEngine.isSquareAttacked(newBoard, survivingPieceAfterMove.position, opponentColor, evaluationState)) {
         vipTokens = { ...vipTokens, [state.currentPlayer]: vipTokens[state.currentPlayer] + 1 };
       }
     }
