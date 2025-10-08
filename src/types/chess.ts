@@ -87,7 +87,7 @@ export interface GameState {
   movesThisTurn: number;
   selectedPiece: ChessPiece | null;
   validMoves: Position[];
-  gameStatus: 'active' | 'check' | 'checkmate' | 'stalemate' | 'draw';
+  gameStatus: 'active' | 'check' | 'checkmate' | 'stalemate' | 'draw' | 'timeout';
   capturedPieces: ChessPiece[];
   moveHistory: ChessMove[];
   activeRules: ChessRule[];
