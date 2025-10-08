@@ -95,7 +95,7 @@ const SignUp = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -103,7 +103,7 @@ const SignUp = () => {
 
   if (user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md bg-card/80 backdrop-blur">
           <CardHeader className="text-center space-y-2">
             <CardTitle className="text-2xl">Vous êtes déjà connecté</CardTitle>
@@ -125,7 +125,7 @@ const SignUp = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-md bg-card/80 backdrop-blur">
         <CardHeader className="space-y-2 text-center">
           <CardTitle className="text-3xl font-bold bg-gradient-gold bg-clip-text text-transparent">
