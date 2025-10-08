@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -580,6 +579,10 @@ const Lobby = () => {
   const filteredPresetAnalyses = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     return presetAnalyses.filter(({ rule, issues }) => {
+      if (statusFilter !== 'all') {
+        return false;
+      }
+
       const ruleTags = new Set(rule.tags?.map(tag => tag.toLowerCase()) ?? []);
       const matchesTags = selectedTags.size === 0 || Array.from(selectedTags).every(tag => ruleTags.has(tag));
       if (!matchesTags) return false;
@@ -629,7 +632,27 @@ const Lobby = () => {
     selectedPieces,
     selectedTags,
     selectedTriggers,
+    statusFilter,
   ]);
+
+  const combinedRuleEntries = useMemo(() => {
+    const customEntries = filteredCustomRules.map(rule => ({
+      origin: 'custom' as const,
+      rule,
+      issues: ruleIssues[rule.ruleId] ?? [],
+    }));
+
+    const presetEntries = filteredPresetAnalyses.map(({ rule, issues }) => ({
+      origin: 'preset' as const,
+      rule,
+      issues,
+    }));
+
+    return [...customEntries, ...presetEntries];
+  }, [filteredCustomRules, filteredPresetAnalyses, ruleIssues]);
+
+  const totalFilteredRulesCount = combinedRuleEntries.length;
+  const totalAvailableRulesCount = customRules.length + allPresetRules.length;
 
   const toggleTagFilter = (tag: string) => {
     setSelectedTags(prev => {
@@ -1308,10 +1331,10 @@ const Lobby = () => {
               </div>
               {selectedTags.size > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  {selectedTags.size} tag(s) actif(s) · {filteredCustomRules.length + filteredPresetAnalyses.length} règle(s) correspondante(s)
-                </p>
-              )}
-            </div>
+              {selectedTags.size} tag(s) actif(s) · {totalFilteredRulesCount} règle(s) correspondante(s)
+            </p>
+          )}
+        </div>
           )}
         </div>
 
@@ -1445,74 +1468,65 @@ const Lobby = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="custom" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="custom">Mes Règles ({filteredCustomRules.length}/{customRules.length})</TabsTrigger>
-            <TabsTrigger value="preset">Règles Préinstallées ({filteredPresetAnalyses.length}/{allPresetRules.length})</TabsTrigger>
-          </TabsList>
+        <div className="w-full space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Lobby « Règles insolites »</h2>
+            <Badge variant="secondary">
+              {totalFilteredRulesCount}/{totalAvailableRulesCount} règle(s)
+            </Badge>
+          </div>
 
-          <TabsContent value="custom" className="mt-6">
-            {loading ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                Chargement de vos règles personnalisées...
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredCustomRules.map(rule => (
-                  <RuleCard
-                    key={rule.ruleId}
-                    rule={rule}
-                    onDelete={deleteRule}
-                    onToggle={toggleRuleStatus}
-                    issues={ruleIssues[rule.ruleId]}
-                  />
-                ))}
-                {filteredCustomRules.length === 0 && customRules.length > 0 && (
-                  <div className="col-span-full text-center py-12 text-muted-foreground">
-                    Aucune règle ne correspond aux tags sélectionnés.
-                  </div>
-                )}
-                {!authLoading && !user && (
-                  <div className="col-span-full text-center py-12 text-muted-foreground">
-                    Connectez-vous pour retrouver vos règles personnalisées.
-                  </div>
-                )}
-                {user && customRules.length === 0 && (
-                  <div className="col-span-full text-center py-12 text-muted-foreground">
-                    Aucune règle personnalisée. Créez-en une !
-                  </div>
-                )}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="preset" className="mt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredPresetAnalyses.map(({ rule, issues }) => (
-                <RuleCard
-                  key={rule.ruleId}
-                  rule={rule}
-                  showActions={false}
-                  issues={issues}
-                  selectable
-                  isSelected={selectedPresetRuleIds.has(rule.ruleId)}
-                  onSelectChange={selected => handlePresetSelection(rule.ruleId, selected)}
-                />
-              ))}
-              {filteredPresetAnalyses.length === 0 && (
-                <div className="col-span-full text-center py-12 text-muted-foreground">
-                  Aucun preset ne correspond aux tags sélectionnés.
-                </div>
-              )}
+          {loading && (
+            <div className="flex items-center justify-center rounded-lg border border-dashed border-border/60 bg-background/40 py-6 text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Chargement de vos règles personnalisées…
             </div>
-            {hasSelectedPresetRules && (
-              <div className="mt-4 text-sm text-muted-foreground">
-                {selectedPresetRuleIds.size} règle(s) préinstallée(s) sélectionnée(s).
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {combinedRuleEntries.map(entry => (
+              <RuleCard
+                key={entry.rule.ruleId}
+                rule={entry.rule}
+                onDelete={entry.origin === 'custom' ? deleteRule : undefined}
+                onToggle={entry.origin === 'custom' ? toggleRuleStatus : undefined}
+                showActions={entry.origin === 'custom'}
+                issues={entry.issues}
+                selectable={entry.origin === 'preset'}
+                isSelected={entry.origin === 'preset' ? selectedPresetRuleIds.has(entry.rule.ruleId) : false}
+                onSelectChange={selected => {
+                  if (entry.origin === 'preset') {
+                    handlePresetSelection(entry.rule.ruleId, selected);
+                  }
+                }}
+              />
+            ))}
+          </div>
+
+          {totalFilteredRulesCount === 0 && (
+            <div className="rounded-lg border border-border/60 bg-card/40 py-12 text-center text-muted-foreground">
+              Aucune règle ne correspond aux filtres appliqués.
+            </div>
+          )}
+
+          {!authLoading && !user && (
+            <p className="text-sm text-muted-foreground">
+              Connectez-vous pour retrouver et gérer vos règles personnalisées dans ce lobby.
+            </p>
+          )}
+
+          {user && customRules.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Vous n'avez pas encore de règle personnalisée. Créez-en une pour enrichir ce lobby !
+            </p>
+          )}
+
+          {hasSelectedPresetRules && (
+            <div className="text-sm text-muted-foreground">
+              {selectedPresetRuleIds.size} règle(s) préinstallée(s) sélectionnée(s).
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
