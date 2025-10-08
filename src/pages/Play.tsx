@@ -309,11 +309,16 @@ const Play = () => {
   const [showSettings, setShowSettings] = useState(false);
   const latestGameStateRef = useRef<GameState>(gameState);
   const lastAnalyzedMoveRef = useRef<number | null>(null);
+  const coachLoadingRef = useRef(false);
   const initialAnalysisRef = useRef(false);
 
   useEffect(() => {
     latestGameStateRef.current = gameState;
   }, [gameState]);
+
+  useEffect(() => {
+    coachLoadingRef.current = coachLoading;
+  }, [coachLoading]);
 
   const files = 'abcdefgh';
   const serializeBoardForAi = useCallback((board: (ChessPiece | null)[][]) => (
@@ -384,15 +389,18 @@ const Play = () => {
   }, []);
 
   const analyzeWithCoach = useCallback(async (trigger: 'initial' | 'auto' | 'manual') => {
-    if (coachLoading) return;
+    if (coachLoadingRef.current) return;
 
     const currentState = latestGameStateRef.current;
     const board = serializeBoardForAi(currentState.board);
     const moveHistory = currentState.moveHistory.map(formatMoveForAi);
     const activeRules = currentState.activeRules.map(rule => `${rule.ruleName}: ${rule.description}`);
+    const moveCount = currentState.moveHistory.length;
 
+    coachLoadingRef.current = true;
     setCoachLoading(true);
     setCoachError(null);
+    lastAnalyzedMoveRef.current = moveCount;
 
     try {
       const { data, error } = await supabase.functions.invoke<CoachInsightsResponse>('chess-insights', {
@@ -414,7 +422,6 @@ const Play = () => {
       if (data?.insights) {
         const normalized = normalizeCoachInsights(data.insights);
         setCoachInsights(normalized);
-        lastAnalyzedMoveRef.current = currentState.moveHistory.length;
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Erreur lors de la génération des insights';
@@ -425,11 +432,14 @@ const Play = () => {
         variant: 'destructive'
       });
     } finally {
+      coachLoadingRef.current = false;
       setCoachLoading(false);
     }
-  }, [formatMoveForAi, serializeBoardForAi, toast, coachLoading]);
+  }, [formatMoveForAi, serializeBoardForAi, toast]);
 
   useEffect(() => {
+    if (coachLoadingRef.current) return;
+
     if (!initialAnalysisRef.current) {
       initialAnalysisRef.current = true;
       analyzeWithCoach('initial');
