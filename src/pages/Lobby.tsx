@@ -31,6 +31,7 @@ import { analyzeRuleLogic, RuleAnalysisResult } from '@/lib/ruleValidation';
 import { useAuth } from '@/contexts/AuthContext';
 import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from '@/lib/customRuleMapper';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { TIME_CONTROL_SETTINGS, type TimeControlOption } from '@/types/timeControl';
 
 type StatusFilterValue = 'all' | 'active' | 'inactive';
 type IssueFilterValue = 'all' | 'withIssues' | 'withoutIssues';
@@ -86,6 +87,15 @@ const Lobby = () => {
   const [quickPlayOnlineLoading, setQuickPlayOnlineLoading] = useState(false);
   const [waitingDialogOpen, setWaitingDialogOpen] = useState(false);
   const [isQuickPlayOnline, setIsQuickPlayOnline] = useState(false);
+  const [selectedTimeControl, setSelectedTimeControl] = useState<TimeControlOption>('blitz');
+
+  const timeControlEntries = useMemo(
+    () => Object.entries(TIME_CONTROL_SETTINGS) as Array<[
+      TimeControlOption,
+      (typeof TIME_CONTROL_SETTINGS)[TimeControlOption],
+    ]>,
+    [],
+  );
 
   const ruleSelectionLocked = useMemo(
     () => activeLobby?.status === 'waiting',
@@ -858,7 +868,11 @@ const Lobby = () => {
     setPlayOptionsOpen(true);
   }, []);
 
-  const startQuickPlayGame = useCallback((entry: CombinedRuleEntry, mode: 'ai' | 'local') => {
+  const startQuickPlayGame = useCallback((
+    entry: CombinedRuleEntry,
+    mode: 'ai' | 'local',
+    timeControl: TimeControlOption,
+  ) => {
     const playerName = resolveUserDisplayName(user);
 
     if (entry.origin === 'custom') {
@@ -869,6 +883,7 @@ const Lobby = () => {
           presetRuleIds: [],
           opponentType: mode,
           playerName,
+          timeControl,
         },
       });
     } else {
@@ -878,6 +893,7 @@ const Lobby = () => {
           presetRuleIds: [entry.rule.ruleId],
           opponentType: mode,
           playerName,
+          timeControl,
         },
       });
     }
@@ -962,7 +978,7 @@ const Lobby = () => {
     if (!selectedQuickPlayEntry) return;
 
     if (mode === 'ai' || mode === 'local') {
-      startQuickPlayGame(selectedQuickPlayEntry, mode);
+      startQuickPlayGame(selectedQuickPlayEntry, mode, selectedTimeControl);
       setPlayOptionsOpen(false);
       setSelectedQuickPlayEntry(null);
       setIsQuickPlayOnline(false);
@@ -971,7 +987,7 @@ const Lobby = () => {
 
     setPlayOptionsOpen(false);
     void createQuickOnlineLobby(selectedQuickPlayEntry);
-  }, [createQuickOnlineLobby, selectedQuickPlayEntry, startQuickPlayGame]);
+  }, [createQuickOnlineLobby, selectedQuickPlayEntry, selectedTimeControl, startQuickPlayGame]);
 
   const startAiGame = () => {
     if (!selectedRuleInfo || !canStartGame) {
@@ -1690,7 +1706,31 @@ const Lobby = () => {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3">
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-white">Cadence de jeu</p>
+            <p className="text-xs text-muted-foreground">
+              Choisissez le rythme avant de lancer votre partie.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {timeControlEntries.map(([value, meta]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={selectedTimeControl === value ? 'gold' : 'outline'}
+                  className="h-auto justify-start gap-2 py-3"
+                  onClick={() => setSelectedTimeControl(value)}
+                >
+                  <div className="flex flex-col items-start text-left">
+                    <span className="text-sm font-semibold text-white">{meta.label}</span>
+                    <span className="text-xs text-muted-foreground">{meta.description}</span>
+                  </div>
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3">
           <Button
             variant="outline"
             className="justify-start gap-3"
@@ -1720,6 +1760,7 @@ const Lobby = () => {
             )}
             Jouer en ligne
           </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

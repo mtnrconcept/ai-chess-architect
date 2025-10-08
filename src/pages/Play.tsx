@@ -16,6 +16,7 @@ import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors'
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
+import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
 
 const createChatMessageId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -100,6 +101,7 @@ const Play = () => {
     lobbyName?: string;
     opponentName?: string;
     playerName?: string;
+    timeControl?: TimeControlOption;
   } | undefined;
 
   const opponentType = locationState?.opponentType === 'player'
@@ -112,6 +114,12 @@ const Play = () => {
   const lobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
   const opponentName = typeof locationState?.opponentName === 'string' ? locationState.opponentName : undefined;
   const playerName = typeof locationState?.playerName === 'string' ? locationState.playerName : undefined;
+
+  const timeControl: TimeControlOption = isTimeControlOption(locationState?.timeControl)
+    ? locationState.timeControl
+    : 'untimed';
+  const timeControlSettings = TIME_CONTROL_SETTINGS[timeControl];
+  const initialTimeSeconds = timeControlSettings.initialSeconds;
 
   const { toast } = useToast();
 
@@ -178,6 +186,10 @@ const Play = () => {
       blindOpeningRevealed: { white: false, black: false }
     };
   });
+  const [timeRemaining, setTimeRemaining] = useState(() => ({
+    white: initialTimeSeconds,
+    black: initialTimeSeconds,
+  }));
 
   const [coachMessages, setCoachMessages] = useState<CoachChatMessage[]>(() => [createWelcomeMessage()]);
   const [coachLoading, setCoachLoading] = useState(false);
@@ -194,10 +206,68 @@ const Play = () => {
   const findBestAIMoveRef = useRef<AiMoveResolver | null>(null);
   const coachMessagesRef = useRef<CoachChatMessage[]>(coachMessages);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastTickRef = useRef<number | null>(null);
+  const activePlayerRef = useRef<PieceColor>(gameState.currentPlayer);
 
   useEffect(() => {
     coachMessagesRef.current = coachMessages;
   }, [coachMessages]);
+
+  useEffect(() => {
+    if (timeControl === 'untimed') {
+      lastTickRef.current = null;
+      return;
+    }
+    if (!['active', 'check'].includes(gameState.gameStatus)) {
+      lastTickRef.current = null;
+    }
+  }, [gameState.gameStatus, timeControl]);
+
+  useEffect(() => {
+    if (timeControl === 'untimed') return;
+    if (!['active', 'check'].includes(gameState.gameStatus)) return;
+    lastTickRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  }, [gameState.currentPlayer, gameState.gameStatus, timeControl]);
+
+  useEffect(() => {
+    if (timeControl === 'untimed') {
+      return;
+    }
+    if (!['active', 'check'].includes(gameState.gameStatus)) {
+      return;
+    }
+
+    if (lastTickRef.current === null) {
+      lastTickRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
+    const interval = window.setInterval(() => {
+      const lastTick = lastTickRef.current;
+      if (lastTick === null) return;
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const elapsedSeconds = (now - lastTick) / 1000;
+      lastTickRef.current = now;
+
+      setTimeRemaining(prev => {
+        const activeColor = activePlayerRef.current;
+        const currentValue = prev[activeColor];
+        if (currentValue <= 0) {
+          return prev;
+        }
+
+        const nextValue = Math.max(0, currentValue - elapsedSeconds);
+        if (nextValue === currentValue) {
+          return prev;
+        }
+
+        return { ...prev, [activeColor]: nextValue };
+      });
+    }, 200);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [gameState.gameStatus, timeControl]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -206,6 +276,13 @@ const Play = () => {
   }, [aiDifficulty]);
 
   useEffect(() => { latestGameStateRef.current = gameState; }, [gameState]);
+  useEffect(() => {
+    activePlayerRef.current = gameState.currentPlayer;
+  }, [gameState.currentPlayer]);
+  useEffect(() => {
+    setTimeRemaining({ white: initialTimeSeconds, black: initialTimeSeconds });
+    lastTickRef.current = null;
+  }, [initialTimeSeconds]);
   useEffect(() => () => {
     mountedRef.current = false;
     inFlightRef.current?.abort();
@@ -238,6 +315,23 @@ const Play = () => {
     const rank = 8 - position.row;
     return `${file}${rank}`;
   }, []);
+
+  const formatClock = useCallback((seconds: number) => {
+    if (timeControl === 'untimed') {
+      return '∞';
+    }
+
+    const safeSeconds = Math.max(0, seconds);
+    const minutes = Math.floor(safeSeconds / 60);
+    const remainingSeconds = Math.floor(safeSeconds % 60);
+
+    if (safeSeconds < 60) {
+      const tenths = Math.floor((safeSeconds - Math.floor(safeSeconds)) * 10);
+      return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}.${tenths}`;
+    }
+
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  }, [timeControl]);
 
   // NOTE: capture au bon endroit (e2xe4), promotion après (=Q)
   const formatMoveForAi = useCallback((move: ChessMove) => {
@@ -925,6 +1019,8 @@ const Play = () => {
       secretSetupApplied: false,
       blindOpeningRevealed: { white: false, black: false }
     });
+    setTimeRemaining({ white: initialTimeSeconds, black: initialTimeSeconds });
+    lastTickRef.current = null;
     // on permet une nouvelle analyse initiale
     initialAnalysisRef.current = false;
     lastDiscussedMoveRef.current = null;
@@ -965,6 +1061,9 @@ const Play = () => {
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Badge className="border-cyan-500/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
                 Mode : {opponentType === 'ai' ? 'IA' : opponentType === 'local' ? 'Local' : 'Multijoueur en ligne'}
+              </Badge>
+              <Badge className="border-cyan-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
+                Temps : {timeControl === 'untimed' ? 'Sans limite' : timeControlSettings.label}
               </Badge>
               {opponentType === 'player' && lobbyRole && (
                 <Badge className="border-fuchsia-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-fuchsia-200">
@@ -1059,9 +1158,37 @@ const Play = () => {
                 <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">HUD gauche</p>
                 <h2 className="mt-2 text-xl font-semibold text-cyan-100">Tiers Controls</h2>
 
-                <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-cyan-500/10 px-4 py-3 text-center shadow-[0_0_25px_rgba(56,189,248,0.35)]">
-                  <p className="text-[0.65rem] uppercase tracking-[0.45em] text-cyan-200/80">Chrono IA</p>
-                  <p className="mt-2 text-3xl font-bold text-white">13:5 <span className="text-sm font-semibold text-cyan-200/70">+2+5</span></p>
+                <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-cyan-500/10 px-4 py-4 text-center shadow-[0_0_25px_rgba(56,189,248,0.35)]">
+                  <p className="text-[0.65rem] uppercase tracking-[0.45em] text-cyan-200/80">Contrôle du temps</p>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {timeControl === 'untimed' ? 'Sans limite' : timeControlSettings.label}
+                  </p>
+                  {timeControl === 'untimed' ? (
+                    <p className="mt-3 text-xs text-cyan-100/70">{timeControlSettings.description}</p>
+                  ) : (
+                    <div className="mt-4 space-y-2 text-left">
+                      {(['white', 'black'] as PieceColor[]).map(color => {
+                        const isActive =
+                          gameState.currentPlayer === color && ['active', 'check'].includes(gameState.gameStatus);
+                        return (
+                          <div
+                            key={color}
+                            className={cn(
+                              'flex items-center justify-between rounded-xl border border-cyan-300/20 px-3 py-2 text-sm text-cyan-100 transition-all',
+                              isActive
+                                ? 'bg-cyan-500/20 text-white shadow-[0_0_18px_rgba(34,211,238,0.45)]'
+                                : 'bg-black/30'
+                            )}
+                          >
+                            <span className="uppercase tracking-[0.3em]">
+                              {color === 'white' ? 'Blancs' : 'Noirs'}
+                            </span>
+                            <span className="text-lg font-semibold">{formatClock(timeRemaining[color])}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6 space-y-3">
