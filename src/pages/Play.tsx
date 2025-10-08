@@ -11,9 +11,212 @@ import { analyzeRuleLogic } from '@/lib/ruleValidation';
 import { getCategoryColor } from '@/lib/ruleCategories';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { CoachInsights, CoachInsightsResponse } from '@/types/coach';
+import {
+  AiSettingSuggestion,
+  AttentionLevel,
+  CoachEvaluation,
+  CoachInsights,
+  CoachInsightsResponse,
+  EloEvaluation,
+  OpeningInsight,
+  ProgressionInsight,
+  SuccessRate,
+  TacticalReaction
+} from '@/types/coach';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+
+const DEFAULT_COACH_GRAPH_POINTS = [25, 45, 65, 85] as const;
+
+const clampNumber = (value: number, min = 0, max = 100) => {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+};
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
+const ensureString = (value: unknown, fallback = ''): string => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+  if (value == null) {
+    return fallback;
+  }
+  const converted = String(value).trim();
+  return converted.length > 0 ? converted : fallback;
+};
+
+const ensureStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(item => ensureString(item))
+    .filter((item): item is string => item.length > 0);
+};
+
+const ensureNumberArray = (value: unknown): number[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(item => toFiniteNumber(item))
+    .filter((item): item is number => item != null)
+    .map(item => clampNumber(item));
+};
+
+const normalizeTrend = (value: unknown): 'up' | 'down' | 'stable' => {
+  if (typeof value !== 'string') {
+    return 'stable';
+  }
+  const normalized = value.toLowerCase();
+  if (normalized.includes('up') || normalized.includes('hausse') || normalized.includes('posit')) {
+    return 'up';
+  }
+  if (
+    normalized.includes('down') ||
+    normalized.includes('baisse') ||
+    normalized.includes('nég') ||
+    normalized.includes('neg')
+  ) {
+    return 'down';
+  }
+  return 'stable';
+};
+
+const normalizeGraphPoints = (points: unknown): number[] => {
+  const sanitized = ensureNumberArray(points)
+    .map(point => Math.round(point))
+    .slice(-6);
+  if (sanitized.length < 2) {
+    return [...DEFAULT_COACH_GRAPH_POINTS];
+  }
+
+  if (sanitized.length < 4) {
+    return [...DEFAULT_COACH_GRAPH_POINTS];
+  }
+
+  return sanitized.reduce<number[]>((acc, point, index) => {
+    const clamped = clampNumber(point);
+    if (index === 0) {
+      acc.push(clamped);
+      return acc;
+    }
+    const previous = acc[index - 1];
+    const adjusted = clamped < previous ? previous : clamped;
+    acc.push(adjusted);
+    return acc;
+  }, []);
+};
+
+const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined): CoachInsights => {
+  const evaluationRaw = (raw?.evaluation ?? {}) as Partial<CoachEvaluation>;
+  const successRateRaw = (raw?.successRate ?? {}) as Partial<SuccessRate>;
+  const progressionRaw = (raw?.progression ?? {}) as Partial<ProgressionInsight>;
+  const openingRaw = (raw?.opening ?? {}) as Partial<OpeningInsight>;
+  const eloRaw = (raw?.eloEvaluation ?? {}) as Partial<EloEvaluation>;
+  const attentionLevelsRaw = Array.isArray(raw?.attentionLevels)
+    ? (raw.attentionLevels as Partial<AttentionLevel>[])
+    : [];
+  const tacticalReactionsRaw = Array.isArray(raw?.tacticalReactions)
+    ? (raw.tacticalReactions as Partial<TacticalReaction>[])
+    : [];
+  const aiSettingsRaw = Array.isArray(raw?.aiSettings)
+    ? (raw.aiSettings as Partial<AiSettingSuggestion>[])
+    : [];
+
+  const evaluation: CoachEvaluation = {
+    score: ensureString(evaluationRaw?.score, '—'),
+    trend: normalizeTrend(evaluationRaw?.trend),
+    bestMoves: ensureStringArray(evaluationRaw?.bestMoves),
+    threats: ensureStringArray(evaluationRaw?.threats),
+    recommendation: ensureString(evaluationRaw?.recommendation, "L'analyse détaillée sera disponible après quelques coups."),
+  };
+
+  const successPercentage = clampNumber(toFiniteNumber(successRateRaw?.percentage) ?? 0);
+  const successRate: SuccessRate = {
+    percentage: successPercentage,
+    trend: normalizeTrend(successRateRaw?.trend),
+    comment: ensureString(successRateRaw?.comment, ''),
+    keyFactors: ensureStringArray(successRateRaw?.keyFactors),
+  };
+
+  const progressionPoints = normalizeGraphPoints(progressionRaw?.graphPoints);
+  const lastProgressPoint = progressionPoints[progressionPoints.length - 1] ?? 0;
+  const progression: ProgressionInsight = {
+    percentage: clampNumber(toFiniteNumber(progressionRaw?.percentage) ?? lastProgressPoint),
+    summary: ensureString(progressionRaw?.summary, ''),
+    graphPoints: progressionPoints,
+    nextActions: ensureStringArray(progressionRaw?.nextActions),
+  };
+
+  const eloEstimate = toFiniteNumber(eloRaw?.estimate);
+  const eloEvaluation: EloEvaluation = {
+    estimate: eloEstimate != null ? Math.round(eloEstimate) : 1500,
+    range: ensureString(eloRaw?.range, '1500-1600'),
+    comment: ensureString(eloRaw?.comment, "L'évaluation Elo sera affinée après plus de coups."),
+    confidence: ensureString(eloRaw?.confidence, 'moyenne'),
+    improvementTips: ensureStringArray(eloRaw?.improvementTips),
+  };
+
+  const opening: OpeningInsight = {
+    name: ensureString(openingRaw?.name, 'Ouverture en cours de détection'),
+    variation: ensureString(openingRaw?.variation, 'Variation à identifier'),
+    phase: ensureString(openingRaw?.phase, 'ouverture'),
+    plan: ensureString(openingRaw?.plan, 'Suivez vos principes de développement en attendant une analyse complète.'),
+    confidence: ensureString(openingRaw?.confidence, 'moyenne'),
+  };
+
+  const attentionLevels: AttentionLevel[] = attentionLevelsRaw
+    .map(level => ({
+      label: ensureString(level?.label, ''),
+      status: ensureString(level?.status, ''),
+      detail: ensureString(level?.detail, ''),
+    }))
+    .filter(level => level.label.length > 0 || level.detail.length > 0);
+
+  const tacticalReactions: TacticalReaction[] = tacticalReactionsRaw
+    .map(reaction => ({
+      pattern: ensureString(reaction?.pattern, ''),
+      advice: ensureString(reaction?.advice, ''),
+    }))
+    .filter(reaction => reaction.pattern.length > 0 || reaction.advice.length > 0);
+
+  const aiSettings: AiSettingSuggestion[] = aiSettingsRaw
+    .map(setting => ({
+      label: ensureString(setting?.label, ''),
+      current: ensureString(setting?.current, '—'),
+      suggestion: ensureString(setting?.suggestion, ''),
+    }))
+    .filter(setting => setting.label.length > 0 || setting.suggestion.length > 0);
+
+  return {
+    analysisSummary: ensureString(raw?.analysisSummary, 'Lancez l’analyse pour obtenir des recommandations personnalisées.'),
+    evaluation,
+    attentionLevels,
+    tacticalReactions,
+    eloEvaluation,
+    successRate,
+    progression,
+    opening,
+    explainLikeImFive: ensureString(raw?.explainLikeImFive, "L’explication simplifiée sera disponible après l’analyse."),
+    aiSettings,
+  };
+};
 
 const Play = () => {
   const navigate = useNavigate();
@@ -161,7 +364,12 @@ const Play = () => {
         color: 'text-emerald-300'
       };
     }
-    if (normalized.includes('down') || normalized.includes('baisse') || normalized.includes('nég')) {
+    if (
+      normalized.includes('down') ||
+      normalized.includes('baisse') ||
+      normalized.includes('nég') ||
+      normalized.includes('neg')
+    ) {
       return {
         icon: <TrendingDown className="h-4 w-4 text-rose-300" />,
         label: 'Tendance négative',
@@ -204,7 +412,8 @@ const Play = () => {
       }
 
       if (data?.insights) {
-        setCoachInsights(data.insights);
+        const normalized = normalizeCoachInsights(data.insights);
+        setCoachInsights(normalized);
         lastAnalyzedMoveRef.current = currentState.moveHistory.length;
       }
     } catch (error: unknown) {
@@ -673,7 +882,7 @@ const Play = () => {
     if (coachInsights?.progression?.graphPoints?.length) {
       return coachInsights.progression.graphPoints;
     }
-    return [25, 45, 65, 85];
+    return [...DEFAULT_COACH_GRAPH_POINTS];
   }, [coachInsights]);
 
   const coachGraphPath = useMemo(() => {
