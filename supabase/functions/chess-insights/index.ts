@@ -1,5 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
 type RequestPayload = {
   board: string;
   moveHistory: string[];
@@ -10,28 +8,36 @@ type RequestPayload = {
   trigger: 'initial' | 'auto' | 'manual';
 };
 
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
 };
 
-serve(async (req) => {
+function json(body: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers ?? {});
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  for (const [key, value] of Object.entries(corsHeaders)) {
+    headers.set(key, value);
+  }
+  return new Response(JSON.stringify(body), { ...init, headers });
+}
+
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      status: 200,
-      headers: corsHeaders,
-    });
+    return new Response("ok", { status: 204, headers: corsHeaders });
   }
 
   try {
-    const payload = await req.json() as RequestPayload;
+    if (req.method !== "POST") {
+      return json({ error: "Method not allowed" }, { status: 405 });
+    }
+
+    const payload = await req.json().catch(() => null) as RequestPayload | null;
 
     if (!payload || !payload.board) {
-      return new Response(
-        JSON.stringify({ error: "Game state is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "Game state is required" }, { status: 400 });
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -119,10 +125,7 @@ Contraintes importantes :
       const errorText = await response.text();
       console.error("AI Gateway error:", response.status, errorText);
       if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 });
       }
       throw new Error(`AI Gateway error: ${response.status}`);
     }
@@ -142,16 +145,10 @@ Contraintes importantes :
         .filter((point: number) => Number.isFinite(point));
     }
 
-    return new Response(
-      JSON.stringify({ insights }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ insights });
   } catch (error) {
     console.error("Error in chess-insights:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ error: errorMessage }, { status: 500 });
   }
 });
