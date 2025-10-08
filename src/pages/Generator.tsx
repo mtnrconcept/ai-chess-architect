@@ -20,7 +20,7 @@ const Generator = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -28,7 +28,7 @@ const Generator = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-background p-4 flex items-center justify-center">
+      <div className="min-h-screen p-4 flex items-center justify-center">
         <Card className="max-w-xl w-full bg-card/80 backdrop-blur">
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-3xl font-bold">Connexion requise</CardTitle>
@@ -145,7 +145,7 @@ const Generator = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen p-4">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

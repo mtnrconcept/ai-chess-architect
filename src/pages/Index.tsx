@@ -7,7 +7,7 @@ const Index = () => {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen flex flex-col">
       {/* Hero Section */}
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="max-w-5xl w-full text-center space-y-8">
