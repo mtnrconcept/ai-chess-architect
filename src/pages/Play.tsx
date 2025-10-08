@@ -29,22 +29,17 @@ import { cn } from '@/lib/utils';
 
 const DEFAULT_COACH_GRAPH_POINTS = [25, 45, 65, 85] as const;
 
+// --- petites utilitaires robustes ---
 const clampNumber = (value: number, min = 0, max = 100) => {
-  if (!Number.isFinite(value)) {
-    return min;
-  }
+  if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
 };
 
 const toFiniteNumber = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
     const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
+    if (Number.isFinite(parsed)) return parsed;
   }
   return null;
 };
@@ -54,26 +49,18 @@ const ensureString = (value: unknown, fallback = ''): string => {
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : fallback;
   }
-  if (value == null) {
-    return fallback;
-  }
+  if (value == null) return fallback;
   const converted = String(value).trim();
   return converted.length > 0 ? converted : fallback;
 };
 
 const ensureStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map(item => ensureString(item))
-    .filter((item): item is string => item.length > 0);
+  if (!Array.isArray(value)) return [];
+  return value.map(item => ensureString(item)).filter((item): item is string => item.length > 0);
 };
 
 const ensureNumberArray = (value: unknown): number[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
+  if (!Array.isArray(value)) return [];
   return value
     .map(item => toFiniteNumber(item))
     .filter((item): item is number => item != null)
@@ -81,48 +68,27 @@ const ensureNumberArray = (value: unknown): number[] => {
 };
 
 const normalizeTrend = (value: unknown): 'up' | 'down' | 'stable' => {
-  if (typeof value !== 'string') {
-    return 'stable';
-  }
+  if (typeof value !== 'string') return 'stable';
   const normalized = value.toLowerCase();
-  if (normalized.includes('up') || normalized.includes('hausse') || normalized.includes('posit')) {
-    return 'up';
-  }
-  if (
-    normalized.includes('down') ||
-    normalized.includes('baisse') ||
-    normalized.includes('nég') ||
-    normalized.includes('neg')
-  ) {
-    return 'down';
-  }
+  if (normalized.includes('up') || normalized.includes('hausse') || normalized.includes('posit')) return 'up';
+  if (normalized.includes('down') || normalized.includes('baisse') || normalized.includes('nég') || normalized.includes('neg')) return 'down';
   return 'stable';
 };
 
 const normalizeGraphPoints = (points: unknown): number[] => {
-  const sanitized = ensureNumberArray(points)
-    .map(point => Math.round(point))
-    .slice(-6);
-  if (sanitized.length < 2) {
-    return [...DEFAULT_COACH_GRAPH_POINTS];
-  }
-
-  if (sanitized.length < 4) {
-    return [...DEFAULT_COACH_GRAPH_POINTS];
-  }
-
+  const sanitized = ensureNumberArray(points).map(point => Math.round(point)).slice(-6);
+  if (sanitized.length < 4) return [...DEFAULT_COACH_GRAPH_POINTS];
   return sanitized.reduce<number[]>((acc, point, index) => {
     const clamped = clampNumber(point);
-    if (index === 0) {
-      acc.push(clamped);
-      return acc;
-    }
+    if (index === 0) { acc.push(clamped); return acc; }
     const previous = acc[index - 1];
-    const adjusted = clamped < previous ? previous : clamped;
-    acc.push(adjusted);
+    acc.push(clamped < previous ? previous : clamped);
     return acc;
   }, []);
 };
+
+// --- constantes stables hors composant ---
+const FILES = 'abcdefgh';
 
 const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined): CoachInsights => {
   const evaluationRaw = (raw?.evaluation ?? {}) as Partial<CoachEvaluation>;
@@ -130,22 +96,16 @@ const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined):
   const progressionRaw = (raw?.progression ?? {}) as Partial<ProgressionInsight>;
   const openingRaw = (raw?.opening ?? {}) as Partial<OpeningInsight>;
   const eloRaw = (raw?.eloEvaluation ?? {}) as Partial<EloEvaluation>;
-  const attentionLevelsRaw = Array.isArray(raw?.attentionLevels)
-    ? (raw.attentionLevels as Partial<AttentionLevel>[])
-    : [];
-  const tacticalReactionsRaw = Array.isArray(raw?.tacticalReactions)
-    ? (raw.tacticalReactions as Partial<TacticalReaction>[])
-    : [];
-  const aiSettingsRaw = Array.isArray(raw?.aiSettings)
-    ? (raw.aiSettings as Partial<AiSettingSuggestion>[])
-    : [];
+  const attentionLevelsRaw = Array.isArray(raw?.attentionLevels) ? (raw.attentionLevels as Partial<AttentionLevel>[]) : [];
+  const tacticalReactionsRaw = Array.isArray(raw?.tacticalReactions) ? (raw.tacticalReactions as Partial<TacticalReaction>[]) : [];
+  const aiSettingsRaw = Array.isArray(raw?.aiSettings) ? (raw.aiSettings as Partial<AiSettingSuggestion>[]) : [];
 
   const evaluation: CoachEvaluation = {
     score: ensureString(evaluationRaw?.score, '—'),
     trend: normalizeTrend(evaluationRaw?.trend),
     bestMoves: ensureStringArray(evaluationRaw?.bestMoves),
     threats: ensureStringArray(evaluationRaw?.threats),
-    recommendation: ensureString(evaluationRaw?.recommendation, "L'analyse détaillée sera disponible après quelques coups."),
+    recommendation: ensureString(evaluationRaw?.recommendation, "L'analyse détaillée sera disponible après quelques coups.")
   };
 
   const successPercentage = clampNumber(toFiniteNumber(successRateRaw?.percentage) ?? 0);
@@ -153,7 +113,7 @@ const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined):
     percentage: successPercentage,
     trend: normalizeTrend(successRateRaw?.trend),
     comment: ensureString(successRateRaw?.comment, ''),
-    keyFactors: ensureStringArray(successRateRaw?.keyFactors),
+    keyFactors: ensureStringArray(successRateRaw?.keyFactors)
   };
 
   const progressionPoints = normalizeGraphPoints(progressionRaw?.graphPoints);
@@ -162,7 +122,7 @@ const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined):
     percentage: clampNumber(toFiniteNumber(progressionRaw?.percentage) ?? lastProgressPoint),
     summary: ensureString(progressionRaw?.summary, ''),
     graphPoints: progressionPoints,
-    nextActions: ensureStringArray(progressionRaw?.nextActions),
+    nextActions: ensureStringArray(progressionRaw?.nextActions)
   };
 
   const eloEstimate = toFiniteNumber(eloRaw?.estimate);
@@ -171,7 +131,7 @@ const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined):
     range: ensureString(eloRaw?.range, '1500-1600'),
     comment: ensureString(eloRaw?.comment, "L'évaluation Elo sera affinée après plus de coups."),
     confidence: ensureString(eloRaw?.confidence, 'moyenne'),
-    improvementTips: ensureStringArray(eloRaw?.improvementTips),
+    improvementTips: ensureStringArray(eloRaw?.improvementTips)
   };
 
   const opening: OpeningInsight = {
@@ -179,30 +139,19 @@ const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined):
     variation: ensureString(openingRaw?.variation, 'Variation à identifier'),
     phase: ensureString(openingRaw?.phase, 'ouverture'),
     plan: ensureString(openingRaw?.plan, 'Suivez vos principes de développement en attendant une analyse complète.'),
-    confidence: ensureString(openingRaw?.confidence, 'moyenne'),
+    confidence: ensureString(openingRaw?.confidence, 'moyenne')
   };
 
   const attentionLevels: AttentionLevel[] = attentionLevelsRaw
-    .map(level => ({
-      label: ensureString(level?.label, ''),
-      status: ensureString(level?.status, ''),
-      detail: ensureString(level?.detail, ''),
-    }))
+    .map(level => ({ label: ensureString(level?.label, ''), status: ensureString(level?.status, ''), detail: ensureString(level?.detail, '') }))
     .filter(level => level.label.length > 0 || level.detail.length > 0);
 
   const tacticalReactions: TacticalReaction[] = tacticalReactionsRaw
-    .map(reaction => ({
-      pattern: ensureString(reaction?.pattern, ''),
-      advice: ensureString(reaction?.advice, ''),
-    }))
+    .map(reaction => ({ pattern: ensureString(reaction?.pattern, ''), advice: ensureString(reaction?.advice, '') }))
     .filter(reaction => reaction.pattern.length > 0 || reaction.advice.length > 0);
 
   const aiSettings: AiSettingSuggestion[] = aiSettingsRaw
-    .map(setting => ({
-      label: ensureString(setting?.label, ''),
-      current: ensureString(setting?.current, '—'),
-      suggestion: ensureString(setting?.suggestion, ''),
-    }))
+    .map(setting => ({ label: ensureString(setting?.label, ''), current: ensureString(setting?.current, '—'), suggestion: ensureString(setting?.suggestion, '') }))
     .filter(setting => setting.label.length > 0 || setting.suggestion.length > 0);
 
   return {
@@ -215,7 +164,7 @@ const normalizeCoachInsights = (raw: Partial<CoachInsights> | null | undefined):
     progression,
     opening,
     explainLikeImFive: ensureString(raw?.explainLikeImFive, "L’explication simplifiée sera disponible après l’analyse."),
-    aiSettings,
+    aiSettings
   };
 };
 
@@ -236,9 +185,7 @@ const Play = () => {
 
   const opponentType = locationState?.opponentType === 'player' ? 'player' : 'ai';
   const lobbyId = typeof locationState?.lobbyId === 'string' ? locationState.lobbyId : undefined;
-  const lobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent'
-    ? locationState.role
-    : undefined;
+  const lobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent' ? locationState.role : undefined;
   const lobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
   const opponentName = typeof locationState?.opponentName === 'string' ? locationState.opponentName : undefined;
   const playerName = typeof locationState?.playerName === 'string' ? locationState.playerName : undefined;
@@ -247,22 +194,16 @@ const Play = () => {
 
   const rawCustomRules = useMemo(() => {
     const custom = locationState?.customRules;
-    if (!Array.isArray(custom)) return [] as ChessRule[];
-    return custom;
-  }, [locationState?.customRules]);
+    return Array.isArray(custom) ? (custom as ChessRule[]) : ([] as ChessRule[]);
+  }, [locationState]);
 
   const initialPresetRuleIds = useMemo(() => {
     const preset = locationState?.presetRuleIds;
     if (!Array.isArray(preset)) return [] as string[];
-    return preset.filter(
-      (ruleId): ruleId is string => typeof ruleId === 'string' && ruleId.length > 0
-    );
-  }, [locationState?.presetRuleIds]);
+    return preset.filter((ruleId): ruleId is string => typeof ruleId === 'string' && ruleId.length > 0);
+  }, [locationState]);
 
-  const analyzedCustomRules = useMemo(
-    () => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule),
-    [rawCustomRules]
-  );
+  const analyzedCustomRules = useMemo(() => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule), [rawCustomRules]);
 
   const [customRules, setCustomRules] = useState<ChessRule[]>(analyzedCustomRules);
   const activePresetRule = useMemo(() => {
@@ -270,11 +211,10 @@ const Play = () => {
     const [firstRuleId] = initialPresetRuleIds;
     return allPresetRules.find(rule => rule.ruleId === firstRuleId) ?? null;
   }, [initialPresetRuleIds]);
-  const appliedPresetRuleIds = useMemo(
-    () => new Set(initialPresetRuleIds),
-    [initialPresetRuleIds]
-  );
+  const appliedPresetRuleIds = useMemo(() => new Set(initialPresetRuleIds), [initialPresetRuleIds]);
+
   const selectionTimestampRef = useRef<number | null>(null);
+
   const [gameState, setGameState] = useState<GameState>(() => {
     const initialBoard = ChessEngine.initializeBoard();
     return {
@@ -308,20 +248,18 @@ const Play = () => {
   const [coachError, setCoachError] = useState<string | null>(null);
   const [showExplain, setShowExplain] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+
+  // --- refs utilitaires ---
   const latestGameStateRef = useRef<GameState>(gameState);
   const lastAnalyzedMoveRef = useRef<number | null>(null);
-  const coachLoadingRef = useRef(false);
+  const inFlightRef = useRef<AbortController | null>(null);
   const initialAnalysisRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    latestGameStateRef.current = gameState;
-  }, [gameState]);
+  useEffect(() => { latestGameStateRef.current = gameState; }, [gameState]);
+  useEffect(() => () => { mountedRef.current = false; inFlightRef.current?.abort(); }, []);
 
-  useEffect(() => {
-    coachLoadingRef.current = coachLoading;
-  }, [coachLoading]);
-
-  const files = 'abcdefgh';
+  // --- sérialisation pour l'IA ---
   const serializeBoardForAi = useCallback((board: (ChessPiece | null)[][]) => (
     board
       .map(row =>
@@ -340,17 +278,17 @@ const Play = () => {
   ), []);
 
   const positionToNotation = useCallback((position: Position) => {
-    const file = files[position.col] ?? '?';
+    const file = FILES[position.col] ?? '?';
     const rank = 8 - position.row;
     return `${file}${rank}`;
-  }, [files]);
+  }, []);
 
+  // NOTE: capture au bon endroit (e2xe4), promotion après (=Q)
   const formatMoveForAi = useCallback((move: ChessMove) => {
-    const base = `${positionToNotation(move.from)}-${positionToNotation(move.to)}`;
-    const promotion = move.promotion ? `=${move.promotion.toUpperCase()}` : '';
-    const capture = move.captured ? 'x' : '';
+    const sep = move.captured ? 'x' : '-';
+    const promo = move.promotion ? `=${String(move.promotion).toUpperCase()}` : '';
     const special = move.isCastling ? ' (roque)' : move.isEnPassant ? ' (prise en passant)' : '';
-    return `${base}${capture}${promotion}${special}`;
+    return `${positionToNotation(move.from)}${sep}${positionToNotation(move.to)}${promo}${special}`;
   }, [positionToNotation]);
 
   const statusToValue = useCallback((status: string) => {
@@ -364,33 +302,20 @@ const Play = () => {
   const getTrendInfo = useCallback((trend?: string) => {
     const normalized = trend?.toLowerCase() ?? '';
     if (normalized.includes('up') || normalized.includes('hausse') || normalized.includes('posit')) {
-      return {
-        icon: <TrendingUp className="h-4 w-4 text-emerald-300" />,
-        label: 'Tendance positive',
-        color: 'text-emerald-300'
-      };
+      return { icon: <TrendingUp className="h-4 w-4 text-emerald-300" />, label: 'Tendance positive', color: 'text-emerald-300' };
     }
-    if (
-      normalized.includes('down') ||
-      normalized.includes('baisse') ||
-      normalized.includes('nég') ||
-      normalized.includes('neg')
-    ) {
-      return {
-        icon: <TrendingDown className="h-4 w-4 text-rose-300" />,
-        label: 'Tendance négative',
-        color: 'text-rose-300'
-      };
+    if (normalized.includes('down') || normalized.includes('baisse') || normalized.includes('nég') || normalized.includes('neg')) {
+      return { icon: <TrendingDown className="h-4 w-4 text-rose-300" />, label: 'Tendance négative', color: 'text-rose-300' };
     }
-    return {
-      icon: <Minus className="h-4 w-4 text-cyan-200" />,
-      label: 'Stable',
-      color: 'text-cyan-200'
-    };
+    return { icon: <Minus className="h-4 w-4 text-cyan-200" />, label: 'Stable', color: 'text-cyan-200' };
   }, []);
 
+  // --- appel Edge Function robuste ---
   const analyzeWithCoach = useCallback(async (trigger: 'initial' | 'auto' | 'manual') => {
-    if (coachLoadingRef.current) return;
+    // éviter les doublons: annule l'appel précédent encore en vol
+    inFlightRef.current?.abort();
+    const ac = new AbortController();
+    inFlightRef.current = ac;
 
     const currentState = latestGameStateRef.current;
     const board = serializeBoardForAi(currentState.board);
@@ -398,10 +323,8 @@ const Play = () => {
     const activeRules = currentState.activeRules.map(rule => `${rule.ruleName}: ${rule.description}`);
     const moveCount = currentState.moveHistory.length;
 
-    coachLoadingRef.current = true;
     setCoachLoading(true);
     setCoachError(null);
-    lastAnalyzedMoveRef.current = moveCount;
 
     try {
       const { data, error } = await supabase.functions.invoke<CoachInsightsResponse>('chess-insights', {
@@ -413,51 +336,53 @@ const Play = () => {
           gameStatus: currentState.gameStatus,
           activeRules,
           trigger
-        }
+        },
+        signal: ac.signal
       });
 
-      if (error) {
-        throw new Error(error.message ?? 'Erreur lors de l’analyse IA');
-      }
+      if (ac.signal.aborted) return; // un nouvel appel a pris la main
+
+      if (error) throw new Error(error.message ?? 'Erreur lors de l’analyse IA');
 
       if (data?.insights) {
         const normalized = normalizeCoachInsights(data.insights);
+        if (!mountedRef.current) return;
         setCoachInsights(normalized);
+        // ✅ on ne marque le coup comme "analysé" que si succès
+        lastAnalyzedMoveRef.current = moveCount;
+      } else {
+        // pas d’insights → on n’avance pas le curseur pour autoriser un retry manuel/auto
+        if (!mountedRef.current) return;
+        setCoachError("L’IA n’a renvoyé aucun insight.");
       }
-    } catch (error: unknown) {
-      const message = getSupabaseFunctionErrorMessage(
-        error,
-        'Erreur lors de la génération des insights'
-      );
+    } catch (err: unknown) {
+      if (ac.signal.aborted) return;
+      const message = getSupabaseFunctionErrorMessage(err, 'Erreur lors de la génération des insights');
+      if (!mountedRef.current) return;
       setCoachError(message);
-      toast({
-        title: 'Analyse IA indisponible',
-        description: message,
-        variant: 'destructive'
-      });
+      // on n’avance PAS lastAnalyzedMoveRef : on laisse la possibilité d’un retry
+      toast({ title: 'Analyse IA indisponible', description: message, variant: 'destructive' });
     } finally {
-      coachLoadingRef.current = false;
-      setCoachLoading(false);
+      if (mountedRef.current) {
+        setCoachLoading(false);
+      }
     }
   }, [formatMoveForAi, serializeBoardForAi, toast]);
 
+  // déclenchement initial + auto sur nouveaux coups
   useEffect(() => {
-    if (coachLoadingRef.current) return;
-
+    // premier rendu
     if (!initialAnalysisRef.current) {
       initialAnalysisRef.current = true;
       analyzeWithCoach('initial');
       return;
     }
-
-    if (gameState.moveHistory.length !== lastAnalyzedMoveRef.current) {
-      analyzeWithCoach('auto');
-    }
+    // sur changement du nombre de coups, si différent du dernier analysé
+    const len = gameState.moveHistory.length;
+    if (len !== lastAnalyzedMoveRef.current) analyzeWithCoach('auto');
   }, [gameState.moveHistory.length, analyzeWithCoach]);
 
-  useEffect(() => {
-    setCustomRules(analyzedCustomRules);
-  }, [analyzedCustomRules]);
+  useEffect(() => { setCustomRules(analyzedCustomRules); }, [analyzedCustomRules]);
 
   useEffect(() => {
     const activeCustomRules = customRules.map(rule => ({ ...rule, isActive: true }));
@@ -480,16 +405,12 @@ const Play = () => {
 
       if (!secretSetupEnabled) {
         blindOpeningRevealed = { white: true, black: true };
-        nextBoard = prev.board.map(row =>
-          row.map(piece => (piece ? { ...piece, isHidden: false } : null))
-        );
+        nextBoard = prev.board.map(row => row.map(piece => (piece ? { ...piece, isHidden: false } : null)));
       }
 
       const positionHistory = { ...prev.positionHistory };
       const signature = ChessEngine.getBoardSignature(nextBoard);
-      if (!positionHistory[signature]) {
-        positionHistory[signature] = 1;
-      }
+      if (!positionHistory[signature]) positionHistory[signature] = 1;
 
       return {
         ...prev,
@@ -506,13 +427,7 @@ const Play = () => {
     const startRow = color === 'white' ? 6 : 1;
     for (let col = 0; col < 8; col++) {
       if (!board[startRow][col]) {
-        board[startRow][col] = {
-          type: 'pawn',
-          color,
-          position: { row: startRow, col },
-          hasMoved: false,
-          isHidden: false
-        } as ChessPiece;
+        board[startRow][col] = { type: 'pawn', color, position: { row: startRow, col }, hasMoved: false, isHidden: false } as ChessPiece;
         return true;
       }
     }
@@ -526,9 +441,7 @@ const Play = () => {
 
     const forcedMirror = gameState.forcedMirrorResponse;
     if (forcedMirror && forcedMirror.color === piece.color) {
-      if (piece.type !== 'pawn' || piece.position.col !== forcedMirror.file) {
-        return;
-      }
+      if (piece.type !== 'pawn' || piece.position.col !== forcedMirror.file) return;
     }
 
     const frozen = gameState.freezeEffects.some(effect =>
@@ -537,10 +450,7 @@ const Play = () => {
       effect.position.col === piece.position.col &&
       effect.remainingTurns > 0
     );
-
-    if (frozen) {
-      return;
-    }
+    if (frozen) return;
 
     let validMoves = ChessEngine.getValidMoves(gameState.board, piece, gameState);
 
@@ -549,21 +459,13 @@ const Play = () => {
       piece.position.row === replayOpportunity.to.row &&
       piece.position.col === replayOpportunity.to.col
     ) {
-      const alreadyIncluded = validMoves.some(pos =>
-        pos.row === replayOpportunity.from.row && pos.col === replayOpportunity.from.col
-      );
-      if (!alreadyIncluded) {
-        validMoves = [...validMoves, replayOpportunity.from];
-      }
+      const alreadyIncluded = validMoves.some(pos => pos.row === replayOpportunity.from.row && pos.col === replayOpportunity.from.col);
+      if (!alreadyIncluded) validMoves = [...validMoves, replayOpportunity.from];
     }
 
     selectionTimestampRef.current = Date.now();
 
-    setGameState(prev => ({
-      ...prev,
-      selectedPiece: piece,
-      validMoves
-    }));
+    setGameState(prev => ({ ...prev, selectedPiece: piece, validMoves }));
   };
 
   const handleSquareClick = (position: Position) => {
@@ -571,74 +473,39 @@ const Play = () => {
     if (!gameState.selectedPiece) return;
 
     const selectedPiece = gameState.selectedPiece;
-
-    const isValid = gameState.validMoves.some(
-      move => move.row === position.row && move.col === position.col
-    );
-
+    const isValid = gameState.validMoves.some(move => move.row === position.row && move.col === position.col);
     if (!isValid) return;
 
-    const selectionDuration = selectionTimestampRef.current
-      ? Date.now() - selectionTimestampRef.current
-      : null;
+    const selectionDuration = selectionTimestampRef.current ? Date.now() - selectionTimestampRef.current : null;
     selectionTimestampRef.current = null;
 
-    const activeRuleIds = new Set(
-      gameState.activeRules.filter(rule => rule.isActive).map(rule => rule.ruleId)
-    );
+    const activeRuleIds = new Set(gameState.activeRules.filter(rule => rule.isActive).map(rule => rule.ruleId));
     const hasRule = (ruleId: string) => activeRuleIds.has(ruleId);
 
-    const move = ChessEngine.createMove(
-      gameState.board,
-      selectedPiece,
-      position,
-      gameState
-    );
+    const move = ChessEngine.createMove(gameState.board, selectedPiece, position, gameState);
 
     let pendingTransformations = { ...gameState.pendingTransformations };
-    if (
-      hasRule('preset_vip_magnus_06') &&
-      pendingTransformations[gameState.currentPlayer] &&
-      selectedPiece.type === 'pawn'
-    ) {
+    if (hasRule('preset_vip_magnus_06') && pendingTransformations[gameState.currentPlayer] && selectedPiece.type === 'pawn') {
       move.promotion = move.promotion ?? 'knight';
-      pendingTransformations = {
-        ...pendingTransformations,
-        [gameState.currentPlayer]: false
-      };
+      pendingTransformations = { ...pendingTransformations, [gameState.currentPlayer]: false };
     }
 
     const newBoard = ChessEngine.executeMove(gameState.board, move, gameState);
     const updatedHistory = [...gameState.moveHistory, move];
-    const updatedCaptured = move.captured
-      ? [...gameState.capturedPieces, move.captured]
-      : [...gameState.capturedPieces];
+    const updatedCaptured = move.captured ? [...gameState.capturedPieces, move.captured] : [...gameState.capturedPieces];
 
     let forcedMirror = gameState.forcedMirrorResponse;
-    if (
-      forcedMirror &&
-      forcedMirror.color === gameState.currentPlayer &&
-      selectedPiece.type === 'pawn' &&
-      selectedPiece.position.col === forcedMirror.file
-    ) {
+    if (forcedMirror && forcedMirror.color === gameState.currentPlayer && selectedPiece.type === 'pawn' && selectedPiece.position.col === forcedMirror.file) {
       forcedMirror = null;
     }
 
-    const opponentColor: PieceColor =
-      gameState.currentPlayer === 'white' ? 'black' : 'white';
+    const opponentColor: PieceColor = gameState.currentPlayer === 'white' ? 'black' : 'white';
 
     if (hasRule('preset_vip_magnus_02') && selectedPiece.type === 'pawn') {
       const mirrorFile = 7 - move.to.col;
       const opponentHasPawn = newBoard.some(row =>
-        row.some(
-          piece =>
-            piece &&
-            piece.type === 'pawn' &&
-            piece.color === opponentColor &&
-            piece.position.col === mirrorFile
-        )
+        row.some(piece => piece && piece.type === 'pawn' && piece.color === opponentColor && piece.position.col === mirrorFile)
       );
-
       if (opponentHasPawn) {
         forcedMirror = { color: opponentColor, file: mirrorFile };
       } else if (forcedMirror && forcedMirror.color === opponentColor) {
@@ -648,10 +515,7 @@ const Play = () => {
 
     let pendingExtraMoves = { ...gameState.pendingExtraMoves };
     if (hasRule('preset_vip_magnus_03') && move.captured) {
-      pendingExtraMoves = {
-        ...pendingExtraMoves,
-        [opponentColor]: (pendingExtraMoves[opponentColor] ?? 0) + 1
-      };
+      pendingExtraMoves = { ...pendingExtraMoves, [opponentColor]: (pendingExtraMoves[opponentColor] ?? 0) + 1 };
     }
 
     let freezeEffects = gameState.freezeEffects
@@ -665,19 +529,9 @@ const Play = () => {
 
     if (hasRule('preset_vip_magnus_09') && !freezeUsage[gameState.currentPlayer]) {
       const attackSquares = ChessEngine.getAttackSquares(newBoard, move.piece);
-      const frozenTarget = attackSquares
-        .map(pos => ChessEngine.getPieceAt(newBoard, pos))
-        .find(piece => piece && piece.color === opponentColor);
-
+      const frozenTarget = attackSquares.map(pos => ChessEngine.getPieceAt(newBoard, pos)).find(piece => piece && piece.color === opponentColor);
       if (frozenTarget) {
-        freezeEffects = [
-          ...freezeEffects,
-          {
-            color: opponentColor,
-            position: { ...frozenTarget.position },
-            remainingTurns: 2
-          }
-        ];
+        freezeEffects = [...freezeEffects, { color: opponentColor, position: { ...frozenTarget.position }, remainingTurns: 2 }];
         freezeUsage[gameState.currentPlayer] = true;
       }
     }
@@ -693,12 +547,7 @@ const Play = () => {
     if (hasRule('preset_vip_magnus_10') && move.captured?.type === 'pawn') {
       if (vipTokens[move.captured.color]) {
         const used = respawnPawn(newBoard, move.captured.color);
-        if (used) {
-          vipTokens = {
-            ...vipTokens,
-            [move.captured.color]: vipTokens[move.captured.color] - 1
-          };
-        }
+        if (used) vipTokens = { ...vipTokens, [move.captured.color]: vipTokens[move.captured.color] - 1 };
       }
     }
 
@@ -707,30 +556,16 @@ const Play = () => {
     positionHistory[signature] = (positionHistory[signature] ?? 0) + 1;
 
     if (hasRule('preset_vip_magnus_06') && positionHistory[signature] >= 3) {
-      pendingTransformations = {
-        ...pendingTransformations,
-        [gameState.currentPlayer]: true
-      };
+      pendingTransformations = { ...pendingTransformations, [gameState.currentPlayer]: true };
     }
 
     let blindOpeningRevealed = gameState.blindOpeningRevealed ?? { white: false, black: false };
-
-    if (
-      hasRule('preset_vip_magnus_01') &&
-      selectedPiece.type === 'pawn' &&
-      !blindOpeningRevealed[selectedPiece.color]
-    ) {
+    if (hasRule('preset_vip_magnus_01') && selectedPiece.type === 'pawn' && !blindOpeningRevealed[selectedPiece.color]) {
       ChessEngine.revealBackRank(newBoard, selectedPiece.color);
-      blindOpeningRevealed = {
-        ...blindOpeningRevealed,
-        [selectedPiece.color]: true
-      };
+      blindOpeningRevealed = { ...blindOpeningRevealed, [selectedPiece.color]: true };
     }
 
-    const lastMoveByColor = {
-      ...gameState.lastMoveByColor,
-      [gameState.currentPlayer]: move
-    };
+    const lastMoveByColor = { ...gameState.lastMoveByColor, [gameState.currentPlayer]: move };
 
     const evaluationState: GameState = {
       ...gameState,
@@ -759,10 +594,7 @@ const Play = () => {
 
     if (hasRule('preset_vip_magnus_10') && !move.captured) {
       if (ChessEngine.isSquareAttacked(newBoard, move.to, opponentColor, evaluationState)) {
-        vipTokens = {
-          ...vipTokens,
-          [gameState.currentPlayer]: vipTokens[gameState.currentPlayer] + 1
-        };
+        vipTokens = { ...vipTokens, [gameState.currentPlayer]: vipTokens[gameState.currentPlayer] + 1 };
       }
     }
 
@@ -772,24 +604,13 @@ const Play = () => {
     if (hasRule('preset_vip_magnus_08') && opponentInCheck) {
       const opponentLast = gameState.lastMoveByColor[opponentColor];
       if (opponentLast) {
-        replayOpportunities = {
-          ...replayOpportunities,
-          [opponentColor]: { from: opponentLast.from, to: opponentLast.to }
-        };
-        pendingExtraMoves = {
-          ...pendingExtraMoves,
-          [opponentColor]: (pendingExtraMoves[opponentColor] ?? 0) + 1
-        };
+        replayOpportunities = { ...replayOpportunities, [opponentColor]: { from: opponentLast.from, to: opponentLast.to } };
+        pendingExtraMoves = { ...pendingExtraMoves, [opponentColor]: (pendingExtraMoves[opponentColor] ?? 0) + 1 };
       }
     }
 
     const extraMovesEarned = ChessEngine.getExtraMovesForPiece(selectedPiece, gameState);
-    const instinctBonus = hasRule('preset_vip_magnus_07') &&
-      selectionDuration !== null &&
-      selectionDuration <= 2000 &&
-      (move.captured || opponentInCheck)
-        ? 1
-        : 0;
+    const instinctBonus = hasRule('preset_vip_magnus_07') && selectionDuration !== null && selectionDuration <= 2000 && (move.captured || opponentInCheck) ? 1 : 0;
 
     const previousExtraMoves = gameState.extraMoves;
     const remainingAfterConsumption = previousExtraMoves > 0 ? previousExtraMoves - 1 : 0;
@@ -798,18 +619,12 @@ const Play = () => {
     const opponentPending = pendingExtraMoves[opponentColor] ?? 0;
     const stayOnCurrentPlayer = totalExtraMoves > 0;
     const nextExtraMoves = stayOnCurrentPlayer ? totalExtraMoves : opponentPending;
-    const updatedPendingExtraMoves = stayOnCurrentPlayer
-      ? pendingExtraMoves
-      : { ...pendingExtraMoves, [opponentColor]: 0 };
+    const updatedPendingExtraMoves = stayOnCurrentPlayer ? pendingExtraMoves : { ...pendingExtraMoves, [opponentColor]: 0 };
 
     let nextStatus: GameState['gameStatus'] = 'active';
-    if (opponentInCheck && !opponentHasMoves) {
-      nextStatus = 'checkmate';
-    } else if (!opponentInCheck && !opponentHasMoves) {
-      nextStatus = 'stalemate';
-    } else if (opponentInCheck) {
-      nextStatus = 'check';
-    }
+    if (opponentInCheck && !opponentHasMoves) nextStatus = 'checkmate';
+    else if (!opponentInCheck && !opponentHasMoves) nextStatus = 'stalemate';
+    else if (opponentInCheck) nextStatus = 'check';
 
     const nextMovesThisTurn = stayOnCurrentPlayer ? gameState.movesThisTurn + 1 : 0;
     const nextTurnNumber = gameState.turnNumber + 1;
@@ -818,12 +633,7 @@ const Play = () => {
     let finalFreezeEffects = freezeEffects;
     if (!stayOnCurrentPlayer) {
       finalFreezeEffects = freezeEffects
-        .map(effect => {
-          if (effect.color === opponentColor) {
-            return { ...effect, remainingTurns: effect.remainingTurns - 1 };
-          }
-          return effect;
-        })
+        .map(effect => (effect.color === opponentColor ? { ...effect, remainingTurns: effect.remainingTurns - 1 } : effect))
         .filter(effect => {
           const target = ChessEngine.getPieceAt(newBoard, effect.position);
           return effect.remainingTurns > 0 && target && target.color === effect.color;
@@ -881,23 +691,14 @@ const Play = () => {
       secretSetupApplied: false,
       blindOpeningRevealed: { white: false, black: false }
     });
+    // on permet une nouvelle analyse initiale
+    initialAnalysisRef.current = false;
+    lastAnalyzedMoveRef.current = null;
   };
 
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
   const activeCustomRulesCount = customRules.length;
-  const tierControlSections = [
-    'Régénération',
-    'Analyse IA',
-    'Exécution dynamique',
-    'Mouvements spéciaux'
-  ];
-
-  const coachGraphPoints = useMemo(() => {
-    if (coachInsights?.progression?.graphPoints?.length) {
-      return coachInsights.progression.graphPoints;
-    }
-    return [...DEFAULT_COACH_GRAPH_POINTS];
-  }, [coachInsights]);
+  const coachGraphPoints = useMemo(() => (coachInsights?.progression?.graphPoints?.length ? coachInsights.progression.graphPoints : [...DEFAULT_COACH_GRAPH_POINTS]), [coachInsights]);
 
   const coachGraphPath = useMemo(() => {
     if (coachGraphPoints.length < 2) return '';
@@ -916,10 +717,7 @@ const Play = () => {
       .join(' ');
   }, [coachGraphPoints]);
 
-  const coachGraphAreaPath = useMemo(() => {
-    if (!coachGraphPath) return '';
-    return `${coachGraphPath} L 100,100 L 0,100 Z`;
-  }, [coachGraphPath]);
+  const coachGraphAreaPath = useMemo(() => (coachGraphPath ? `${coachGraphPath} L 100,100 L 0,100 Z` : ''), [coachGraphPath]);
 
   return (
     <div className="relative min-h-screen overflow-hidden text-white">
@@ -1021,7 +819,7 @@ const Play = () => {
                 </div>
 
                 <div className="mt-6 space-y-3">
-                  {tierControlSections.map((section, index) => (
+                  {['Régénération', 'Analyse IA', 'Exécution dynamique', 'Mouvements spéciaux'].map((section, index) => (
                     <div
                       key={section}
                       className="relative overflow-hidden rounded-2xl border border-cyan-300/20 bg-black/40 p-4 shadow-[0_0_22px_rgba(56,189,248,0.35)] transition-all duration-200 hover:border-cyan-200/60 hover:bg-cyan-500/10"
@@ -1353,16 +1151,12 @@ const Play = () => {
                               <stop offset="100%" stopColor="#ec4899" />
                             </linearGradient>
                             <linearGradient id="coach-fill" x1="0%" y1="0%" x2="0%" y2="100%">
-                              <stop offset="0%" stopColor="rgba(34,211,238,0.35)" />
-                              <stop offset="100%" stopColor="rgba(236,72,153,0.05)" />
+                              <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.35" />
+                              <stop offset="100%" stopColor="#ec4899" stopOpacity="0.05" />
                             </linearGradient>
                           </defs>
-                          {coachGraphAreaPath && (
-                            <path d={coachGraphAreaPath} fill="url(#coach-fill)" stroke="none" />
-                          )}
-                          {coachGraphPath && (
-                            <path d={coachGraphPath} stroke="url(#coach-line)" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                          )}
+                          {coachGraphAreaPath && <path d={coachGraphAreaPath} fill="url(#coach-fill)" stroke="none" />}
+                          {coachGraphPath && <path d={coachGraphPath} stroke="url(#coach-line)" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />}
                         </svg>
                       </div>
                       {coachInsights?.progression?.summary && (
@@ -1429,4 +1223,3 @@ const Play = () => {
 };
 
 export default Play;
-
