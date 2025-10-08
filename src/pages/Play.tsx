@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
 
 const createChatMessageId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -208,6 +209,10 @@ const Play = () => {
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const lastTickRef = useRef<number | null>(null);
   const activePlayerRef = useRef<PieceColor>(gameState.currentPlayer);
+  const timeWarningPlayedRef = useRef<Record<PieceColor, boolean>>({ white: false, black: false });
+  const timeExpiredHandledRef = useRef<Record<PieceColor, boolean>>({ white: false, black: false });
+
+  const { playSound } = useSoundEffects();
 
   useEffect(() => {
     coachMessagesRef.current = coachMessages;
@@ -283,6 +288,10 @@ const Play = () => {
     setTimeRemaining({ white: initialTimeSeconds, black: initialTimeSeconds });
     lastTickRef.current = null;
   }, [initialTimeSeconds]);
+  useEffect(() => {
+    timeWarningPlayedRef.current = { white: false, black: false };
+    timeExpiredHandledRef.current = { white: false, black: false };
+  }, [initialTimeSeconds, timeControl]);
   useEffect(() => () => {
     mountedRef.current = false;
     inFlightRef.current?.abort();
@@ -531,6 +540,7 @@ const Play = () => {
     const hasRule = (ruleId: string) => activeRuleIds.has(ruleId);
 
     const move = ChessEngine.createMove(state.board, selectedPiece, destination, state);
+    const events: string[] = [];
 
     let pendingTransformations = { ...state.pendingTransformations };
     if (hasRule('preset_vip_magnus_06') && pendingTransformations[state.currentPlayer] && selectedPiece.type === 'pawn') {
@@ -759,6 +769,22 @@ const Play = () => {
         });
     }
 
+    if (move.isCastling) {
+      events.push('castle');
+    } else if (move.isEnPassant) {
+      events.push('en-passant');
+    } else if (move.captured) {
+      events.push('capture');
+    } else {
+      events.push('move');
+    }
+
+    if (nextStatus === 'checkmate') {
+      events.push('checkmate');
+    } else if (nextStatus === 'check') {
+      events.push('check');
+    }
+
     return {
       ...state,
       board: newBoard,
@@ -780,7 +806,8 @@ const Play = () => {
       lastMoveByColor,
       replayOpportunities,
       vipTokens,
-      blindOpeningRevealed
+      blindOpeningRevealed,
+      events
     };
   }, [respawnPawn]);
 
@@ -905,8 +932,67 @@ const Play = () => {
     findBestAIMoveRef.current = findBestAIMove;
   }, [findBestAIMove]);
 
+  useEffect(() => {
+    const events = gameState.events ?? [];
+    if (events.length === 0) return;
+
+    const prioritized: Array<'checkmate' | 'check' | 'castle' | 'en-passant' | 'capture' | 'move'> = [
+      'checkmate',
+      'check',
+      'castle',
+      'en-passant',
+      'capture',
+      'move',
+    ];
+
+    prioritized.forEach(event => {
+      if (events.includes(event)) {
+        void playSound(event);
+      }
+    });
+
+    setGameState(prev => {
+      if (!prev.events || prev.events.length === 0) return prev;
+      return { ...prev, events: [] };
+    });
+  }, [gameState.events, playSound]);
+
+  useEffect(() => {
+    if (timeControl === 'untimed') return;
+
+    const baseThreshold = initialTimeSeconds > 0 ? initialTimeSeconds * 0.1 : 0;
+    const threshold = Math.min(10, Math.max(3, baseThreshold));
+
+    (['white', 'black'] as PieceColor[]).forEach(color => {
+      const remaining = timeRemaining[color];
+
+      if (remaining > 0 && remaining <= threshold && !timeWarningPlayedRef.current[color]) {
+        timeWarningPlayedRef.current[color] = true;
+        void playSound('time-warning');
+      }
+
+      if (remaining <= 0 && !timeExpiredHandledRef.current[color]) {
+        timeExpiredHandledRef.current[color] = true;
+        void playSound('time-expired');
+        setGameState(prev => {
+          if (prev.gameStatus === 'timeout') return prev;
+          if (!['active', 'check'].includes(prev.gameStatus)) return prev;
+          const losingColor = color;
+          const winningColor: PieceColor = losingColor === 'white' ? 'black' : 'white';
+          return {
+            ...prev,
+            currentPlayer: winningColor,
+            gameStatus: 'timeout',
+            extraMoves: 0,
+            events: [],
+          };
+        });
+      }
+    });
+  }, [timeRemaining, timeControl, initialTimeSeconds, playSound]);
+
   const handlePieceClick = (piece: ChessPiece) => {
-    if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
+    if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
     if (piece.color !== gameState.currentPlayer) return;
     if (piece.isHidden) return;
 
@@ -940,7 +1026,7 @@ const Play = () => {
   };
 
   const handleSquareClick = (position: Position) => {
-    if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
+    if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
     if (!gameState.selectedPiece) return;
 
     const selectedPiece = gameState.selectedPiece;
@@ -963,14 +1049,14 @@ const Play = () => {
       return;
     }
 
-    if (['checkmate', 'stalemate', 'draw'].includes(gameState.gameStatus)) return;
+    if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
     if (gameState.currentPlayer !== AI_COLOR) return;
     if (aiMoveTimeoutRef.current) return;
 
     aiMoveTimeoutRef.current = setTimeout(() => {
       aiMoveTimeoutRef.current = null;
       const currentState = latestGameStateRef.current;
-      if (currentState.currentPlayer !== AI_COLOR || ['checkmate', 'stalemate', 'draw'].includes(currentState.gameStatus)) {
+      if (currentState.currentPlayer !== AI_COLOR || ['checkmate', 'stalemate', 'draw', 'timeout'].includes(currentState.gameStatus)) {
         return;
       }
 
@@ -979,7 +1065,7 @@ const Play = () => {
       if (!bestMove) return;
 
       setGameState(prev => {
-        if (prev.currentPlayer !== AI_COLOR || ['checkmate', 'stalemate', 'draw'].includes(prev.gameStatus)) {
+        if (prev.currentPlayer !== AI_COLOR || ['checkmate', 'stalemate', 'draw', 'timeout'].includes(prev.gameStatus)) {
           return prev;
         }
 
@@ -1020,6 +1106,8 @@ const Play = () => {
       blindOpeningRevealed: { white: false, black: false }
     });
     setTimeRemaining({ white: initialTimeSeconds, black: initialTimeSeconds });
+    timeWarningPlayedRef.current = { white: false, black: false };
+    timeExpiredHandledRef.current = { white: false, black: false };
     lastTickRef.current = null;
     // on permet une nouvelle analyse initiale
     initialAnalysisRef.current = false;
