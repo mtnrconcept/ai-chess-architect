@@ -16,6 +16,12 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   {
+    label: "Lobby",
+    to: "/lobby",
+    icon: Users,
+    accent: "from-purple-500 via-indigo-400 to-blue-300",
+  },
+  {
     label: "Jouer",
     to: "/play",
     icon: Gamepad2,
@@ -32,12 +38,6 @@ const navItems = [
     to: "/tournaments",
     icon: Trophy,
     accent: "from-amber-400 via-orange-300 to-yellow-200",
-  },
-  {
-    label: "Communauté",
-    to: "/lobby",
-    icon: Users,
-    accent: "from-purple-500 via-indigo-400 to-blue-300",
   },
   {
     label: "Profil",
