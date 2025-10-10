@@ -59,6 +59,13 @@ const PIECE_WEIGHTS: Record<ChessPiece['type'], number> = {
   pawn: 100
 };
 
+const AI_MOVE_DELAY_RANGES: Record<TimeControlOption, { min: number; max: number }> = {
+  bullet: { min: 500, max: 3000 },
+  blitz: { min: 2000, max: 5000 },
+  long: { min: 1000, max: 10000 },
+  untimed: { min: 1000, max: 10000 },
+};
+
 type AIDifficulty = 'novice' | 'standard' | 'expert';
 
 const AI_DIFFICULTY_LEVELS: Record<
@@ -1053,7 +1060,10 @@ const Play = () => {
     if (gameState.currentPlayer !== AI_COLOR) return;
     if (aiMoveTimeoutRef.current) return;
 
-    aiMoveTimeoutRef.current = setTimeout(() => {
+    const { min, max } = AI_MOVE_DELAY_RANGES[timeControl] ?? AI_MOVE_DELAY_RANGES.long;
+    const delayMs = Math.random() * (max - min) + min;
+
+    aiMoveTimeoutRef.current = window.setTimeout(() => {
       aiMoveTimeoutRef.current = null;
       const currentState = latestGameStateRef.current;
       if (currentState.currentPlayer !== AI_COLOR || ['checkmate', 'stalemate', 'draw', 'timeout'].includes(currentState.gameStatus)) {
@@ -1076,8 +1086,8 @@ const Play = () => {
 
         return applyMoveToState(prev, piece, bestMove.to, null);
       });
-    }, 350);
-  }, [gameState.currentPlayer, gameState.gameStatus, opponentType, findBestAIMove, applyMoveToState]);
+    }, delayMs);
+  }, [gameState.currentPlayer, gameState.gameStatus, opponentType, findBestAIMove, applyMoveToState, timeControl]);
 
   const resetGame = () => {
     const initialBoard = ChessEngine.initializeBoard();
