@@ -33,6 +33,32 @@ const fallbackVariants: VariantSource[] = [
   { name: "Forteresse Agile", rules: ["preset_mov_03", "preset_mov_08"], source: "fallback" },
 ];
 
+const normalizeVariant = (variant: VariantSource): VariantSource | null => {
+  const name = typeof variant.name === "string" && variant.name.trim().length > 0
+    ? variant.name.trim()
+    : "Variante Voltus";
+
+  const rules = Array.isArray(variant.rules)
+    ? variant.rules
+        .map(rule => {
+          if (typeof rule === "string") return rule.trim();
+          if (rule == null) return "";
+          return String(rule).trim();
+        })
+        .filter((rule): rule is string => rule.length > 0)
+    : [];
+
+  if (rules.length === 0) {
+    return null;
+  }
+
+  return {
+    ...variant,
+    name,
+    rules,
+  };
+};
+
 const blockDurationMs = 2 * 60 * 60 * 1000;
 const tournamentSpacing = 10;
 
@@ -100,20 +126,32 @@ const ensureBlockTournaments = async (blockStart: Date) => {
 
   (lobbyVariants ?? []).forEach(lobby => {
     if (Array.isArray(lobby.active_rules) && lobby.active_rules.length > 0) {
-      pool.push({
+      const normalized = normalizeVariant({
         name: lobby.name ?? "Variante communautaire",
         rules: lobby.active_rules,
         source: "lobby",
         lobbyId: lobby.id,
       });
+      if (normalized) {
+        pool.push(normalized);
+      }
     }
   });
 
+  const normalizedFallbacks = fallbackVariants
+    .map(variant => normalizeVariant(variant))
+    .filter((variant): variant is VariantSource => variant !== null);
+
   if (pool.length === 0) {
-    pool.push(...fallbackVariants);
+    pool.push(...normalizedFallbacks);
   } else {
     // Mix in a few curated variants to guarantee diversity
-    pool.push(...fallbackVariants);
+    pool.push(...normalizedFallbacks);
+  }
+
+  if (pool.length === 0) {
+    console.warn("No tournament variants available after normalization");
+    return { created: 0, tournaments: existing ?? [] };
   }
 
   const creations = [];
