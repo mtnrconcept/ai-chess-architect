@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, MessageSquareText, RotateCcw, Send, Sparkles, User } from 'lucide-react';
+import { ArrowLeft, Loader2, Menu, MessageSquareText, RotateCcw, Send, Sparkles, User } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
 import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove } from '@/types/chess';
@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 
 const createChatMessageId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -164,6 +165,27 @@ const Play = () => {
 
   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
+
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return false;
+  });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleResize = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   const selectionTimestampRef = useRef<number | null>(null);
 
@@ -1129,6 +1151,311 @@ const Play = () => {
 
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
   const activeCustomRulesCount = customRules.length;
+
+  const headerBadges = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Badge className="border-cyan-500/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
+        Mode : {opponentType === 'ai' ? 'IA' : opponentType === 'local' ? 'Local' : 'Multijoueur en ligne'}
+      </Badge>
+      <Badge className="border-cyan-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
+        Temps : {timeControl === 'untimed' ? 'Sans limite' : timeControlSettings.label}
+      </Badge>
+      {opponentType === 'player' && lobbyRole && (
+        <Badge className="border-fuchsia-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-fuchsia-200">
+          {lobbyRole === 'creator' ? 'Hôte' : 'Adversaire'}
+        </Badge>
+      )}
+      <Button
+        variant="outline"
+        onClick={resetGame}
+        className="flex items-center gap-2 rounded-full border-cyan-400/60 bg-cyan-400/10 px-5 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-200 shadow-[0_0_25px_rgba(59,130,246,0.35)] transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-400/20 hover:text-white"
+      >
+        <RotateCcw size={16} />
+        Réinitialiser
+      </Button>
+    </div>
+  );
+
+  const aiDifficultyControls = opponentType === 'ai' ? (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      <div className="flex items-center gap-3 rounded-full border border-cyan-400/40 bg-black/40 px-4 py-2">
+        <span className="text-[0.6rem] uppercase tracking-[0.35em] text-cyan-200/80">Niveau IA</span>
+        <Select value={aiDifficulty} onValueChange={value => setAiDifficulty(value as AIDifficulty)}>
+          <SelectTrigger className="h-8 w-[170px] rounded-full border-cyan-400/40 bg-black/60 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-100 focus:ring-cyan-400">
+            <SelectValue placeholder="Sélectionner" />
+          </SelectTrigger>
+          <SelectContent className="border-cyan-400/40 bg-black/80 text-cyan-100">
+            {Object.entries(AI_DIFFICULTY_LEVELS).map(([value, meta]) => (
+              <SelectItem
+                key={value}
+                value={value}
+                className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100 focus:bg-cyan-500/20 focus:text-white"
+              >
+                {meta.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <Badge className="border-cyan-400/40 bg-cyan-500/10 text-[0.6rem] uppercase tracking-[0.35em] text-cyan-100">
+        Profondeur {aiSearchDepth}
+      </Badge>
+      <p className="max-w-xs text-right text-[0.7rem] text-cyan-200/70">{aiDifficultyMeta.description}</p>
+    </div>
+  ) : null;
+
+  const ruleSummaryBar = (
+    <div className="flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-[0.2em] text-cyan-100/70">
+      <span className="text-cyan-200/90">Règle active :</span>
+      {primaryRule ? (
+        <Badge className="border-cyan-400/60 bg-cyan-500/10 px-3 py-1 text-[0.7rem] font-semibold text-cyan-100">
+          {primaryRule.ruleName}
+        </Badge>
+      ) : (
+        <span className="rounded-full border border-cyan-400/40 bg-black/40 px-3 py-1 font-semibold text-cyan-100">Standard</span>
+      )}
+      {opponentType === 'player' && lobbyName && (
+        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">Lobby : {lobbyName}</Badge>
+      )}
+      {opponentType === 'player' && opponentName && (
+        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">Adversaire : {opponentName}</Badge>
+      )}
+      {opponentType === 'player' && lobbyId && (
+        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">ID : {lobbyId.slice(0, 8)}…</Badge>
+      )}
+      {playerName && (
+        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">Joueur : {playerName}</Badge>
+      )}
+    </div>
+  );
+
+  const customRulesBanner = activeCustomRulesCount > 0 ? (
+    <div className="rounded-3xl border border-cyan-500/30 bg-cyan-500/10 px-6 py-4 text-center text-xs font-semibold uppercase tracking-[0.25em] text-cyan-200 backdrop-blur">
+      {activeCustomRulesCount} règle(s) personnalisée(s) synchronisée(s) depuis le lobby.
+    </div>
+  ) : null;
+
+  const leftSidebarContent = (
+    <div className="relative overflow-hidden rounded-3xl border border-cyan-400/40 bg-black/50 p-6 shadow-[0_0_45px_-12px_rgba(56,189,248,0.65)] backdrop-blur-xl">
+      <div className="pointer-events-none absolute -left-24 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-cyan-500/20 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 border border-cyan-300/10" />
+      <div className="relative z-10 space-y-6">
+        <div>
+          <p className="text-[0.65rem] uppercase tracking-[0.45em] text-cyan-200/80">Contrôle du temps</p>
+          <p className="mt-2 text-lg font-semibold text-white">
+            {timeControl === 'untimed' ? 'Sans limite' : timeControlSettings.label}
+          </p>
+          {timeControl === 'untimed' ? (
+            <p className="mt-3 text-xs text-cyan-100/70">{timeControlSettings.description}</p>
+          ) : (
+            <div className="mt-4 space-y-2 text-left">
+              {(['white', 'black'] as PieceColor[]).map(color => {
+                const isActive =
+                  gameState.currentPlayer === color && ['active', 'check'].includes(gameState.gameStatus);
+                return (
+                  <div
+                    key={color}
+                    className={cn(
+                      'flex items-center justify-between rounded-xl border border-cyan-300/20 px-3 py-2 text-sm text-cyan-100 transition-all',
+                      isActive
+                        ? 'bg-cyan-500/20 text-white shadow-[0_0_18px_rgba(34,211,238,0.45)]'
+                        : 'bg-black/30'
+                    )}
+                  >
+                    <span className="uppercase tracking-[0.3em]">
+                      {color === 'white' ? 'Blancs' : 'Noirs'}
+                    </span>
+                    <span className="text-lg font-semibold">{formatClock(timeRemaining[color])}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          {['Régénération', 'Analyse IA', 'Exécution dynamique', 'Mouvements spéciaux'].map((section, index) => (
+            <div
+              key={section}
+              className="relative overflow-hidden rounded-2xl border border-cyan-300/20 bg-black/40 p-4 shadow-[0_0_22px_rgba(56,189,248,0.35)] transition-all duration-200 hover:border-cyan-200/60 hover:bg-cyan-500/10"
+            >
+              <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-cyan-300 via-cyan-500 to-fuchsia-400" />
+              <div className="ml-3">
+                <p className="text-[0.65rem] uppercase tracking-[0.5em] text-cyan-200/80">Phase {index + 1}</p>
+                <p className="mt-1 text-sm font-semibold text-white">{section}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const boardSummaryContent = (
+    <>
+      <div className="grid w-full max-w-3xl gap-4 rounded-3xl border border-white/10 bg-black/40 px-6 py-4 backdrop-blur-xl sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Joueur actuel</span>
+          <span className="text-lg font-semibold capitalize text-white">{gameState.currentPlayer}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Tour</span>
+          <span className="text-lg font-semibold text-white">{gameState.turnNumber}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Coups joués</span>
+          <span className="text-lg font-semibold text-white">{gameState.moveHistory.length}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Statut</span>
+          <span className="text-lg font-semibold capitalize text-white">{gameState.gameStatus}</span>
+        </div>
+      </div>
+
+      <div className="w-full max-w-3xl space-y-4">
+        <div className="relative overflow-hidden rounded-3xl border border-cyan-400/40 bg-black/50 p-6 shadow-[0_0_45px_-12px_rgba(34,211,238,0.65)] backdrop-blur-xl">
+          <div className="pointer-events-none absolute inset-0 border border-cyan-300/10" />
+          <div className="relative flex flex-col gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Coach conversationnel</p>
+                <h3 className="mt-2 text-2xl font-semibold text-white">Conseils en temps réel</h3>
+                <p className="mt-2 text-sm leading-relaxed text-white/70">
+                  Le coach IA commente vos coups, suggère des plans et identifie les ouvertures. Retrouvez toutes les réponses dans le panneau de chat à droite.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleManualRefresh}
+                disabled={coachLoading}
+                className="flex items-center gap-2 rounded-full border-cyan-300/60 bg-cyan-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white"
+              >
+                {coachLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {coachLoading ? 'Analyse…' : 'Actualiser'}
+              </Button>
+            </div>
+            <p className="text-xs leading-relaxed text-white/60">
+              L’analyse se relance automatiquement après chaque coup. Vous pouvez aussi envoyer vos propres questions.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {gameState.activeRules.length > 0 && (
+        <div className="w-full max-w-3xl space-y-3">
+          <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Règles actives</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {gameState.activeRules.map(rule => (
+              <div
+                key={rule.ruleId}
+                className="rounded-3xl border border-white/10 bg-black/50 p-4 shadow-[0_0_25px_rgba(236,72,153,0.35)] backdrop-blur-xl"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${getCategoryColor(rule.category)}`} />
+                  <span className="text-sm font-semibold text-white">{rule.ruleName}</span>
+                </div>
+                <p className="text-xs leading-relaxed text-white/70">{rule.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const coachSidebarContent = (
+    <div className="relative overflow-hidden rounded-3xl border border-fuchsia-500/40 bg-black/40 p-6 shadow-[0_0_45px_-12px_rgba(236,72,153,0.65)] backdrop-blur-xl">
+      <div className="pointer-events-none absolute inset-0 border border-fuchsia-300/10" />
+      <div className="pointer-events-none absolute -right-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-fuchsia-500/20 blur-3xl" />
+      <div className="relative z-10 flex h-full flex-col gap-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-200/80">Coach IA</p>
+            <h2 className="mt-2 text-xl font-semibold text-fuchsia-100">Coach CyberIA</h2>
+            <p className="mt-2 text-sm text-fuchsia-100/80">
+              Discutez avec le coach pour obtenir des plans, des explications de coups et le nom des ouvertures.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={handleManualRefresh}
+            disabled={coachLoading}
+            className="flex items-center gap-2 rounded-full border-fuchsia-300/60 bg-fuchsia-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-100 transition-all duration-200 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white"
+          >
+            {coachLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {coachLoading ? 'Analyse…' : 'Actualiser'}
+          </Button>
+        </div>
+
+        <div ref={chatContainerRef} className="flex-1 space-y-3 overflow-y-auto rounded-3xl border border-fuchsia-300/20 bg-black/40 p-4">
+          {coachMessages.map(message => {
+            const isCoach = message.role === 'coach';
+            const isPlayer = message.role === 'player';
+            const bubbleClasses = cn(
+              'w-full rounded-2xl border px-4 py-3 text-sm leading-relaxed',
+              isCoach && 'border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100',
+              isPlayer && 'ml-auto border-cyan-400/40 bg-cyan-500/10 text-cyan-100',
+              message.role === 'system' && 'border-white/10 bg-white/5 text-white/70'
+            );
+            const label = message.role === 'coach' ? 'Coach' : message.role === 'player' ? 'Vous' : 'Système';
+            return (
+              <div key={message.id} className={bubbleClasses}>
+                <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.35em]">
+                  {message.role === 'coach' ? (
+                    <MessageSquareText className="h-4 w-4 text-fuchsia-200" />
+                  ) : message.role === 'player' ? (
+                    <User className="h-4 w-4 text-cyan-200" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 text-white/60" />
+                  )}
+                  <span className={cn('font-semibold', message.role === 'system' ? 'text-white/70' : '')}>{label}</span>
+                </div>
+                <p className="mt-2 whitespace-pre-line">{message.content}</p>
+              </div>
+            );
+          })}
+          {coachLoading && (
+            <div className="flex items-center gap-3 rounded-2xl border border-fuchsia-300/30 bg-fuchsia-500/10 px-4 py-3 text-sm text-fuchsia-100">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Le coach analyse votre position…
+            </div>
+          )}
+        </div>
+
+        {coachError && (
+          <p className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">{coachError}</p>
+        )}
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Input
+              value={chatInput}
+              onChange={event => setChatInput(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSendChatMessage();
+                }
+              }}
+              placeholder="Demandez un plan ou des explications…"
+              className="flex-1 rounded-2xl border-fuchsia-300/40 bg-black/40 text-sm text-white placeholder:text-white/40"
+            />
+            <Button
+              type="button"
+              onClick={handleSendChatMessage}
+              disabled={coachLoading || chatInput.trim().length === 0}
+              className="rounded-2xl border-fuchsia-300/60 bg-fuchsia-500/20 p-3 text-fuchsia-100 transition-colors hover:border-fuchsia-200 hover:bg-fuchsia-500/30"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-[0.65rem] leading-relaxed text-fuchsia-100/70">
+            Exemple : 'Quel est le meilleur plan dans cette position ?' ou 'Comment s'appelle cette ouverture ?'
+          </p>
+        </div>
+      </div>
+    </div>
+  );
   return (
     <div className="relative min-h-screen overflow-hidden text-white">
       <div className="absolute inset-0">
@@ -1141,354 +1468,108 @@ const Play = () => {
 
       <div className="relative z-10">
         <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-10 sm:px-8 lg:px-12">
-          <header className="flex flex-wrap items-center justify-between gap-4">
-            <Button
-              variant="ghost"
-              onClick={() => navigate('/')}
-              className="group flex items-center gap-2 rounded-full border border-transparent bg-black/40 px-5 py-2 text-sm font-medium text-cyan-200/90 transition-all duration-200 hover:border-cyan-400/50 hover:bg-cyan-400/10 hover:text-white"
-            >
-              <ArrowLeft size={18} className="transition-transform duration-200 group-hover:-translate-x-1" />
-              Retour
-            </Button>
-            <div className="text-center">
-              <p className="text-xs uppercase tracking-[0.4em] text-cyan-200/70">Chess Coach 3D</p>
-              <h1 className="mt-2 text-3xl font-semibold text-white drop-shadow-[0_0_18px_rgba(59,130,246,0.55)] sm:text-4xl">
-                Interface IA Néon Cyberpunk
-              </h1>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Badge className="border-cyan-500/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
-                Mode : {opponentType === 'ai' ? 'IA' : opponentType === 'local' ? 'Local' : 'Multijoueur en ligne'}
-              </Badge>
-              <Badge className="border-cyan-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
-                Temps : {timeControl === 'untimed' ? 'Sans limite' : timeControlSettings.label}
-              </Badge>
-              {opponentType === 'player' && lobbyRole && (
-                <Badge className="border-fuchsia-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-fuchsia-200">
-                  {lobbyRole === 'creator' ? 'Hôte' : 'Adversaire'}
-                </Badge>
-              )}
+          {!isDesktop && (
+            <div className="flex items-center justify-between gap-3">
               <Button
-                variant="outline"
-                onClick={resetGame}
-                className="flex items-center gap-2 rounded-full border-cyan-400/60 bg-cyan-400/10 px-5 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-200 shadow-[0_0_25px_rgba(59,130,246,0.35)] transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-400/20 hover:text-white"
+                variant="ghost"
+                onClick={() => navigate('/')}
+                className="group flex items-center gap-2 rounded-full border border-transparent bg-black/40 px-4 py-2 text-sm font-medium text-cyan-200/90 transition-all duration-200 hover:border-cyan-400/50 hover:bg-cyan-400/10 hover:text-white"
               >
-                <RotateCcw size={16} />
-                Réinitialiser
+                <ArrowLeft size={18} className="transition-transform duration-200 group-hover:-translate-x-1" />
+                Retour
               </Button>
-            </div>
-          </header>
-
-          {opponentType === 'ai' && (
-            <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-              <div className="flex items-center gap-3 rounded-full border border-cyan-400/40 bg-black/40 px-4 py-2">
-                <span className="text-[0.6rem] uppercase tracking-[0.35em] text-cyan-200/80">Niveau IA</span>
-                <Select value={aiDifficulty} onValueChange={value => setAiDifficulty(value as AIDifficulty)}>
-                  <SelectTrigger className="h-8 w-[170px] rounded-full border-cyan-400/40 bg-black/60 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-100 focus:ring-cyan-400">
-                    <SelectValue placeholder="Sélectionner" />
-                  </SelectTrigger>
-                  <SelectContent className="border-cyan-400/40 bg-black/80 text-cyan-100">
-                    {Object.entries(AI_DIFFICULTY_LEVELS).map(([value, meta]) => (
-                      <SelectItem
-                        key={value}
-                        value={value}
-                        className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100 focus:bg-cyan-500/20 focus:text-white"
-                      >
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-[0.55rem] uppercase tracking-[0.4em] text-cyan-200/70">Chess Coach 3D</p>
+                  <h1 className="text-xl font-semibold text-white drop-shadow-[0_0_18px_rgba(59,130,246,0.55)]">
+                    Interface IA
+                  </h1>
+                </div>
+                <Drawer open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+                  <DrawerTrigger asChild>
+                    <Button className="flex items-center gap-2 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 shadow-[0_0_25px_rgba(59,130,246,0.35)] transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-400/20 hover:text-white">
+                      <Menu className="h-4 w-4" />
+                      Menu
+                    </Button>
+                  </DrawerTrigger>
+                  <DrawerContent className="mx-auto w-full max-w-xl rounded-t-[32px] border border-white/10 bg-[#040313]/95 pb-8 text-white">
+                    <DrawerHeader className="px-6">
+                      <DrawerTitle className="text-center text-lg font-semibold tracking-[0.3em] text-cyan-100 uppercase">
+                        Centre de commande
+                      </DrawerTitle>
+                    </DrawerHeader>
+                    <div className="space-y-6 px-6">
+                      <div className="flex flex-col gap-4">{headerBadges}</div>
+                      {aiDifficultyControls && <div className="flex flex-col gap-4">{aiDifficultyControls}</div>}
+                      <div>{ruleSummaryBar}</div>
+                      {customRulesBanner && <div>{customRulesBanner}</div>}
+                      <div>{leftSidebarContent}</div>
+                      <div className="space-y-4">{boardSummaryContent}</div>
+                      <div>{coachSidebarContent}</div>
+                      <DrawerClose asChild>
+                        <Button className="w-full rounded-full border border-cyan-400/50 bg-cyan-500/10 py-3 text-sm font-semibold uppercase tracking-[0.3em] text-cyan-100 transition-all hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white">
+                          Fermer le menu
+                        </Button>
+                      </DrawerClose>
+                    </div>
+                  </DrawerContent>
+                </Drawer>
               </div>
-              <Badge className="border-cyan-400/40 bg-cyan-500/10 text-[0.6rem] uppercase tracking-[0.35em] text-cyan-100">
-                Profondeur {aiSearchDepth}
-              </Badge>
-              <p className="max-w-xs text-right text-[0.7rem] text-cyan-200/70">
-                {aiDifficultyMeta.description}
-              </p>
             </div>
           )}
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-[0.2em] text-cyan-100/70">
-            <span className="text-cyan-200/90">Règle active :</span>
-            {primaryRule ? (
-              <Badge className="border-cyan-400/60 bg-cyan-500/10 px-3 py-1 text-[0.7rem] font-semibold text-cyan-100">
-                {primaryRule.ruleName}
-              </Badge>
-            ) : (
-              <span className="rounded-full border border-cyan-400/40 bg-black/40 px-3 py-1 font-semibold text-cyan-100">
-                Standard
-              </span>
-            )}
-            {opponentType === 'player' && lobbyName && (
-              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
-                Lobby : {lobbyName}
-              </Badge>
-            )}
-            {opponentType === 'player' && opponentName && (
-              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
-                Adversaire : {opponentName}
-              </Badge>
-            )}
-            {opponentType === 'player' && lobbyId && (
-              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
-                ID : {lobbyId.slice(0, 8)}…
-              </Badge>
-            )}
-            {playerName && (
-              <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">
-                Joueur : {playerName}
-              </Badge>
-            )}
-          </div>
-
-          {activeCustomRulesCount > 0 && (
-            <div className="mt-6 rounded-3xl border border-cyan-500/30 bg-cyan-500/10 px-6 py-4 text-center text-xs font-semibold uppercase tracking-[0.25em] text-cyan-200 backdrop-blur">
-              {activeCustomRulesCount} règle(s) personnalisée(s) synchronisée(s) depuis le lobby.
-            </div>
+          {isDesktop && (
+            <header className="flex flex-wrap items-center justify-between gap-4">
+              <Button
+                variant="ghost"
+                onClick={() => navigate('/')}
+                className="group flex items-center gap-2 rounded-full border border-transparent bg-black/40 px-5 py-2 text-sm font-medium text-cyan-200/90 transition-all duration-200 hover:border-cyan-400/50 hover:bg-cyan-400/10 hover:text-white"
+              >
+                <ArrowLeft size={18} className="transition-transform duration-200 group-hover:-translate-x-1" />
+                Retour
+              </Button>
+              <div className="text-center">
+                <p className="text-xs uppercase tracking-[0.4em] text-cyan-200/70">Chess Coach 3D</p>
+                <h1 className="mt-2 text-3xl font-semibold text-white drop-shadow-[0_0_18px_rgba(59,130,246,0.55)] sm:text-4xl">
+                  Interface IA Néon Cyberpunk
+                </h1>
+              </div>
+              {headerBadges}
+            </header>
           )}
 
-          <main className="mt-10 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
-            <aside className="relative overflow-hidden rounded-3xl border border-cyan-400/40 bg-black/50 p-6 shadow-[0_0_45px_-12px_rgba(56,189,248,0.65)] backdrop-blur-xl">
-              <div className="pointer-events-none absolute -left-24 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-cyan-500/20 blur-3xl" />
-              <div className="pointer-events-none absolute inset-0 border border-cyan-300/10" />
-              <div className="relative z-10">
-                <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">HUD gauche</p>
-                <h2 className="mt-2 text-xl font-semibold text-cyan-100">Tiers Controls</h2>
+          {isDesktop && aiDifficultyControls && <div className="mt-6">{aiDifficultyControls}</div>}
 
-                <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-cyan-500/10 px-4 py-4 text-center shadow-[0_0_25px_rgba(56,189,248,0.35)]">
-                  <p className="text-[0.65rem] uppercase tracking-[0.45em] text-cyan-200/80">Contrôle du temps</p>
-                  <p className="mt-2 text-lg font-semibold text-white">
-                    {timeControl === 'untimed' ? 'Sans limite' : timeControlSettings.label}
-                  </p>
-                  {timeControl === 'untimed' ? (
-                    <p className="mt-3 text-xs text-cyan-100/70">{timeControlSettings.description}</p>
-                  ) : (
-                    <div className="mt-4 space-y-2 text-left">
-                      {(['white', 'black'] as PieceColor[]).map(color => {
-                        const isActive =
-                          gameState.currentPlayer === color && ['active', 'check'].includes(gameState.gameStatus);
-                        return (
-                          <div
-                            key={color}
-                            className={cn(
-                              'flex items-center justify-between rounded-xl border border-cyan-300/20 px-3 py-2 text-sm text-cyan-100 transition-all',
-                              isActive
-                                ? 'bg-cyan-500/20 text-white shadow-[0_0_18px_rgba(34,211,238,0.45)]'
-                                : 'bg-black/30'
-                            )}
-                          >
-                            <span className="uppercase tracking-[0.3em]">
-                              {color === 'white' ? 'Blancs' : 'Noirs'}
-                            </span>
-                            <span className="text-lg font-semibold">{formatClock(timeRemaining[color])}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+          {isDesktop && <div className="mt-8">{ruleSummaryBar}</div>}
 
-                <div className="mt-6 space-y-3">
-                  {['Régénération', 'Analyse IA', 'Exécution dynamique', 'Mouvements spéciaux'].map((section, index) => (
-                    <div
-                      key={section}
-                      className="relative overflow-hidden rounded-2xl border border-cyan-300/20 bg-black/40 p-4 shadow-[0_0_22px_rgba(56,189,248,0.35)] transition-all duration-200 hover:border-cyan-200/60 hover:bg-cyan-500/10"
-                    >
-                      <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-cyan-300 via-cyan-500 to-fuchsia-400" />
-                      <div className="ml-3">
-                        <p className="text-[0.65rem] uppercase tracking-[0.5em] text-cyan-200/80">Phase {index + 1}</p>
-                        <p className="mt-1 text-sm font-semibold text-white">{section}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </aside>
+          {isDesktop && customRulesBanner && <div className="mt-6">{customRulesBanner}</div>}
 
-            <section className="relative flex flex-col items-center gap-6">
+          <main
+            className={cn(
+              'mt-6 flex-1',
+              isDesktop
+                ? 'mt-10 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]'
+                : 'flex flex-1 flex-col items-center gap-6'
+            )}
+          >
+            {isDesktop && <aside>{leftSidebarContent}</aside>}
+
+            <section className="relative flex w-full flex-1 flex-col items-center gap-6">
               <div className="relative w-full max-w-3xl">
-                <div className="absolute -inset-8 rounded-[40px] border border-white/10 bg-gradient-to-r from-cyan-500/10 via-transparent to-fuchsia-500/10 opacity-70 blur-2xl" />
-                <div className="relative rounded-[30px] border border-white/20 bg-white/5/60 p-6 backdrop-blur-xl shadow-[0_45px_75px_-35px_rgba(59,130,246,0.65)]">
+                <div className="absolute -inset-6 rounded-[40px] border border-white/10 bg-gradient-to-r from-cyan-500/10 via-transparent to-fuchsia-500/10 opacity-70 blur-2xl sm:-inset-8" />
+                <div className="relative rounded-[30px] border border-white/20 bg-white/5/60 p-4 backdrop-blur-xl shadow-[0_45px_75px_-35px_rgba(59,130,246,0.65)] sm:p-6">
                   <div className="absolute inset-0 rounded-[30px] border border-white/10" />
                   <div className="relative flex justify-center">
-                    <ChessBoard
-                      gameState={gameState}
-                      onSquareClick={handleSquareClick}
-                      onPieceClick={handlePieceClick}
-                    />
+                    <ChessBoard gameState={gameState} onSquareClick={handleSquareClick} onPieceClick={handlePieceClick} />
                   </div>
-                  <div className="pointer-events-none absolute inset-x-12 bottom-4 h-24 rounded-full bg-gradient-to-b from-transparent via-cyan-400/10 to-cyan-400/30 blur-3xl" />
+                  <div className="pointer-events-none absolute inset-x-6 bottom-4 h-20 rounded-full bg-gradient-to-b from-transparent via-cyan-400/10 to-cyan-400/30 blur-3xl sm:inset-x-12 sm:h-24" />
                 </div>
               </div>
 
-              <div className="grid w-full max-w-3xl gap-4 rounded-3xl border border-white/10 bg-black/40 px-6 py-4 backdrop-blur-xl sm:grid-cols-2 lg:grid-cols-4">
-                <div className="flex flex-col gap-1">
-                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Joueur actuel</span>
-                  <span className="text-lg font-semibold capitalize text-white">{gameState.currentPlayer}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Tour</span>
-                  <span className="text-lg font-semibold text-white">{gameState.turnNumber}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Coups joués</span>
-                  <span className="text-lg font-semibold text-white">{gameState.moveHistory.length}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[0.6rem] uppercase tracking-[0.45em] text-cyan-100/70">Statut</span>
-                  <span className="text-lg font-semibold capitalize text-white">{gameState.gameStatus}</span>
-                </div>
-              </div>
-
-              <div className="w-full max-w-3xl space-y-4">
-                <div className="relative overflow-hidden rounded-3xl border border-cyan-400/40 bg-black/50 p-6 shadow-[0_0_45px_-12px_rgba(34,211,238,0.65)] backdrop-blur-xl">
-                  <div className="pointer-events-none absolute inset-0 border border-cyan-300/10" />
-                  <div className="relative flex flex-col gap-4">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Coach conversationnel</p>
-                        <h3 className="mt-2 text-2xl font-semibold text-white">Conseils en temps réel</h3>
-                        <p className="mt-2 text-sm leading-relaxed text-white/70">
-                          Le coach IA commente vos coups, suggère des plans et identifie les ouvertures. Retrouvez toutes les réponses dans le panneau de chat à droite.
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        onClick={handleManualRefresh}
-                        disabled={coachLoading}
-                        className="flex items-center gap-2 rounded-full border-cyan-300/60 bg-cyan-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white"
-                      >
-                        {coachLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                        {coachLoading ? 'Analyse…' : 'Actualiser'}
-                      </Button>
-                    </div>
-                    <p className="text-xs leading-relaxed text-white/60">
-                      L’analyse se relance automatiquement après chaque coup. Vous pouvez aussi envoyer vos propres questions.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {gameState.activeRules.length > 0 && (
-                <div className="w-full max-w-3xl space-y-3">
-                  <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/80">Règles actives</p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {gameState.activeRules.map(rule => (
-                      <div
-                        key={rule.ruleId}
-                        className="rounded-3xl border border-white/10 bg-black/50 p-4 shadow-[0_0_25px_rgba(236,72,153,0.35)] backdrop-blur-xl"
-                      >
-                        <div className="mb-2 flex items-center gap-2">
-                          <span className={`h-2 w-2 rounded-full ${getCategoryColor(rule.category)}`} />
-                          <span className="text-sm font-semibold text-white">{rule.ruleName}</span>
-                        </div>
-                        <p className="text-xs leading-relaxed text-white/70">{rule.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {isDesktop && boardSummaryContent}
             </section>
 
-            <aside className="space-y-6">
-              <div className="relative overflow-hidden rounded-3xl border border-fuchsia-500/40 bg-black/40 p-6 shadow-[0_0_45px_-12px_rgba(236,72,153,0.65)] backdrop-blur-xl">
-                <div className="pointer-events-none absolute inset-0 border border-fuchsia-300/10" />
-                <div className="pointer-events-none absolute -right-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-fuchsia-500/20 blur-3xl" />
-                <div className="relative z-10 flex h-full flex-col gap-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-200/80">Coach IA</p>
-                      <h2 className="mt-2 text-xl font-semibold text-fuchsia-100">Coach CyberIA</h2>
-                      <p className="mt-2 text-sm text-fuchsia-100/80">
-                        Discutez avec le coach pour obtenir des plans, des explications de coups et le nom des ouvertures.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={handleManualRefresh}
-                      disabled={coachLoading}
-                      className="flex items-center gap-2 rounded-full border-fuchsia-300/60 bg-fuchsia-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-100 transition-all duration-200 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white"
-                    >
-                      {coachLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                      {coachLoading ? 'Analyse…' : 'Actualiser'}
-                    </Button>
-                  </div>
-
-                  <div
-                    ref={chatContainerRef}
-                    className="flex-1 space-y-3 overflow-y-auto rounded-3xl border border-fuchsia-300/20 bg-black/40 p-4"
-                  >
-                    {coachMessages.map(message => {
-                      const isCoach = message.role === 'coach';
-                      const isPlayer = message.role === 'player';
-                      const bubbleClasses = cn(
-                        'w-full rounded-2xl border px-4 py-3 text-sm leading-relaxed',
-                        isCoach && 'border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100',
-                        isPlayer && 'ml-auto border-cyan-400/40 bg-cyan-500/10 text-cyan-100',
-                        message.role === 'system' && 'border-white/10 bg-white/5 text-white/70'
-                      );
-                      const label = message.role === 'coach' ? 'Coach' : message.role === 'player' ? 'Vous' : 'Système';
-                      return (
-                        <div key={message.id} className={bubbleClasses}>
-                          <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.35em]">
-                            {message.role === 'coach' ? (
-                              <MessageSquareText className="h-4 w-4 text-fuchsia-200" />
-                            ) : message.role === 'player' ? (
-                              <User className="h-4 w-4 text-cyan-200" />
-                            ) : (
-                              <Sparkles className="h-4 w-4 text-white/60" />
-                            )}
-                            <span className={cn('font-semibold', message.role === 'system' ? 'text-white/70' : '')}>{label}</span>
-                          </div>
-                          <p className="mt-2 whitespace-pre-line">{message.content}</p>
-                        </div>
-                      );
-                    })}
-                    {coachLoading && (
-                      <div className="flex items-center gap-3 rounded-2xl border border-fuchsia-300/30 bg-fuchsia-500/10 px-4 py-3 text-sm text-fuchsia-100">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Le coach analyse votre position…
-                      </div>
-                    )}
-                  </div>
-
-                  {coachError && (
-                    <p className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
-                      {coachError}
-                    </p>
-                  )}
-
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={chatInput}
-                        onChange={event => setChatInput(event.target.value)}
-                        onKeyDown={event => {
-                          if (event.key === 'Enter' && !event.shiftKey) {
-                            event.preventDefault();
-                            handleSendChatMessage();
-                          }
-                        }}
-                        placeholder="Demandez un plan ou des explications…"
-                        className="flex-1 rounded-2xl border-fuchsia-300/40 bg-black/40 text-sm text-white placeholder:text-white/40"
-                      />
-                      <Button
-                        type="button"
-                        onClick={handleSendChatMessage}
-                        disabled={coachLoading || chatInput.trim().length === 0}
-                        className="rounded-2xl border-fuchsia-300/60 bg-fuchsia-500/20 p-3 text-fuchsia-100 transition-colors hover:border-fuchsia-200 hover:bg-fuchsia-500/30"
-                      >
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <p className="text-[0.65rem] leading-relaxed text-fuchsia-100/70">
-                      Exemple : 'Quel est le meilleur plan dans cette position ?' ou 'Comment s'appelle cette ouverture ?'
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </aside>
+            {isDesktop && <aside className="space-y-6">{coachSidebarContent}</aside>}
           </main>
         </div>
       </div>
