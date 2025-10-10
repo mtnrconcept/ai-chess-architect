@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Menu, MessageSquareText, RotateCcw, Send, Sparkles, User } from 'lucide-react';
+import { ArrowLeft, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateCcw, Send, Sparkles, User, Volume2, VolumeX } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
 import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove } from '@/types/chess';
@@ -97,6 +97,25 @@ const isAIDifficulty = (value: string): value is AIDifficulty => value in AI_DIF
 
 type AiMoveResolver = (state: GameState) => { from: Position; to: Position } | null;
 
+const CAPTURED_PIECE_SYMBOLS: Record<ChessPiece['type'], { white: string; black: string }> = {
+  king: { white: '♔', black: '♚' },
+  queen: { white: '♕', black: '♛' },
+  rook: { white: '♖', black: '♜' },
+  bishop: { white: '♗', black: '♝' },
+  knight: { white: '♘', black: '♞' },
+  pawn: { white: '♙', black: '♟' }
+};
+
+const ABILITY_LABELS: Record<string, string> = {
+  missile: 'Tir de missile',
+  missileStrike: 'Tir de missile',
+  teleport: 'Téléportation',
+  jump: 'Saut offensif',
+  straightMove: 'Percée en ligne',
+  diagonalMove: 'Percée diagonale',
+  lateralMove: 'Percée latérale',
+};
+
 const Play = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -111,6 +130,8 @@ const Play = () => {
     opponentName?: string;
     playerName?: string;
     timeControl?: TimeControlOption;
+    playerElo?: number;
+    opponentElo?: number;
   } | undefined;
 
   const opponentType = locationState?.opponentType === 'player'
@@ -123,6 +144,17 @@ const Play = () => {
   const lobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
   const opponentName = typeof locationState?.opponentName === 'string' ? locationState.opponentName : undefined;
   const playerName = typeof locationState?.playerName === 'string' ? locationState.playerName : undefined;
+
+  const playerDisplayName = playerName ?? 'Vous';
+  const opponentDisplayName = opponentName
+    ?? (opponentType === 'ai' ? 'Cyber IA' : opponentType === 'local' ? 'Joueur local' : 'Adversaire inconnu');
+
+  const playerElo = typeof locationState?.playerElo === 'number' ? locationState.playerElo : 1500;
+  const opponentElo = typeof locationState?.opponentElo === 'number'
+    ? locationState.opponentElo
+    : opponentType === 'ai'
+      ? 1800
+      : 1500;
 
   const timeControl: TimeControlOption = isTimeControlOption(locationState?.timeControl)
     ? locationState.timeControl
@@ -166,6 +198,47 @@ const Play = () => {
   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
 
+  const capturedPiecesByColor = useMemo(() => {
+    const grouped: Record<PieceColor, ChessPiece[]> = { white: [], black: [] };
+    for (const piece of gameState.capturedPieces) {
+      grouped[piece.color].push(piece);
+    }
+
+    return {
+      white: [...grouped.white].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type]),
+      black: [...grouped.black].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type])
+    };
+  }, [gameState.capturedPieces]);
+
+  const specialAbility = useMemo(() => {
+    for (const rule of gameState.activeRules) {
+      const abilityEffect = rule.effects.find(effect => effect.action === 'addAbility' && typeof effect.parameters?.ability === 'string');
+      if (abilityEffect && typeof abilityEffect.parameters?.ability === 'string') {
+        return {
+          ruleName: rule.ruleName,
+          ability: abilityEffect.parameters.ability as string,
+        };
+      }
+    }
+    return null;
+  }, [gameState.activeRules]);
+
+  const specialAbilityLabel = specialAbility ? ABILITY_LABELS[specialAbility.ability] ?? specialAbility.ability : '';
+
+  const handleSpecialAction = useCallback(() => {
+    if (!specialAbility) return;
+
+    const title = specialAbilityLabel ? `${specialAbilityLabel} déclenchée` : 'Attaque spéciale déclenchée';
+    const description = specialAbilityLabel
+      ? `La capacité « ${specialAbilityLabel} » issue de la règle ${specialAbility.ruleName} est activée.`
+      : `La règle ${specialAbility.ruleName} propose une action spéciale.`;
+
+    toast({ title, description });
+  }, [specialAbility, specialAbilityLabel, toast]);
+
+  const whiteCapturedPieces = capturedPiecesByColor.black;
+  const blackCapturedPieces = capturedPiecesByColor.white;
+
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 1024;
@@ -173,6 +246,8 @@ const Play = () => {
     return false;
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [coachEnabled, setCoachEnabled] = useState(true);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -381,6 +456,8 @@ const Play = () => {
 
   const requestCoachUpdate = useCallback(
     async (trigger: 'initial' | 'auto' | 'manual', userMessage: string) => {
+      if (!coachEnabled) return;
+
       inFlightRef.current?.abort();
       const ac = new AbortController();
       inFlightRef.current = ac;
@@ -450,7 +527,7 @@ const Play = () => {
         }
       }
     },
-    [formatMoveForAi, serializeBoardForAi, toast]
+    [coachEnabled, formatMoveForAi, serializeBoardForAi, toast]
   );
 
   useEffect(() => {
@@ -460,12 +537,26 @@ const Play = () => {
     }
   }, [coachMessages]);
 
+  useEffect(() => {
+    if (!coachEnabled) {
+      inFlightRef.current?.abort();
+      setCoachLoading(false);
+      setCoachError(null);
+      initialAnalysisRef.current = false;
+    }
+  }, [coachEnabled]);
+
   const handleManualRefresh = useCallback(() => {
+    if (!coachEnabled) {
+      toast({ title: 'Coach IA désactivé', description: 'Activez le coach pour relancer une analyse.' });
+      return;
+    }
+
     requestCoachUpdate(
       'manual',
       "Peux-tu analyser la position actuelle et me rappeler le plan prioritaire ?"
     );
-  }, [requestCoachUpdate]);
+  }, [coachEnabled, requestCoachUpdate, toast]);
 
   const handleSendChatMessage = useCallback(() => {
     const trimmed = chatInput.trim();
@@ -479,13 +570,20 @@ const Play = () => {
       trigger: 'manual',
     };
 
+    if (!coachEnabled) {
+      toast({ title: 'Coach IA désactivé', description: 'Réactivez le coach pour envoyer un message.' });
+      return;
+    }
+
     setCoachMessages(prev => [...prev, newMessage]);
     setChatInput('');
     requestCoachUpdate('manual', trimmed);
-  }, [chatInput, requestCoachUpdate]);
+  }, [chatInput, coachEnabled, requestCoachUpdate, toast]);
 
   // déclenchement initial + auto sur nouveaux coups
   useEffect(() => {
+    if (!coachEnabled) return;
+
     if (!initialAnalysisRef.current) {
       initialAnalysisRef.current = true;
       requestCoachUpdate(
@@ -504,7 +602,7 @@ const Play = () => {
         : "Analyse la position actuelle et propose un plan.";
       requestCoachUpdate('auto', autoPrompt);
     }
-  }, [gameState.moveHistory.length, formatMoveForAi, requestCoachUpdate]);
+  }, [coachEnabled, gameState.moveHistory.length, formatMoveForAi, requestCoachUpdate]);
 
   useEffect(() => { setCustomRules(analyzedCustomRules); }, [analyzedCustomRules]);
 
@@ -975,7 +1073,7 @@ const Play = () => {
     ];
 
     prioritized.forEach(event => {
-      if (events.includes(event)) {
+      if (events.includes(event) && soundEnabled) {
         void playSound(event);
       }
     });
@@ -984,7 +1082,7 @@ const Play = () => {
       if (!prev.events || prev.events.length === 0) return prev;
       return { ...prev, events: [] };
     });
-  }, [gameState.events, playSound]);
+  }, [gameState.events, playSound, soundEnabled]);
 
   useEffect(() => {
     if (timeControl === 'untimed') return;
@@ -997,12 +1095,16 @@ const Play = () => {
 
       if (remaining > 0 && remaining <= threshold && !timeWarningPlayedRef.current[color]) {
         timeWarningPlayedRef.current[color] = true;
-        void playSound('time-warning');
+        if (soundEnabled) {
+          void playSound('time-warning');
+        }
       }
 
       if (remaining <= 0 && !timeExpiredHandledRef.current[color]) {
         timeExpiredHandledRef.current[color] = true;
-        void playSound('time-expired');
+        if (soundEnabled) {
+          void playSound('time-expired');
+        }
         setGameState(prev => {
           if (prev.gameStatus === 'timeout') return prev;
           if (!['active', 'check'].includes(prev.gameStatus)) return prev;
@@ -1018,7 +1120,7 @@ const Play = () => {
         });
       }
     });
-  }, [timeRemaining, timeControl, initialTimeSeconds, playSound]);
+  }, [timeRemaining, timeControl, initialTimeSeconds, playSound, soundEnabled]);
 
   const handlePieceClick = (piece: ChessPiece) => {
     if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
@@ -1150,6 +1252,7 @@ const Play = () => {
   };
 
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
+  const variantName = primaryRule?.ruleName ?? 'Standard';
   const activeCustomRulesCount = customRules.length;
 
   const headerBadges = (
@@ -1489,7 +1592,7 @@ const Play = () => {
                   <DrawerTrigger asChild>
                     <Button className="flex items-center gap-2 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 shadow-[0_0_25px_rgba(59,130,246,0.35)] transition-all duration-200 hover:border-cyan-200 hover:bg-cyan-400/20 hover:text-white">
                       <Menu className="h-4 w-4" />
-                      Menu
+                      Paramètres de la partie
                     </Button>
                   </DrawerTrigger>
                   <DrawerContent className="mx-auto w-full max-w-xl rounded-t-[32px] border border-white/10 bg-[#040313]/95 pb-8 text-white">
@@ -1508,7 +1611,7 @@ const Play = () => {
                       <div>{coachSidebarContent}</div>
                       <DrawerClose asChild>
                         <Button className="w-full rounded-full border border-cyan-400/50 bg-cyan-500/10 py-3 text-sm font-semibold uppercase tracking-[0.3em] text-cyan-100 transition-all hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white">
-                          Fermer le menu
+                          Fermer les paramètres de la partie
                         </Button>
                       </DrawerClose>
                     </div>
@@ -1554,13 +1657,131 @@ const Play = () => {
           >
             {isDesktop && <aside>{leftSidebarContent}</aside>}
 
-            <section className="relative flex w-full flex-1 flex-col items-center gap-6">
-              <div className="relative w-full max-w-3xl">
+            <section className="relative flex w-full flex-1 flex-col items-center justify-center gap-6">
+              <div className="relative w-full">
                 <div className="absolute -inset-6 rounded-[40px] border border-white/10 bg-gradient-to-r from-cyan-500/10 via-transparent to-fuchsia-500/10 opacity-70 blur-2xl sm:-inset-8" />
-                <div className="relative rounded-[30px] border border-white/20 bg-white/5/60 p-4 backdrop-blur-xl shadow-[0_45px_75px_-35px_rgba(59,130,246,0.65)] sm:p-6">
+                <div className="relative flex w-full flex-col gap-6 rounded-[30px] border border-white/20 bg-white/5/60 p-4 backdrop-blur-xl shadow-[0_45px_75px_-35px_rgba(59,130,246,0.65)] sm:p-6">
                   <div className="absolute inset-0 rounded-[30px] border border-white/10" />
-                  <div className="relative flex justify-center">
-                    <ChessBoard gameState={gameState} onSquareClick={handleSquareClick} onPieceClick={handlePieceClick} />
+                  <div className="relative flex flex-col gap-6">
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <span className="h-3 w-3 rounded-full bg-gradient-to-r from-fuchsia-400 to-purple-600 shadow-[0_0_12px_rgba(236,72,153,0.6)]" />
+                          <div>
+                            <p className="text-[0.6rem] uppercase tracking-[0.4em] text-cyan-200/70">Joueur noir</p>
+                            <p className="text-lg font-semibold text-white">{opponentDisplayName}</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full border border-white/20 bg-black/40 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-white/70">
+                          ELO {opponentElo}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Badge className="border-cyan-400/60 bg-cyan-500/10 px-3 py-1 text-[0.7rem] font-semibold text-cyan-100">
+                            Variante : {variantName}
+                          </Badge>
+                          {specialAbility && (
+                            <Button
+                              type="button"
+                              onClick={handleSpecialAction}
+                              className="flex items-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-100 transition-all duration-200 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white"
+                            >
+                              <Rocket className="h-4 w-4" />
+                              {specialAbilityLabel || 'Attaque spéciale'}
+                            </Button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Button
+                            type="button"
+                            onClick={() => setSoundEnabled(prev => !prev)}
+                            className={cn(
+                              'flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] transition-all duration-200',
+                              soundEnabled
+                                ? 'border-cyan-300/60 bg-cyan-500/10 text-cyan-100 hover:border-cyan-200 hover:bg-cyan-500/20 hover:text-white'
+                                : 'border-white/20 bg-black/30 text-white/60 hover:border-white/40 hover:text-white'
+                            )}
+                          >
+                            {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                            {soundEnabled ? 'Son activé' : 'Son coupé'}
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={() => setCoachEnabled(prev => !prev)}
+                            className={cn(
+                              'flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] transition-all duration-200',
+                              coachEnabled
+                                ? 'border-fuchsia-300/60 bg-fuchsia-500/10 text-fuchsia-100 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white'
+                                : 'border-white/20 bg-black/30 text-white/60 hover:border-white/40 hover:text-white'
+                            )}
+                          >
+                            <Bot className="h-4 w-4" />
+                            {coachEnabled ? 'Coach actif' : 'Coach inactif'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <span className="text-[0.65rem] uppercase tracking-[0.35em] text-cyan-200/70">
+                          Pièces capturées par {opponentDisplayName}
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1 text-2xl text-white">
+                          {blackCapturedPieces.length > 0 ? (
+                            blackCapturedPieces.map((piece, index) => (
+                              <span
+                                key={`captured-black-${piece.type}-${index}`}
+                                className="drop-shadow-[0_0_12px_rgba(236,72,153,0.45)]"
+                              >
+                                {CAPTURED_PIECE_SYMBOLS[piece.type][piece.color]}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-white/40">Aucune</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="relative flex w-full justify-center">
+                      <ChessBoard gameState={gameState} onSquareClick={handleSquareClick} onPieceClick={handlePieceClick} />
+                    </div>
+
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <span className="text-[0.65rem] uppercase tracking-[0.35em] text-cyan-200/70">
+                          Pièces capturées par {playerDisplayName}
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1 text-2xl text-white">
+                          {whiteCapturedPieces.length > 0 ? (
+                            whiteCapturedPieces.map((piece, index) => (
+                              <span
+                                key={`captured-white-${piece.type}-${index}`}
+                                className="drop-shadow-[0_0_12px_rgba(56,189,248,0.45)]"
+                              >
+                                {CAPTURED_PIECE_SYMBOLS[piece.type][piece.color]}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-white/40">Aucune</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <span className="h-3 w-3 rounded-full bg-gradient-to-r from-cyan-400 to-sky-500 shadow-[0_0_12px_rgba(56,189,248,0.6)]" />
+                          <div>
+                            <p className="text-[0.6rem] uppercase tracking-[0.4em] text-cyan-200/70">Joueur blanc</p>
+                            <p className="text-lg font-semibold text-white">{playerDisplayName}</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full border border-white/20 bg-black/40 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-white/70">
+                          ELO {playerElo}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                   <div className="pointer-events-none absolute inset-x-6 bottom-4 h-20 rounded-full bg-gradient-to-b from-transparent via-cyan-400/10 to-cyan-400/30 blur-3xl sm:inset-x-12 sm:h-24" />
                 </div>
