@@ -108,12 +108,46 @@ RÈGLES IMPORTANTES :
     }
 
     const data = await response.json();
-    let ruleJson = data.choices[0].message.content.trim();
-    
+    const choices = Array.isArray(data?.choices) ? data.choices : [];
+
+    if (choices.length === 0 || !choices[0]?.message) {
+      throw new Error("Invalid response from AI gateway");
+    }
+
+    const message = choices[0].message;
+    let rawContent: unknown = message.content;
+
+    if (Array.isArray(rawContent)) {
+      rawContent = rawContent
+        .map((entry: unknown) => {
+          if (typeof entry === "string") return entry;
+          if (entry && typeof entry === "object" && "text" in entry) {
+            const text = (entry as { text?: unknown }).text;
+            return typeof text === "string" ? text : "";
+          }
+          return "";
+        })
+        .join("\n");
+    }
+
+    if (typeof rawContent !== "string" || !rawContent.trim()) {
+      throw new Error("Réponse inattendue du modèle IA");
+    }
+
+    let ruleJson = rawContent.trim();
+
     // Nettoyage du JSON
-    ruleJson = ruleJson.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    
-    const parsedRule = JSON.parse(ruleJson);
+    ruleJson = ruleJson.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+
+    const firstBrace = ruleJson.indexOf("{");
+    const lastBrace = ruleJson.lastIndexOf("}");
+
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error("Le modèle n'a pas renvoyé de JSON valide");
+    }
+
+    const cleanedJson = ruleJson.slice(firstBrace, lastBrace + 1);
+    const parsedRule = JSON.parse(cleanedJson);
     
     // Garantir un ID unique
     parsedRule.ruleId = parsedRule.ruleId || `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -123,6 +157,8 @@ RÈGLES IMPORTANTES :
           .map((tag: unknown) => typeof tag === "string" ? tag.toLowerCase() : String(tag))
           .filter((tag: string) => tag.length > 0)
       : [];
+    parsedRule.conditions = Array.isArray(parsedRule.conditions) ? parsedRule.conditions : [];
+    parsedRule.effects = Array.isArray(parsedRule.effects) ? parsedRule.effects : [];
 
     return new Response(
       JSON.stringify({ rule: parsedRule }),
