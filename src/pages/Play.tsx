@@ -13,6 +13,7 @@ import { analyzeRuleLogic } from '@/lib/ruleValidation';
 import { getCategoryColor } from '@/lib/ruleCategories';
 import { supabase } from '@/integrations/supabase/client';
 import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors';
+import { buildCoachFallbackMessage } from '@/lib/coachFallback';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
@@ -521,6 +522,27 @@ const Play = () => {
         if (!mountedRef.current) return;
         setCoachError(message);
         toast({ title: 'Coach IA indisponible', description: message, variant: 'destructive' });
+
+        const fallbackContent = buildCoachFallbackMessage({
+          board,
+          moveHistory,
+          currentPlayer: currentState.currentPlayer,
+          turnNumber: currentState.turnNumber,
+          gameStatus: currentState.gameStatus,
+          trigger,
+          reason: message,
+        });
+
+        const coachMessage: CoachChatMessage = {
+          id: createChatMessageId(),
+          role: 'coach',
+          content: fallbackContent,
+          createdAt: new Date().toISOString(),
+          trigger,
+        };
+
+        setCoachMessages(prev => [...prev, coachMessage]);
+        lastDiscussedMoveRef.current = moveCount;
       } finally {
         if (mountedRef.current) {
           setCoachLoading(false);
