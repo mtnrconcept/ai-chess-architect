@@ -89,6 +89,7 @@ const main = async () => {
   try {
     await ensureMigrationsTable(client);
     const applied = await fetchAppliedMigrations(client);
+    let appliedCount = 0;
 
     for (const migration of migrations) {
       if (applied.has(migration)) {
@@ -99,10 +100,18 @@ const main = async () => {
       const sql = await readFile(path.join(MIGRATIONS_DIR, migration), "utf8");
       console.log(`Applying migration ${migration}...`);
       await applyMigration(client, migration, sql);
+      appliedCount += 1;
       console.log(`✔ Applied ${migration}`);
     }
 
-    console.log("Supabase migrations completed successfully.");
+    if (appliedCount === 0) {
+      console.log("All Supabase migrations were already applied.");
+    } else {
+      console.log(`Supabase migrations completed successfully (${appliedCount} new file${appliedCount > 1 ? "s" : ""}).`);
+    }
+
+    await client.query("select pg_notify('pgrst','reload schema');");
+    console.log("Requested PostgREST schema reload via pg_notify('pgrst','reload schema').");
   } finally {
     await client.end();
   }
