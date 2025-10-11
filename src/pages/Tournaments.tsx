@@ -8,6 +8,7 @@ import {
   Users,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +31,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  TournamentFeatureUnavailableError,
   fetchTournamentDetails,
   fetchTournamentLeaderboard,
   fetchTournamentOverview,
@@ -39,7 +41,13 @@ import {
   requestTournamentMatch,
   syncTournaments,
 } from "@/lib/tournamentApi";
-import type { MatchmakingResponse, TournamentLeaderboardEntry, TournamentOverview } from "@/types/tournament";
+import type {
+  MatchmakingResponse,
+  TournamentDetails,
+  TournamentLeaderboardEntry,
+  TournamentOverview,
+  TournamentRegistrationWithMatch,
+} from "@/types/tournament";
 
 const blockDurationHours = 2;
 
@@ -136,20 +144,46 @@ const TournamentPage = () => {
   const [registeringTournamentId, setRegisteringTournamentId] = useState<string | null>(null);
   const [reportingMatchId, setReportingMatchId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [tournamentsUnavailable, setTournamentsUnavailable] = useState(false);
 
-  const {
-    data: tournaments = [],
-    isLoading: tournamentsLoading,
-  } = useQuery({
+  const tournamentsQuery = useQuery<TournamentOverview[], Error>({
     queryKey: ["tournaments"],
     queryFn: fetchTournamentOverview,
+    enabled: !tournamentsUnavailable,
+    retry: error => !(error instanceof TournamentFeatureUnavailableError),
   });
 
-  const { data: myRegistrations = [] } = useQuery({
+  const tournaments = tournamentsQuery.data ?? [];
+  const tournamentsLoading = tournamentsQuery.isLoading;
+  const tournamentsError = tournamentsQuery.error;
+
+  const myRegistrationsQuery = useQuery<TournamentRegistrationWithMatch[], Error>({
     queryKey: ["my-tournament-registrations", user?.id],
     queryFn: () => fetchUserTournamentRegistrations(user!.id),
-    enabled: Boolean(user?.id),
+    enabled: Boolean(user?.id) && !tournamentsUnavailable,
+    retry: error => !(error instanceof TournamentFeatureUnavailableError),
   });
+
+  const myRegistrations = myRegistrationsQuery.data ?? [];
+  const myRegistrationsError = myRegistrationsQuery.error;
+
+  const selectedDetailsQuery = useQuery<TournamentDetails, Error>({
+    queryKey: ["tournament-details", selectedTournamentId],
+    queryFn: () => fetchTournamentDetails(selectedTournamentId!),
+    enabled: Boolean(selectedTournamentId) && !tournamentsUnavailable,
+    retry: error => !(error instanceof TournamentFeatureUnavailableError),
+  });
+  const selectedDetailsError = selectedDetailsQuery.error;
+
+  useEffect(() => {
+    if (
+      tournamentsError instanceof TournamentFeatureUnavailableError ||
+      myRegistrationsError instanceof TournamentFeatureUnavailableError ||
+      selectedDetailsError instanceof TournamentFeatureUnavailableError
+    ) {
+      setTournamentsUnavailable(true);
+    }
+  }, [myRegistrationsError, selectedDetailsError, tournamentsError]);
 
   const registrationByTournament = useMemo(() => new Map(myRegistrations.map(reg => [reg.tournament_id, reg])), [
     myRegistrations,
@@ -196,30 +230,45 @@ const TournamentPage = () => {
   }, [ongoingMatchRegistration, tournaments]);
 
   useEffect(() => {
+    if (tournamentsUnavailable) {
+      setSyncing(false);
+      return;
+    }
+
+    let cancelled = false;
+
     const initialise = async () => {
       setSyncing(true);
       try {
         await syncTournaments();
         await queryClient.invalidateQueries({ queryKey: ["tournaments"] });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Impossible de synchroniser les tournois";
-        toast({ title: "Synchronisation échouée", description: message, variant: "destructive" });
+        if (error instanceof TournamentFeatureUnavailableError) {
+          setTournamentsUnavailable(true);
+          toast({
+            title: "Tournois indisponibles",
+            description: error.message,
+            variant: "destructive",
+          });
+        } else {
+          const message = error instanceof Error ? error.message : "Impossible de synchroniser les tournois";
+          toast({ title: "Synchronisation échouée", description: message, variant: "destructive" });
+        }
       } finally {
-        setSyncing(false);
+        if (!cancelled) {
+          setSyncing(false);
+        }
       }
     };
 
     void initialise();
 
     const interval = setInterval(() => void initialise(), 1000 * 60 * 15);
-    return () => clearInterval(interval);
-  }, [queryClient, toast]);
-
-  const selectedDetailsQuery = useQuery({
-    queryKey: ["tournament-details", selectedTournamentId],
-    queryFn: () => fetchTournamentDetails(selectedTournamentId!),
-    enabled: Boolean(selectedTournamentId),
-  });
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [queryClient, toast, tournamentsUnavailable]);
 
   const selectedTournament = useMemo(
     () => tournaments.find(tournament => tournament.id === selectedTournamentId) ?? null,
@@ -232,6 +281,9 @@ const TournamentPage = () => {
       const entries = await fetchTournamentLeaderboard(tournamentId);
       setLeaderboardState({ loading: false, entries });
     } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
       const message = error instanceof Error ? error.message : "Classement inaccessible";
       toast({ title: "Erreur", description: message, variant: "destructive" });
       setLeaderboardState({ loading: false, entries: [] });
@@ -239,6 +291,14 @@ const TournamentPage = () => {
   };
 
   const handleOpenDetails = (tournamentId: string) => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Configurez l'intégration Supabase pour consulter les détails des tournois.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSelectedTournamentId(tournamentId);
     setDetailsOpen(true);
     void loadLeaderboard(tournamentId);
@@ -253,6 +313,14 @@ const TournamentPage = () => {
   };
 
   const handleRegister = async (tournament: TournamentOverview) => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Déployez l'infrastructure Supabase requise avant de vous inscrire.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!user) {
       toast({
         title: "Connexion requise",
@@ -277,6 +345,9 @@ const TournamentPage = () => {
         queryClient.invalidateQueries({ queryKey: ["tournament-details", tournament.id] }),
       ]);
     } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
       const message = error instanceof Error ? error.message : "Impossible de s'inscrire au tournoi";
       toast({ title: "Erreur d'inscription", description: message, variant: "destructive" });
     } finally {
@@ -285,6 +356,14 @@ const TournamentPage = () => {
   };
 
   const handleJoinMatch = async (tournamentId: string) => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Déployez l'infrastructure Supabase requise avant de lancer un match.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!user) {
       toast({ title: "Connexion requise", description: "Connectez-vous pour lancer une partie.", variant: "destructive" });
       return;
@@ -307,6 +386,9 @@ const TournamentPage = () => {
         queryClient.invalidateQueries({ queryKey: ["tournament-details", tournamentId] }),
       ]);
     } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
       const message = error instanceof Error ? error.message : "Matchmaking indisponible";
       toast({ title: "Impossible de rejoindre", description: message, variant: "destructive" });
     } finally {
@@ -315,6 +397,14 @@ const TournamentPage = () => {
   };
 
   const handleReportMatch = async (matchId: string, result: "player1" | "player2" | "draw") => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Déployez l'infrastructure Supabase requise avant de reporter un résultat.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!user) return;
     setReportingMatchId(matchId);
     try {
@@ -329,6 +419,9 @@ const TournamentPage = () => {
         queryClient.invalidateQueries({ queryKey: ["tournament-details", payload?.match?.tournament_id ?? selectedTournamentId] }),
       ]);
     } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
       const message = error instanceof Error ? error.message : "Impossible d'enregistrer le résultat";
       toast({ title: "Erreur", description: message, variant: "destructive" });
     } finally {
@@ -424,7 +517,11 @@ const TournamentPage = () => {
           </div>
           <div className="flex flex-col gap-4 rounded-2xl border border-cyan-500/20 bg-black/40 p-4 backdrop-blur-lg md:flex-row md:items-center md:justify-between">
             <div className="text-sm text-cyan-100/70">
-              {syncing || tournamentsLoading ? "Synchronisation des tournois en cours..." : "Programme mis à jour automatiquement toutes les 2h."}
+              {tournamentsUnavailable
+                ? "Les tournois nécessitent une configuration Supabase spécifique."
+                : syncing || tournamentsLoading
+                  ? "Synchronisation des tournois en cours..."
+                  : "Programme mis à jour automatiquement toutes les 2h."}
             </div>
             <Button
               variant="outline"
@@ -436,19 +533,35 @@ const TournamentPage = () => {
                   await queryClient.invalidateQueries({ queryKey: ["tournaments"] });
                   toast({ title: "Programme rafraîchi" });
                 } catch (error) {
-                  const message = error instanceof Error ? error.message : "Impossible de rafraîchir le programme";
-                  toast({ title: "Erreur", description: message, variant: "destructive" });
+                  if (error instanceof TournamentFeatureUnavailableError) {
+                    setTournamentsUnavailable(true);
+                    toast({ title: "Tournois indisponibles", description: error.message, variant: "destructive" });
+                  } else {
+                    const message = error instanceof Error ? error.message : "Impossible de rafraîchir le programme";
+                    toast({ title: "Erreur", description: message, variant: "destructive" });
+                  }
                 } finally {
                   setSyncing(false);
                 }
               }}
-              disabled={syncing}
+              disabled={syncing || tournamentsUnavailable}
             >
               {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Actualiser
             </Button>
           </div>
         </header>
+
+        {tournamentsUnavailable ? (
+          <Alert className="border-rose-500/30 bg-rose-500/10 text-rose-100">
+            <AlertTitle>Configuration requise</AlertTitle>
+            <AlertDescription>
+              Cette instance n'a pas encore provisionné les tables et fonctions Supabase liées aux tournois. Exécutez les
+              migrations SQL et déployez les edge functions `sync-tournaments`, `tournament-matchmaking` et
+              `report-tournament-match` pour activer la fonctionnalité.
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {user && ongoingMatchRegistration && ongoingMatchRegistration.current_match && (
           <Card className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-6 text-emerald-50 shadow-[0_0_35px_rgba(52,211,153,0.25)]">

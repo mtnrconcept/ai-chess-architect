@@ -11,6 +11,13 @@ import type {
 
 const ACTIVE_MATCH_STATUSES = new Set(["pending", "in_progress"]);
 
+export class TournamentFeatureUnavailableError extends Error {
+  constructor(message = "Les tournois ne sont pas disponibles : configurez Supabase pour activer cette fonctionnalité.") {
+    super(message);
+    this.name = "TournamentFeatureUnavailableError";
+  }
+}
+
 const isOverviewViewMissing = (error: PostgrestError | null) => {
   if (!error) {
     return false;
@@ -24,6 +31,26 @@ const isOverviewViewMissing = (error: PostgrestError | null) => {
   return message.includes("tournament_overview");
 };
 
+const isRelationMissing = (error: PostgrestError | null) => {
+  if (!error) {
+    return false;
+  }
+
+  if (error.code === "42P01" || error.code === "PGRST302") {
+    return true;
+  }
+
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  const details = typeof error.details === "string" ? error.details.toLowerCase() : "";
+
+  if (!message && !details) {
+    return false;
+  }
+
+  const haystack = `${message} ${details}`;
+  return haystack.includes("does not exist") || haystack.includes("not exist") || haystack.includes("not found");
+};
+
 const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
   const tournamentsQuery = supabase.from("tournaments").select("*").order("start_time", { ascending: true });
 
@@ -34,6 +61,11 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
   const { data: tournaments, error: tournamentsError } = await tournamentsQuery;
 
   if (tournamentsError) {
+    if (isRelationMissing(tournamentsError)) {
+      throw new TournamentFeatureUnavailableError(
+        "Les tables Supabase nécessaires aux tournois ne sont pas disponibles. Exécutez les migrations pour les créer.",
+      );
+    }
     throw new Error(tournamentsError.message);
   }
 
@@ -57,6 +89,11 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
       .in("tournament_id", tournamentIds);
 
     if (registrationsError) {
+      if (isRelationMissing(registrationsError)) {
+        throw new TournamentFeatureUnavailableError(
+          "Les inscriptions de tournois ne sont pas disponibles. Vérifiez la configuration Supabase.",
+        );
+      }
       throw new Error(registrationsError.message);
     }
 
@@ -72,6 +109,11 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
       .in("tournament_id", tournamentIds);
 
     if (matchesError) {
+      if (isRelationMissing(matchesError)) {
+        throw new TournamentFeatureUnavailableError(
+          "Les matches de tournois ne sont pas disponibles. Vérifiez la configuration Supabase.",
+        );
+      }
       throw new Error(matchesError.message);
     }
 
@@ -117,12 +159,18 @@ const fetchSingleTournamentOverview = async (tournamentId: string): Promise<Tour
     }
 
     if (error) {
+      if (isRelationMissing(error)) {
+        throw new TournamentFeatureUnavailableError();
+      }
       if (error.code === "PGRST116") {
         throw new Error("Tournoi introuvable");
       }
       throw new Error(error.message);
     }
   } catch (unknownError) {
+    if (unknownError instanceof TournamentFeatureUnavailableError) {
+      throw unknownError;
+    }
     if (unknownError instanceof Error) {
       throw unknownError;
     }
@@ -135,11 +183,21 @@ export const syncTournaments = async () => {
   try {
     const { error } = await supabase.functions.invoke("sync-tournaments", { body: {} });
     if (error) {
-      throw new Error(error.message ?? "Impossible de synchroniser les tournois");
+      const message = typeof error.message === "string" ? error.message : "";
+      if (message.toLowerCase().includes("not found") || message.toLowerCase().includes("not exist")) {
+        throw new TournamentFeatureUnavailableError(
+          "La fonction de synchronisation Supabase n'est pas déployée. Déployez l'edge function 'sync-tournaments'.",
+        );
+      }
+      throw new Error(message || "Impossible de synchroniser les tournois");
     }
   } catch (unknownError) {
     if (unknownError instanceof TypeError && unknownError.message.includes("fetch")) {
       throw new Error("Impossible de synchroniser les tournois : accès au service Supabase indisponible.");
+    }
+
+    if (unknownError instanceof TournamentFeatureUnavailableError) {
+      throw unknownError;
     }
 
     if (unknownError instanceof Error) {
@@ -161,11 +219,17 @@ export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> =
       if (isOverviewViewMissing(error)) {
         return fetchTournamentOverviewFromBaseTables();
       }
+      if (isRelationMissing(error)) {
+        throw new TournamentFeatureUnavailableError();
+      }
       throw new Error(error.message);
     }
 
     return data ?? [];
   } catch (unknownError) {
+    if (unknownError instanceof TournamentFeatureUnavailableError) {
+      throw unknownError;
+    }
     if (unknownError instanceof Error) {
       throw unknownError;
     }
@@ -185,6 +249,9 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
     .order("draws", { ascending: false });
 
   if (registrationsError) {
+    if (isRelationMissing(registrationsError)) {
+      throw new TournamentFeatureUnavailableError();
+    }
     throw new Error(registrationsError.message);
   }
 
@@ -195,6 +262,9 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
     .order("created_at", { ascending: false });
 
   if (matchesError) {
+    if (isRelationMissing(matchesError)) {
+      throw new TournamentFeatureUnavailableError();
+    }
     throw new Error(matchesError.message);
   }
 
@@ -213,6 +283,9 @@ export const fetchUserTournamentRegistrations = async (userId: string): Promise<
     .order("joined_at", { ascending: false });
 
   if (error) {
+    if (isRelationMissing(error)) {
+      throw new TournamentFeatureUnavailableError();
+    }
     throw new Error(error.message);
   }
 
@@ -238,6 +311,9 @@ export const registerForTournament = async (
     .upsert(payload, { onConflict: "tournament_id,user_id" });
 
   if (error) {
+    if (isRelationMissing(error)) {
+      throw new TournamentFeatureUnavailableError();
+    }
     throw new Error(error.message);
   }
 };
@@ -252,6 +328,12 @@ export const requestTournamentMatch = async (
   );
 
   if (error) {
+    const message = error.message?.toLowerCase() ?? "";
+    if (message.includes("not found") || message.includes("not exist")) {
+      throw new TournamentFeatureUnavailableError(
+        "La fonction de matchmaking Supabase n'est pas disponible. Déployez 'tournament-matchmaking'.",
+      );
+    }
     throw new Error(error.message);
   }
 
@@ -268,6 +350,12 @@ export const reportTournamentMatch = async (
   }>("report-tournament-match", { body: { matchId, result } });
 
   if (error) {
+    const message = error.message?.toLowerCase() ?? "";
+    if (message.includes("not found") || message.includes("not exist")) {
+      throw new TournamentFeatureUnavailableError(
+        "La fonction de reporting Supabase n'est pas disponible. Déployez 'report-tournament-match'.",
+      );
+    }
     throw new Error(error.message);
   }
 
@@ -286,6 +374,9 @@ export const fetchTournamentLeaderboard = async (
     .order("draws", { ascending: false });
 
   if (error) {
+    if (isRelationMissing(error)) {
+      throw new TournamentFeatureUnavailableError();
+    }
     throw new Error(error.message);
   }
 
