@@ -113,7 +113,7 @@ const Generator = () => {
     }
 
     try {
-      const { error } = await supabase.from('custom_chess_rules').insert([{ 
+      const { error } = await supabase.from('custom_chess_rules').insert({ 
         rule_id: generatedRule.ruleId,
         rule_name: generatedRule.ruleName,
         description: generatedRule.description,
@@ -127,7 +127,7 @@ const Generator = () => {
         is_active: generatedRule.isActive,
         validation_rules: generatedRule.validationRules as any,
         user_id: user.id
-      }]);
+      });
 
       if (error) throw error;
 

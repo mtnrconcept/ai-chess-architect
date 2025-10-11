@@ -989,7 +989,7 @@ export const presetBizarreRules: ChessRule[] = [
     trigger: 'onCapture',
     conditions: [],
     effects: [
-      { action: 'areaExplosion', target: 'all', parameters: { radius: 1, includeSelf: true, duration: 'instant' } }
+      { action: 'areaExplosion', target: 'all', parameters: { radius: 1, includeSelf: true, duration: 'permanent' } }
     ],
     tags: ['pion', 'explosion', 'sacrifice'],
     priority: 10,
@@ -1039,7 +1039,7 @@ export const presetBizarreRules: ChessRule[] = [
       { type: 'wasPushed', value: true, operator: 'equals' }
     ],
     effects: [
-      { action: 'springBack', target: 'self', parameters: { distance: 1, duration: 'instant' } }
+      { action: 'springBack', target: 'self', parameters: { distance: 1, duration: 'permanent' } }
     ],
     tags: ['tour', 'ressort', 'reaction'],
     priority: 5,
@@ -1055,7 +1055,7 @@ export const presetBizarreRules: ChessRule[] = [
     trigger: 'onMove',
     conditions: [],
     effects: [
-      { action: 'moveAlly', target: 'specific', parameters: { scope: 'adjacentAllies', distance: 1, duration: 'instant' } }
+      { action: 'moveAlly', target: 'specific', parameters: { scope: 'adjacentAllies', distance: 1, duration: 'permanent' } }
     ],
     tags: ['cavalier', 'marionnette', 'synergie'],
     priority: 6,

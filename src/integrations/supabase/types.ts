@@ -27,7 +27,6 @@ export type Database = {
           priority: number | null
           rule_id: string
           rule_name: string
-          tags: string[] | null
           trigger: string
           updated_at: string
           usage_count: number | null
@@ -46,7 +45,6 @@ export type Database = {
           priority?: number | null
           rule_id: string
           rule_name: string
-          tags?: string[] | null
           trigger: string
           updated_at?: string
           usage_count?: number | null
@@ -65,7 +63,6 @@ export type Database = {
           priority?: number | null
           rule_id?: string
           rule_name?: string
-          tags?: string[] | null
           trigger?: string
           updated_at?: string
           usage_count?: number | null
@@ -83,11 +80,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           max_players: number | null
-          mode: string
           name: string
-          opponent_id: string | null
-          opponent_name: string | null
-          status: string
           updated_at: string
         }
         Insert: {
@@ -98,11 +91,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           max_players?: number | null
-          mode?: string
           name: string
-          opponent_id?: string | null
-          opponent_name?: string | null
-          status?: string
           updated_at?: string
         }
         Update: {
@@ -113,229 +102,10 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           max_players?: number | null
-          mode?: string
           name?: string
-          opponent_id?: string | null
-          opponent_name?: string | null
-          status?: string
           updated_at?: string
         }
         Relationships: []
-      }
-      tournament_leaderboard: {
-        Row: {
-          avatar_url: string | null
-          draws: number
-          joined_at: string
-          last_active_at: string
-          losses: number
-          points: number
-          tournament_id: string
-          user_id: string
-          wins: number
-          display_name: string | null
-        }
-        Relationships: []
-      }
-      tournament_matches: {
-        Row: {
-          completed_at: string | null
-          created_at: string
-          id: string
-          lobby_id: string | null
-          player1_id: string
-          player2_id: string | null
-          reported_by: string | null
-          result: string | null
-          started_at: string | null
-          status: string
-          table_number: number | null
-          tournament_id: string
-          updated_at: string
-          variant_rules: string[] | null
-          winner_id: string | null
-        }
-        Insert: {
-          completed_at?: string | null
-          created_at?: string
-          id?: string
-          lobby_id?: string | null
-          player1_id: string
-          player2_id?: string | null
-          reported_by?: string | null
-          result?: string | null
-          started_at?: string | null
-          status?: string
-          table_number?: number | null
-          tournament_id: string
-          updated_at?: string
-          variant_rules?: string[] | null
-          winner_id?: string | null
-        }
-        Update: {
-          completed_at?: string | null
-          created_at?: string
-          id?: string
-          lobby_id?: string | null
-          player1_id?: string
-          player2_id?: string | null
-          reported_by?: string | null
-          result?: string | null
-          started_at?: string | null
-          status?: string
-          table_number?: number | null
-          tournament_id?: string
-          updated_at?: string
-          variant_rules?: string[] | null
-          winner_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "tournament_matches_lobby_id_fkey"
-            columns: ["lobby_id"]
-            referencedRelation: "lobbies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tournament_matches_tournament_id_fkey"
-            columns: ["tournament_id"]
-            referencedRelation: "tournaments"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      tournament_overview: {
-        Row: {
-          active_match_count: number
-          completed_match_count: number
-          created_at: string
-          description: string | null
-          end_time: string
-          id: string
-          name: string
-          player_count: number
-          start_time: string
-          status: string
-          updated_at: string
-          variant_lobby_id: string | null
-          variant_name: string
-          variant_rules: string[]
-          variant_source: string | null
-        }
-        Relationships: []
-      }
-      tournament_registrations: {
-        Row: {
-          avatar_url: string | null
-          current_match_id: string | null
-          draws: number
-          id: string
-          is_waiting: boolean
-          joined_at: string
-          last_active_at: string
-          losses: number
-          points: number
-          tournament_id: string
-          user_id: string
-          wins: number
-          display_name: string | null
-        }
-        Insert: {
-          avatar_url?: string | null
-          current_match_id?: string | null
-          draws?: number
-          id?: string
-          is_waiting?: boolean
-          joined_at?: string
-          last_active_at?: string
-          losses?: number
-          points?: number
-          tournament_id: string
-          user_id: string
-          wins?: number
-          display_name?: string | null
-        }
-        Update: {
-          avatar_url?: string | null
-          current_match_id?: string | null
-          draws?: number
-          id?: string
-          is_waiting?: boolean
-          joined_at?: string
-          last_active_at?: string
-          losses?: number
-          points?: number
-          tournament_id?: string
-          user_id?: string
-          wins?: number
-          display_name?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "tournament_registrations_current_match_fkey"
-            columns: ["current_match_id"]
-            referencedRelation: "tournament_matches"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tournament_registrations_tournament_id_fkey"
-            columns: ["tournament_id"]
-            referencedRelation: "tournaments"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      tournaments: {
-        Row: {
-          created_at: string
-          description: string | null
-          end_time: string
-          id: string
-          name: string
-          start_time: string
-          status: string
-          updated_at: string
-          variant_lobby_id: string | null
-          variant_name: string
-          variant_rules: string[]
-          variant_source: string | null
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          end_time: string
-          id?: string
-          name: string
-          start_time: string
-          status?: string
-          updated_at?: string
-          variant_lobby_id?: string | null
-          variant_name: string
-          variant_rules: string[]
-          variant_source?: string | null
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          end_time?: string
-          id?: string
-          name?: string
-          start_time?: string
-          status?: string
-          updated_at?: string
-          variant_lobby_id?: string | null
-          variant_name?: string
-          variant_rules?: string[]
-          variant_source?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "tournaments_variant_lobby_id_fkey"
-            columns: ["variant_lobby_id"]
-            referencedRelation: "lobbies"
-            referencedColumns: ["id"]
-          }
-        ]
       }
     }
     Views: {

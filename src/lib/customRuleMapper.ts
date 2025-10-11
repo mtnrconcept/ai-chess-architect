@@ -11,13 +11,13 @@ const defaultValidation: ChessRule['validationRules'] = {
 
 const parseConditions = (conditions: CustomRuleRow['conditions']): RuleCondition[] => {
   if (!conditions) return [];
-  if (Array.isArray(conditions)) return conditions as RuleCondition[];
+  if (Array.isArray(conditions)) return conditions as unknown as RuleCondition[];
   return [];
 };
 
 const parseEffects = (effects: CustomRuleRow['effects']): RuleEffect[] => {
   if (!effects) return [];
-  if (Array.isArray(effects)) return effects as RuleEffect[];
+  if (Array.isArray(effects)) return effects as unknown as RuleEffect[];
   return [];
 };
 
