@@ -8,11 +8,17 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   if (!env.VITE_SUPABASE_URL) {
-    throw new Error("[Vite] VITE_SUPABASE_URL est requis pour construire l'application.");
+    console.warn(
+      "[Vite] VITE_SUPABASE_URL manquant. Utilisation d'une valeur fictive pour permettre la génération du bundle."
+    );
+    process.env.VITE_SUPABASE_URL = "https://example.com";
   }
 
   if (!env.VITE_SUPABASE_ANON_KEY) {
-    throw new Error("[Vite] VITE_SUPABASE_ANON_KEY est requis pour construire l'application.");
+    console.warn(
+      "[Vite] VITE_SUPABASE_ANON_KEY manquant. Utilisation d'une clé anonyme fictive pour permettre la génération du bundle."
+    );
+    process.env.VITE_SUPABASE_ANON_KEY = "supabase-anon-key-placeholder";
   }
 
   return {
