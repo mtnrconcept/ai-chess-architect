@@ -1492,7 +1492,7 @@ const Play = () => {
   );
 
   const coachSidebarContent = (
-    <div className="relative overflow-hidden rounded-3xl border border-fuchsia-500/40 bg-black/40 p-6 shadow-[0_0_45px_-12px_rgba(236,72,153,0.65)] backdrop-blur-xl">
+    <div className="relative overflow-hidden rounded-3xl border border-fuchsia-500/40 bg-black/40 p-6 shadow-[0_0_45px_-12px_rgba(236,72,153,0.65)] backdrop-blur-xl lg:flex lg:h-full lg:max-h-[calc(100vh-8rem)] lg:flex-col lg:overflow-hidden">
       <div className="pointer-events-none absolute inset-0 border border-fuchsia-300/10" />
       <div className="pointer-events-none absolute -right-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-fuchsia-500/20 blur-3xl" />
       <div className="relative z-10 flex h-full flex-col gap-6">
@@ -1515,7 +1515,10 @@ const Play = () => {
           </Button>
         </div>
 
-        <div ref={chatContainerRef} className="h-96 flex-1 space-y-3 overflow-y-auto rounded-3xl border border-fuchsia-300/20 bg-black/40 p-4 scroll-smooth">
+        <div
+          ref={chatContainerRef}
+          className="flex-1 space-y-3 overflow-y-auto rounded-3xl border border-fuchsia-300/20 bg-black/40 p-4 scroll-smooth lg:max-h-[calc(100vh-18rem)]"
+        >
           {coachMessages.map(message => {
             const isCoach = message.role === 'coach';
             const isPlayer = message.role === 'player';
@@ -1682,12 +1685,7 @@ const Play = () => {
           >
             {isDesktop && <aside>{leftSidebarContent}</aside>}
 
-            <section
-              className={cn(
-                'relative flex w-full flex-1 flex-col items-center gap-6',
-                isDesktop ? 'justify-center' : 'justify-start'
-              )}
-            >
+            <section className="relative flex w-full flex-1 flex-col items-center gap-6 justify-start">
               <div className="relative w-full">
                 <div className="absolute -inset-6 rounded-[40px] border border-white/10 bg-gradient-to-r from-cyan-500/10 via-transparent to-fuchsia-500/10 opacity-70 blur-2xl sm:-inset-8" />
                 <div className="relative flex w-full flex-col gap-6 rounded-[30px] border border-white/20 bg-white/5/60 p-4 backdrop-blur-xl shadow-[0_45px_75px_-35px_rgba(59,130,246,0.65)] sm:p-6">
@@ -1820,7 +1818,11 @@ const Play = () => {
               {isDesktop && boardSummaryContent}
             </section>
 
-            {isDesktop && <aside className="space-y-6">{coachSidebarContent}</aside>}
+            {isDesktop && (
+              <aside className="space-y-6 lg:sticky lg:top-6">
+                {coachSidebarContent}
+              </aside>
+            )}
           </main>
         </div>
       </div>
