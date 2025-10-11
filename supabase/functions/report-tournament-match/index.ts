@@ -1,10 +1,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { getSupabaseServiceRoleClient } from "../_shared/env.ts";
 
 const corsOptions = { methods: ["POST"] };
 
-const supabase = getSupabaseServiceRoleClient();
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  console.error("Missing Supabase configuration for report-tournament-match function");
+}
+
+const supabase = SUPABASE_URL && SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+  : null;
 
 type MatchResult = "player1" | "player2" | "draw";
 

@@ -243,22 +243,6 @@ serve(async (req) => {
 
 ---
 
-### Log message: `[sync-tournaments] error: Table/vues tournois introuvables. Applique les migrations.`
-
-This French log entry indicates the database objects expected by the sync routine are missing. Apply the Supabase migrations so
-the `tournaments`, `tournament_players`, and related views exist before re-running the function:
-
-```bash
-SUPABASE_DB_URL="postgresql://postgres:<password>@<host>:6543/postgres?pgbouncer=true&sslmode=require" \
-npm run supabase:migrate
-```
-
-The helper script replays every SQL file under `supabase/migrations` and triggers `NOTIFY pgrst, 'reload schema';` after
-completion so PostgREST immediately exposes the new tables. Rerun the Edge Function once the command finishes to confirm the
-error disappears.
-
----
-
 ## Edge Function `/functions/v1/chess-insights` returns **429 Too Many Requests**
 
 Supabase throttles edge functions per project. Burst requests from a UI (for example, firing on every keypress) exhaust the

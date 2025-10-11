@@ -62,68 +62,21 @@ This project is built with:
 
 ## Local configuration
 
-Copy `env.example` to `.env` and provide the Supabase project credentials:
+Some serverless features depend on the Lovable AI gateway. Both edge functions under `supabase/functions` require the `LOVABLE_API_KEY` secret to be present in the Supabase project so that they can authenticate against the gateway.
+
+Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
 
 ```sh
-cp env.example .env
+npx supabase secrets set LOVABLE_API_KEY=sk_live_xxx
 ```
 
-- `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` correspondent respectivement à l'URL du projet et à la clé anonyme Supabase. **Le préfixe `VITE_` est obligatoire** : seules ces variables seront injectées dans le bundle navigateur.
-- `SUPABASE_URL` fait référence au même projet pour les scripts locaux. Renseignez `SUPABASE_SERVICE_ROLE_KEY` avant d'exécuter les Edge Functions.
-- `SUPABASE_DB_URL` doit suivre le format pgbouncer `postgresql://postgres:<mot-de-passe>@db.<ref>.supabase.co:6543/postgres?pgbouncer=true&sslmode=require` pour appliquer les migrations.
+If you do not use the CLI, the secret can also be configured from the Supabase dashboard by navigating to **Project Settings → API → Secrets** and adding a new entry named `LOVABLE_API_KEY`.
 
-> ℹ️ Ne validez jamais de vraies clés dans le dépôt. Utilisez `env.example` comme gabarit vierge et ajoutez vos secrets uniquement dans l'environnement d'exécution (Lovable, CI, machine locale).
-
-Au démarrage du client (`npm run dev`), l'initialisation du SDK affiche `Supabase URL present` dans la console pour signaler que la configuration est détectée sans exposer la clé publique.
-
-Les Edge Functions n'utilisent plus de passerelle Lovable privée et n'ont besoin que des secrets Supabase standards (URL + clé Service Role) définis via `supabase secrets set`.
-
-## Vite & résolution de modules
-
-- Le client Supabase lit exclusivement `import.meta.env.VITE_SUPABASE_URL` et `import.meta.env.VITE_SUPABASE_ANON_KEY`. Toute variable sans préfixe `VITE_` est ignorée côté front.
-- Les imports relatifs de la forme `@/...` reposent sur l'alias déclaré dans `vite.config.ts`. Ne supprimez pas cet alias, sinon les builds échoueront avant même l'initialisation Supabase.
-
-## Lovable Cloud Setup
-
-Configurez Supabase afin que les aperçus Lovable fonctionnent avec l'authentification et les Edge Functions :
-
-- **Auth → Site URL** : domaine de production Lovable (`https://<project>.lovable.app`).
-- **Auth → Additional Redirect URLs** : domaine de prévisualisation Lovable (`https://preview-*.lovable.app`).
-- **API → Allowed Origins** : ajoutez les domaines de prévisualisation et de production Lovable pour autoriser les appels REST et Edge Functions depuis ces environnements.
-
-La CI Lovable doit fournir `SUPABASE_DB_URL` afin d'appliquer les migrations avant la mise en production.
-
-## QA & smoke tests
-
-Avant chaque livraison, validez la connexion Supabase à l'aide du client partagé :
-
-1. `supabase.auth.signInWithOtp` avec une adresse de test et vérifiez la réception du lien magique.
-2. `supabase.auth.getSession` pour confirmer la persistance de session dans le navigateur.
-3. Un `select` sur une table publique (ex : `lobbies`) afin de s'assurer que la politique CORS autorise Lovable.
-4. Un `insert` sur une table protégée par RLS via une Edge Function ou l'API REST pour valider les politiques.
-
-La console du navigateur ne doit afficher aucune lecture de variables `import.meta.env` sans préfixe `VITE_`.
-
-## Supabase migrations & Edge Functions
-
-The tournament Edge Functions expect the Supabase schema defined in `supabase/migrations`. The Express tournament service
-automatically attempts to run these migrations at startup whenever a Supabase connection string is available. To apply them
-manually (or from CI), run the migration helper from the project root:
+Whenever the secret is updated, redeploy the edge functions so they pick up the latest value:
 
 ```sh
-SUPABASE_DB_URL="postgresql://postgres:<your-db-password>@db.ucaqbhmyutlnitnedowk.supabase.co:6543/postgres?pgbouncer=true&sslmode=require" \
-npm run supabase:migrate
+npx supabase functions deploy generate-chess-rule chess-insights
 ```
-
-The script reads every SQL file in `supabase/migrations`, applies pending migrations inside a transaction, and records the
-applied versions in `supabase_migrations.schema_migrations`. Afterward it automatically triggers
-`pg_notify('pgrst','reload schema')` so PostgREST refreshes the new tables/views. You can also provide the connection string
-through the `SUPABASE_DB_CONNECTION_STRING` or `DATABASE_URL` environment variables when running the command.
-
-To deploy the Edge Functions used by the application, run `./supabase/deploy-edge-functions.sh`. The helper script relies on the
-project reference configured in `supabase/config.toml` (or the `SUPABASE_PROJECT_REF` environment variable) and deploys all
-functions located in `supabase/functions`. See [`docs/supabase-setup.md`](docs/supabase-setup.md) for the complete setup guide
-(environment variables, secrets, migrations and verification steps).
 
 ## How can I deploy this project?
 

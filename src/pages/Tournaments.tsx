@@ -1,581 +1,994 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { CalendarClock, Loader2, RefreshCw, Trophy, Users } from "lucide-react";
-
-import { Badge } from "@/components/ui/badge";
+import {
+  Award,
+  CalendarClock,
+  Loader2,
+  Swords,
+  Trophy,
+  Users,
+} from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useAuth } from "@/contexts/AuthContext";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import {
   TournamentFeatureUnavailableError,
+  fetchTournamentDetails,
   fetchTournamentLeaderboard,
   fetchTournamentOverview,
   fetchUserTournamentRegistrations,
   registerForTournament,
+  reportTournamentMatch,
+  requestTournamentMatch,
   syncTournaments,
 } from "@/lib/tournamentApi";
-import type { TournamentLeaderboardEntry, TournamentOverview } from "@/types/tournament";
+import { supabase } from "@/integrations/supabase/client";
+import { allPresetRules } from "@/lib/presetRules";
+import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from "@/lib/customRuleMapper";
+import type {
+  MatchmakingResponse,
+  TournamentDetails,
+  TournamentLeaderboardEntry,
+  TournamentOverview,
+  TournamentRegistrationWithMatch,
+  TournamentMatch,
+} from "@/types/tournament";
+import type { ChessRule } from "@/types/chess";
 
-const statusLabels: Record<TournamentOverview["status"], string> = {
-  scheduled: "Planifié",
-  running: "En cours",
-  completed: "Terminé",
-  cancelled: "Annulé",
+const blockDurationHours = 2;
+
+type TournamentTab = "running" | "upcoming" | "completed" | "mine";
+
+type LeaderboardState = {
+  loading: boolean;
+  entries: TournamentLeaderboardEntry[];
 };
 
-const statusStyles: Record<TournamentOverview["status"], string> = {
-  scheduled: "bg-sky-500/20 text-sky-100 border-sky-400/40",
-  running: "bg-emerald-500/20 text-emerald-100 border-emerald-400/40",
-  completed: "bg-fuchsia-500/20 text-fuchsia-100 border-fuchsia-400/40",
-  cancelled: "bg-rose-500/20 text-rose-100 border-rose-400/40",
-};
-
-const formatDate = (iso: string) =>
-  new Intl.DateTimeFormat("fr-FR", {
+const formatDateTime = (iso: string) => {
+  const date = new Date(iso);
+  return new Intl.DateTimeFormat("fr-FR", {
+    weekday: "short",
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(iso));
-
-const formatDuration = (start: string, end: string) => {
-  const startTime = new Date(start).getTime();
-  const endTime = new Date(end).getTime();
-
-  if (Number.isNaN(startTime) || Number.isNaN(endTime)) {
-    return "Durée inconnue";
-  }
-
-  const diffMs = endTime - startTime;
-  const hours = Math.floor(diffMs / 3600000);
-  const minutes = Math.round((diffMs % 3600000) / 60000);
-  if (minutes === 0) {
-    return `${hours} h`;
-  }
-  return `${hours} h ${minutes.toString().padStart(2, "0")} min`;
+  }).format(date);
 };
 
-const computeTimeMessage = (tournament: TournamentOverview, now: number) => {
-  if (tournament.status === "cancelled") {
-    return "Tournoi annulé";
-  }
-
+const computeTimeInfo = (tournament: TournamentOverview) => {
+  const now = Date.now();
   const start = new Date(tournament.start_time).getTime();
   const end = new Date(tournament.end_time).getTime();
 
-  if (Number.isNaN(start) || Number.isNaN(end)) {
-    return "Dates à confirmer";
-  }
-
   if (now < start) {
-    const minutes = Math.max(1, Math.ceil((start - now) / 60000));
-    return `Commence dans ${minutes} min`;
+    const minutes = Math.max(1, Math.round((start - now) / 60000));
+    return `Débute dans ${minutes} min`;
   }
 
-  if (now < end && tournament.status !== "completed") {
-    const minutes = Math.max(1, Math.ceil((end - now) / 60000));
+  if (now >= start && now < end) {
+    const minutes = Math.max(1, Math.round((end - now) / 60000));
     return `Se termine dans ${minutes} min`;
   }
 
-  return `Terminé le ${formatDate(tournament.end_time)}`;
+  return `Terminé le ${formatDateTime(tournament.end_time)}`;
 };
 
-interface RankedLeaderboardEntry extends TournamentLeaderboardEntry {
-  rank: number;
-}
+const resolveUserDisplayName = (user: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
+  if (!user) return "Joueur";
+  const metadata = user.user_metadata ?? {};
+  const fromMetadata = ["full_name", "name", "username"]
+    .map(key => {
+      const value = metadata[key];
+      return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+    })
+    .find(Boolean);
 
-const TournamentLeaderboard = ({ entries }: { entries: RankedLeaderboardEntry[] }) => {
-  if (entries.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed border-white/20 p-4 text-center text-sm text-white/70">
-        Aucun résultat enregistré pour le moment.
-      </div>
-    );
+  if (fromMetadata) return fromMetadata;
+  if (typeof user.email === "string" && user.email.length > 0) {
+    return user.email.split("@")[0] ?? user.email;
+  }
+  return "Joueur";
+};
+
+const statusBadgeClasses: Record<TournamentTab, string> = {
+  running: "bg-emerald-500/20 text-emerald-200 border-emerald-500/30",
+  upcoming: "bg-cyan-500/20 text-cyan-100 border-cyan-500/30",
+  completed: "bg-fuchsia-500/20 text-fuchsia-100 border-fuchsia-500/30",
+  mine: "bg-amber-500/20 text-amber-100 border-amber-500/30",
+};
+
+const TournamentStatusBadge = ({
+  tournament,
+}: {
+  tournament: TournamentOverview;
+}) => {
+  const now = Date.now();
+  const start = new Date(tournament.start_time).getTime();
+  const end = new Date(tournament.end_time).getTime();
+
+  if (now < start) {
+    return <Badge className={statusBadgeClasses.upcoming}>Programmé</Badge>;
   }
 
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow className="border-white/10">
-          <TableHead className="w-12 text-white/70">#</TableHead>
-          <TableHead className="text-white/70">Joueur</TableHead>
-          <TableHead className="text-center text-white/70">Pts</TableHead>
-          <TableHead className="text-center text-white/70">G</TableHead>
-          <TableHead className="text-center text-white/70">N</TableHead>
-          <TableHead className="text-center text-white/70">P</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {entries.map(entry => (
-          <TableRow key={entry.user_id} className="border-white/5">
-            <TableCell className="text-white/80">{entry.rank}</TableCell>
-            <TableCell className="font-medium text-white">{entry.display_name ?? "Joueur mystère"}</TableCell>
-            <TableCell className="text-center text-white/90">{entry.points.toFixed(1)}</TableCell>
-            <TableCell className="text-center text-emerald-200">{entry.wins}</TableCell>
-            <TableCell className="text-center text-amber-200">{entry.draws}</TableCell>
-            <TableCell className="text-center text-rose-200">{entry.losses}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-};
+  if (now >= start && now < end) {
+    return <Badge className={statusBadgeClasses.running}>En cours</Badge>;
+  }
 
-interface TournamentCardProps {
-  overview: TournamentOverview;
-  leaderboard?: TournamentLeaderboardEntry[];
-  leaderboardError?: string | null;
-  now: number;
-  isRegistered: boolean;
-  canRegister: boolean;
-  onRegister: () => Promise<void>;
-  registering: boolean;
-  requiresAuth: boolean;
-}
-
-const TournamentCard = ({
-  overview,
-  leaderboard,
-  leaderboardError,
-  now,
-  isRegistered,
-  canRegister,
-  onRegister,
-  registering,
-  requiresAuth,
-}: TournamentCardProps) => {
-  const limitedLeaderboard = useMemo<RankedLeaderboardEntry[]>(
-    () =>
-      (leaderboard ?? []).map((entry, index) => ({
-        ...entry,
-        rank: index + 1,
-      }))
-        .slice(0, 10),
-    [leaderboard],
-  );
-  const isCompleted = overview.status === "completed";
-  const isCancelled = overview.status === "cancelled";
-  const ruleChips = useMemo(() => overview.variant_rules ?? [], [overview.variant_rules]);
-
-  const renderRegistrationArea = () => {
-    if (isRegistered) {
-      return (
-        <Badge variant="outline" className="border-emerald-400/40 bg-emerald-500/10 text-emerald-100">
-          Vous participez à ce tournoi
-        </Badge>
-      );
-    }
-
-    if (requiresAuth) {
-      return (
-        <Button variant="outline" className="border-white/30 text-white" asChild>
-          <Link to="/signup">Connectez-vous pour participer</Link>
-        </Button>
-      );
-    }
-
-    if (!canRegister) {
-      return (
-        <Badge variant="outline" className="border-white/20 bg-white/5 text-white/70">
-          Inscriptions closes
-        </Badge>
-      );
-    }
-
-    return (
-      <Button onClick={onRegister} disabled={registering} className="bg-emerald-500 text-black hover:bg-emerald-400">
-        {registering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trophy className="mr-2 h-4 w-4" />}
-        S&apos;inscrire au tournoi
-      </Button>
-    );
-  };
-
-  return (
-    <Card className="border-white/10 bg-gradient-to-br from-black/70 via-slate-900/60 to-slate-900/30 text-white shadow-lg">
-      <CardHeader className="space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-xl font-semibold text-white">{overview.name}</CardTitle>
-            <p className="mt-1 text-sm text-white/70">
-              Variante <span className="font-medium text-white">{overview.variant_name}</span>
-              {overview.variant_source ? (
-                <span className="text-white/50"> · Source {overview.variant_source}</span>
-              ) : null}
-            </p>
-            {overview.description ? (
-              <p className="mt-2 text-sm text-white/60">{overview.description}</p>
-            ) : null}
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <Badge variant="outline" className={`${statusStyles[overview.status]} px-3 py-1 text-xs font-semibold`}>
-              {statusLabels[overview.status]}
-            </Badge>
-            {isRegistered ? (
-              <Badge variant="outline" className="border-emerald-400/50 bg-emerald-500/10 text-emerald-100">
-                Inscrit
-              </Badge>
-            ) : null}
-          </div>
-        </div>
-
-        {ruleChips.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {ruleChips.map(rule => (
-              <Badge key={rule} variant="outline" className="border-white/20 bg-white/5 text-xs text-white/80">
-                {rule}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-white/10 bg-black/40 p-3 text-sm">
-            <div className="flex items-center gap-2 text-white/60">
-              <CalendarClock className="h-4 w-4" />
-              Début
-            </div>
-            <p className="mt-1 text-white">{formatDate(overview.start_time)}</p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-black/40 p-3 text-sm">
-            <div className="flex items-center gap-2 text-white/60">
-              <CalendarClock className="h-4 w-4" />
-              Fin
-            </div>
-            <p className="mt-1 text-white">{formatDate(overview.end_time)}</p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-black/40 p-3 text-sm">
-            <div className="flex items-center gap-2 text-white/60">
-              <Trophy className="h-4 w-4" />
-              Durée
-            </div>
-            <p className="mt-1 text-white">{formatDuration(overview.start_time, overview.end_time)}</p>
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white/70">
-            <p className="text-xs uppercase tracking-wide text-white/50">Statut</p>
-            <p className="mt-1 text-base font-semibold text-white">{computeTimeMessage(overview, now)}</p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white/70">
-            <p className="text-xs uppercase tracking-wide text-white/50">Participants</p>
-            <p className="mt-1 text-base font-semibold text-white flex items-center gap-1">
-              <Users className="h-4 w-4" /> {overview.player_count}
-            </p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white/70">
-            <p className="text-xs uppercase tracking-wide text-white/50">Matches</p>
-            <p className="mt-1 text-base font-semibold text-white">
-              {overview.completed_match_count} terminés · {overview.active_match_count} en cours
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3">{renderRegistrationArea()}</div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
-            <Trophy className="h-5 w-5 text-amber-300" /> {isCompleted ? "Classement final" : "Classement provisoire"}
-          </h3>
-          {!isCompleted && !isCancelled ? (
-            <span className="text-xs uppercase tracking-wide text-white/50">
-              Mise à jour en continu, classement final à la fin du tournoi
-            </span>
-          ) : null}
-        </div>
-        {leaderboardError ? (
-          <div className="rounded-lg border border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-100">
-            {leaderboardError}
-          </div>
-        ) : leaderboard ? (
-          <TournamentLeaderboard entries={limitedLeaderboard} />
-        ) : (
-          <div className="flex items-center justify-center rounded-lg border border-white/10 bg-black/40 p-6 text-white/80">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Classement en cours de chargement...
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+  return <Badge className={statusBadgeClasses.completed}>Clôturé</Badge>;
 };
 
 const TournamentPage = () => {
-  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [tournaments, setTournaments] = useState<TournamentOverview[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const [activeTab, setActiveTab] = useState<TournamentTab>("running");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
+  const [leaderboardState, setLeaderboardState] = useState<LeaderboardState>({ loading: false, entries: [] });
+  const [joiningTournamentId, setJoiningTournamentId] = useState<string | null>(null);
+  const [registeringTournamentId, setRegisteringTournamentId] = useState<string | null>(null);
+  const [reportingMatchId, setReportingMatchId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [leaderboards, setLeaderboards] = useState<Record<string, TournamentLeaderboardEntry[] | undefined>>({});
-  const [leaderboardErrors, setLeaderboardErrors] = useState<Record<string, string | null>>({});
-  const [userRegistrations, setUserRegistrations] = useState<Record<string, boolean>>({});
-  const [registeringIds, setRegisteringIds] = useState<Record<string, boolean>>({});
-  const [now, setNow] = useState(() => Date.now());
+  const [tournamentsUnavailable, setTournamentsUnavailable] = useState(false);
 
-  const loadTournaments = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchTournamentOverview();
-      setTournaments(data);
-      setLeaderboards({});
-      setLeaderboardErrors({});
-    } catch (err) {
-      if (err instanceof TournamentFeatureUnavailableError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : "Impossible de charger les tournois");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const tournamentsQuery = useQuery<TournamentOverview[], Error>({
+    queryKey: ["tournaments"],
+    queryFn: fetchTournamentOverview,
+    enabled: !tournamentsUnavailable,
+    retry: error => !(error instanceof TournamentFeatureUnavailableError),
+  });
 
-  const loadLeaderboards = useCallback(async (tournamentsToLoad: TournamentOverview[]) => {
-    if (tournamentsToLoad.length === 0) {
-      return;
-    }
+  const tournaments = tournamentsQuery.data ?? [];
+  const tournamentsLoading = tournamentsQuery.isLoading;
+  const tournamentsError = tournamentsQuery.error;
 
-    const ids = tournamentsToLoad.map(t => t.id);
+  const myRegistrationsQuery = useQuery<TournamentRegistrationWithMatch[], Error>({
+    queryKey: ["my-tournament-registrations", user?.id],
+    queryFn: () => fetchUserTournamentRegistrations(user!.id),
+    enabled: Boolean(user?.id) && !tournamentsUnavailable,
+    retry: error => !(error instanceof TournamentFeatureUnavailableError),
+  });
 
-    const results = await Promise.allSettled(
-      ids.map(async id => {
-        try {
-          const data = await fetchTournamentLeaderboard(id);
-          return { id, data };
-        } catch (error) {
-          throw { id, error };
-        }
-      }),
-    );
+  const myRegistrations = myRegistrationsQuery.data ?? [];
+  const myRegistrationsError = myRegistrationsQuery.error;
 
-    const nextLeaderboards: Record<string, TournamentLeaderboardEntry[] | undefined> = {};
-    const nextErrors: Record<string, string | null> = {};
-
-    results.forEach(result => {
-      if (result.status === "fulfilled") {
-        nextLeaderboards[result.value.id] = result.value.data;
-        nextErrors[result.value.id] = null;
-      } else {
-        const reason = result.reason as { id: string; error: unknown };
-        const targetId = reason?.id ?? "unknown";
-        const underlyingError = reason?.error;
-
-        if (underlyingError instanceof TournamentFeatureUnavailableError) {
-          nextErrors[targetId] = underlyingError.message;
-        } else if (underlyingError instanceof Error) {
-          nextErrors[targetId] = underlyingError.message;
-        } else {
-          nextErrors[targetId] = "Classement indisponible";
-        }
-      }
-    });
-
-    setLeaderboards(prev => ({ ...prev, ...nextLeaderboards }));
-    setLeaderboardErrors(prev => ({ ...prev, ...nextErrors }));
-  }, []);
+  const selectedDetailsQuery = useQuery<TournamentDetails, Error>({
+    queryKey: ["tournament-details", selectedTournamentId],
+    queryFn: () => fetchTournamentDetails(selectedTournamentId!),
+    enabled: Boolean(selectedTournamentId) && !tournamentsUnavailable,
+    retry: error => !(error instanceof TournamentFeatureUnavailableError),
+  });
+  const selectedDetailsError = selectedDetailsQuery.error;
 
   useEffect(() => {
-    loadTournaments();
-  }, [loadTournaments]);
-
-  useEffect(() => {
-    if (tournaments.length === 0) {
-      return;
+    if (
+      tournamentsError instanceof TournamentFeatureUnavailableError ||
+      myRegistrationsError instanceof TournamentFeatureUnavailableError ||
+      selectedDetailsError instanceof TournamentFeatureUnavailableError
+    ) {
+      setTournamentsUnavailable(true);
     }
+  }, [myRegistrationsError, selectedDetailsError, tournamentsError]);
 
-    loadLeaderboards(tournaments);
-  }, [tournaments, loadLeaderboards]);
+  const registrationByTournament = useMemo(() => new Map(myRegistrations.map(reg => [reg.tournament_id, reg])), [
+    myRegistrations,
+  ]);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadRegistrations = async () => {
-      if (!user) {
-        if (isMounted) {
-          setUserRegistrations({});
-        }
-        return;
-      }
-
-      try {
-        const registrations = await fetchUserTournamentRegistrations(user.id);
-        if (!isMounted) return;
-        const mapping = registrations.reduce<Record<string, boolean>>((acc, registration) => {
-          acc[registration.tournament_id] = true;
-          return acc;
-        }, {});
-        setUserRegistrations(mapping);
-      } catch (err) {
-        const message =
-          err instanceof TournamentFeatureUnavailableError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : "Impossible de charger vos inscriptions";
-        if (isMounted) {
-          toast({
-            title: "Inscriptions indisponibles",
-            description: message,
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
-    loadRegistrations();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user, toast]);
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleRefresh = () => {
-    loadTournaments();
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setError(null);
-    try {
-      await syncTournaments();
-      await loadTournaments();
-    } catch (err) {
-      if (err instanceof TournamentFeatureUnavailableError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : "Impossible de synchroniser les tournois");
-      }
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const handleRegister = useCallback(
-    async (tournament: TournamentOverview) => {
-      if (!user) {
-        toast({
-          title: "Connexion requise",
-          description: "Identifiez-vous pour participer aux tournois.",
-        });
-        return;
-      }
-
-      setRegisteringIds(prev => ({ ...prev, [tournament.id]: true }));
-
-      const metadata = user.user_metadata ?? {};
-      const displayName =
-        (metadata.full_name as string | undefined) ||
-        (metadata.display_name as string | undefined) ||
-        (metadata.username as string | undefined) ||
-        user.email?.split("@")[0] ||
-        "Joueur";
-      const avatarUrl =
-        (metadata.avatar_url as string | undefined) ||
-        (metadata.picture as string | undefined) ||
-        (metadata.avatarUrl as string | undefined) ||
-        null;
-
-      try {
-        await registerForTournament(tournament.id, user.id, displayName, avatarUrl);
-        setUserRegistrations(prev => ({ ...prev, [tournament.id]: true }));
-        setTournaments(prev =>
-          prev.map(item =>
-            item.id === tournament.id
-              ? {
-                  ...item,
-                  player_count: item.player_count + 1,
-                }
-              : item,
-          ),
-        );
-        toast({
-          title: "Inscription confirmée",
-          description: `Vous participez maintenant à ${tournament.name}.`,
-        });
-      } catch (err) {
-        const message =
-          err instanceof TournamentFeatureUnavailableError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : "Impossible de vous inscrire";
-        toast({
-          title: "Inscription refusée",
-          description: message,
-          variant: "destructive",
-        });
-      } finally {
-        setRegisteringIds(prev => ({ ...prev, [tournament.id]: false }));
-      }
-    },
-    [toast, user],
+  const runningTournaments = useMemo(
+    () => tournaments.filter(tournament => new Date(tournament.end_time).getTime() > Date.now()),
+    [tournaments],
   );
 
+  const activeTournaments = useMemo(
+    () => runningTournaments.filter(tournament => new Date(tournament.start_time).getTime() <= Date.now()),
+    [runningTournaments],
+  );
+
+  const upcomingTournaments = useMemo(
+    () => runningTournaments.filter(tournament => new Date(tournament.start_time).getTime() > Date.now()),
+    [runningTournaments],
+  );
+
+  const completedTournaments = useMemo(
+    () => tournaments.filter(tournament => new Date(tournament.end_time).getTime() <= Date.now()),
+    [tournaments],
+  );
+
+  const myTournamentList = useMemo(
+    () => tournaments.filter(tournament => registrationByTournament.has(tournament.id)),
+    [tournaments, registrationByTournament],
+  );
+
+  const presetRuleMap = useMemo(() => new Map(allPresetRules.map(rule => [rule.ruleId, rule])), []);
+
+  const openTournamentLobby = useCallback(
+    async (match: TournamentMatch) => {
+      if (!match?.lobby) {
+        toast({
+          title: "Salle introuvable",
+          description: "Aucune salle multijoueur n'est associée à ce match.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!Array.isArray(match.variant_rules) || match.variant_rules.length === 0) {
+        toast({
+          title: "Règle manquante",
+          description: "Impossible d'identifier la règle associée à ce match de tournoi.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const [ruleId] = match.variant_rules;
+      if (!ruleId) {
+        toast({
+          title: "Règle introuvable",
+          description: "La règle du tournoi n'a pas été transmise par le serveur.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        let selectedRule: ChessRule | null = presetRuleMap.get(ruleId) ?? null;
+
+        if (!selectedRule) {
+          const { data, error } = await supabase
+            .from("custom_chess_rules")
+            .select("*")
+            .eq("rule_id", ruleId)
+            .limit(1);
+
+          if (error) {
+            throw new Error(error.message);
+          }
+
+          const row = (data ?? [])[0] as CustomRuleRow | undefined;
+          if (!row) {
+            throw new Error("La règle personnalisée associée à ce match est introuvable.");
+          }
+
+          selectedRule = mapCustomRuleRowsToChessRules([row])[0] ?? null;
+        }
+
+        if (!selectedRule) {
+          throw new Error("Impossible de charger la règle du tournoi.");
+        }
+
+        const preparedRule = { ...selectedRule, isActive: true };
+        const isPreset = presetRuleMap.has(ruleId);
+        const lobby = match.lobby;
+        const lobbyName = lobby.name ?? "Salle multijoueur";
+        const role: "creator" | "opponent" = user && user.id === match.player1_id ? "creator" : "opponent";
+        const playerName = resolveUserDisplayName(user ?? null);
+        const opponentName =
+          role === "creator"
+            ? lobby.opponent_name ?? "Adversaire"
+            : lobby.name ?? lobby.opponent_name ?? "Adversaire";
+
+        navigate("/play", {
+          state: {
+            customRules: isPreset ? [] : [preparedRule],
+            presetRuleIds: isPreset ? [ruleId] : [],
+            opponentType: "player",
+            lobbyId: lobby.id,
+            lobbyName,
+            role,
+            opponentName,
+            playerName,
+          },
+        });
+      } catch (error) {
+        const description =
+          error instanceof Error ? error.message : "Impossible d'ouvrir la salle du tournoi.";
+        toast({
+          title: "Salle inaccessible",
+          description,
+          variant: "destructive",
+        });
+      }
+    },
+    [navigate, presetRuleMap, toast, user],
+  );
+
+  const ongoingMatchRegistration = useMemo(() => {
+    if (!user) return null;
+    return myRegistrations.find(
+      registration =>
+        registration.current_match &&
+        registration.current_match.status !== "completed" &&
+        registration.current_match.status !== "cancelled",
+    );
+  }, [myRegistrations, user]);
+
+  const ongoingMatchTournament = useMemo(() => {
+    if (!ongoingMatchRegistration) return null;
+    return tournaments.find(tournament => tournament.id === ongoingMatchRegistration.tournament_id) ?? null;
+  }, [ongoingMatchRegistration, tournaments]);
+
+  useEffect(() => {
+    if (tournamentsUnavailable) {
+      setSyncing(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const initialise = async () => {
+      setSyncing(true);
+      try {
+        await syncTournaments();
+        await queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+      } catch (error) {
+        if (error instanceof TournamentFeatureUnavailableError) {
+          setTournamentsUnavailable(true);
+          toast({
+            title: "Tournois indisponibles",
+            description: error.message,
+            variant: "destructive",
+          });
+        } else {
+          const message = error instanceof Error ? error.message : "Impossible de synchroniser les tournois";
+          toast({ title: "Synchronisation échouée", description: message, variant: "destructive" });
+        }
+      } finally {
+        if (!cancelled) {
+          setSyncing(false);
+        }
+      }
+    };
+
+    void initialise();
+
+    const interval = setInterval(() => void initialise(), 1000 * 60 * 15);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [queryClient, toast, tournamentsUnavailable]);
+
+  const selectedTournament = useMemo(
+    () => tournaments.find(tournament => tournament.id === selectedTournamentId) ?? null,
+    [tournaments, selectedTournamentId],
+  );
+
+  const loadLeaderboard = async (tournamentId: string) => {
+    setLeaderboardState({ loading: true, entries: [] });
+    try {
+      const entries = await fetchTournamentLeaderboard(tournamentId);
+      setLeaderboardState({ loading: false, entries });
+    } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
+      const message = error instanceof Error ? error.message : "Classement inaccessible";
+      toast({ title: "Erreur", description: message, variant: "destructive" });
+      setLeaderboardState({ loading: false, entries: [] });
+    }
+  };
+
+  const handleOpenDetails = (tournamentId: string) => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Configurez l'intégration Supabase pour consulter les détails des tournois.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSelectedTournamentId(tournamentId);
+    setDetailsOpen(true);
+    void loadLeaderboard(tournamentId);
+  };
+
+  const handleDetailsOpenChange = (open: boolean) => {
+    setDetailsOpen(open);
+    if (!open) {
+      setSelectedTournamentId(null);
+      setLeaderboardState({ loading: false, entries: [] });
+    }
+  };
+
+  const handleRegister = async (tournament: TournamentOverview) => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Déployez l'infrastructure Supabase requise avant de vous inscrire.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!user) {
+      toast({
+        title: "Connexion requise",
+        description: "Identifiez-vous pour rejoindre un tournoi.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setRegisteringTournamentId(tournament.id);
+    try {
+      const displayName = resolveUserDisplayName(user);
+      const avatarUrl = typeof user.user_metadata?.avatar_url === "string" ? user.user_metadata?.avatar_url : null;
+      await registerForTournament(tournament.id, user.id, displayName, avatarUrl);
+      toast({
+        title: "Inscription confirmée",
+        description: `Vous êtes inscrit à ${tournament.name}.`,
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["my-tournament-registrations", user.id] }),
+        queryClient.invalidateQueries({ queryKey: ["tournaments"] }),
+        queryClient.invalidateQueries({ queryKey: ["tournament-details", tournament.id] }),
+      ]);
+    } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
+      const message = error instanceof Error ? error.message : "Impossible de s'inscrire au tournoi";
+      toast({ title: "Erreur d'inscription", description: message, variant: "destructive" });
+    } finally {
+      setRegisteringTournamentId(null);
+    }
+  };
+
+  const handleJoinMatch = async (tournamentId: string) => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Déployez l'infrastructure Supabase requise avant de lancer un match.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!user) {
+      toast({ title: "Connexion requise", description: "Connectez-vous pour lancer une partie.", variant: "destructive" });
+      return;
+    }
+
+    setJoiningTournamentId(tournamentId);
+    try {
+      const displayName = resolveUserDisplayName(user);
+      const response: MatchmakingResponse = await requestTournamentMatch(tournamentId, displayName);
+      if (response.match?.status === "pending") {
+        toast({ title: "Salle créée", description: "Nous attendons un adversaire pour démarrer la partie." });
+      } else if (response.match?.status === "in_progress") {
+        toast({ title: "Adversaire trouvé", description: "Votre match de tournoi peut commencer." });
+      } else {
+        toast({ title: "Participation enregistrée", description: "Votre inscription est confirmée." });
+      }
+
+      if (response.match) {
+        await openTournamentLobby(response.match);
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["my-tournament-registrations", user.id] }),
+        queryClient.invalidateQueries({ queryKey: ["tournament-details", tournamentId] }),
+      ]);
+    } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
+      const message = error instanceof Error ? error.message : "Matchmaking indisponible";
+      toast({ title: "Impossible de rejoindre", description: message, variant: "destructive" });
+    } finally {
+      setJoiningTournamentId(null);
+    }
+  };
+
+  const handleReportMatch = async (matchId: string, result: "player1" | "player2" | "draw") => {
+    if (tournamentsUnavailable) {
+      toast({
+        title: "Tournois indisponibles",
+        description: "Déployez l'infrastructure Supabase requise avant de reporter un résultat.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!user) return;
+    setReportingMatchId(matchId);
+    try {
+      const payload = await reportTournamentMatch(matchId, result);
+      toast({ title: "Résultat enregistré", description: "Le classement a été mis à jour." });
+      if (payload?.leaderboard) {
+        setLeaderboardState({ loading: false, entries: payload.leaderboard });
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["my-tournament-registrations", user.id] }),
+        queryClient.invalidateQueries({ queryKey: ["tournaments"] }),
+        queryClient.invalidateQueries({ queryKey: ["tournament-details", payload?.match?.tournament_id ?? selectedTournamentId] }),
+      ]);
+    } catch (error) {
+      if (error instanceof TournamentFeatureUnavailableError) {
+        setTournamentsUnavailable(true);
+      }
+      const message = error instanceof Error ? error.message : "Impossible d'enregistrer le résultat";
+      toast({ title: "Erreur", description: message, variant: "destructive" });
+    } finally {
+      setReportingMatchId(null);
+    }
+  };
+
+  const summaryMetrics = useMemo(() => {
+    const totalParticipants = tournaments.reduce((acc, tournament) => acc + tournament.player_count, 0);
+    const completedMatches = tournaments.reduce((acc, tournament) => acc + tournament.completed_match_count, 0);
+    const activeMatches = tournaments.reduce((acc, tournament) => acc + tournament.active_match_count, 0);
+
+    return [
+      {
+        label: "Tournois en cours",
+        value: activeTournaments.length,
+        icon: Trophy,
+        accent: "from-emerald-400 via-emerald-300 to-lime-200",
+        description: `${blockDurationHours}h de compétition continue`,
+      },
+      {
+        label: `Prochains ${blockDurationHours}h`,
+        value: upcomingTournaments.length,
+        icon: CalendarClock,
+        accent: "from-cyan-400 via-sky-300 to-blue-200",
+        description: "Programmés sur la prochaine fenêtre",
+      },
+      {
+        label: "Participants",
+        value: totalParticipants,
+        icon: Users,
+        accent: "from-fuchsia-400 via-pink-300 to-rose-200",
+        description: "Joueurs inscrits sur les créneaux actifs",
+      },
+      {
+        label: "Matches joués",
+        value: completedMatches,
+        icon: Award,
+        accent: "from-amber-400 via-orange-300 to-yellow-200",
+        description: `${activeMatches} matchs en cours actuellement`,
+      },
+    ];
+  }, [activeTournaments.length, tournaments, upcomingTournaments.length]);
+
+  const tabConfig: { id: TournamentTab; label: string; tournaments: TournamentOverview[] }[] = [
+    { id: "running", label: "En cours", tournaments: activeTournaments },
+    { id: "upcoming", label: "À venir", tournaments: upcomingTournaments },
+    { id: "completed", label: "Terminés", tournaments: completedTournaments },
+    { id: "mine", label: "Mes tournois", tournaments: myTournamentList },
+  ];
+
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10 text-white">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold">Tournois automatiques</h1>
-          <p className="text-sm text-white/70">
-            Participez à des tournois générés à partir des variantes réelles de la communauté et suivez les classements en
-            direct.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button variant="outline" className="border-white/30 text-white" onClick={handleRefresh} disabled={loading}>
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            Actualiser
-          </Button>
-          <Button
-            onClick={handleSync}
-            disabled={syncing}
-            className="bg-emerald-500 text-black hover:bg-emerald-400"
-          >
-            {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trophy className="mr-2 h-4 w-4" />}
-            Synchroniser avec Supabase
-          </Button>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-[#030314] px-6 py-6 sm:py-16">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.18),transparent_60%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_bottom,_rgba(255,0,200,0.16),transparent_65%)]" />
+      <div className="relative mx-auto max-w-6xl space-y-10">
+        <header className="flex flex-col gap-8 rounded-3xl border border-cyan-500/25 bg-black/45 p-8 shadow-[0_0_45px_rgba(34,211,238,0.25)] backdrop-blur-xl">
+          <div className="flex flex-col gap-3">
+            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-200/80">Voltus Chess</span>
+            <h1 className="bg-gradient-to-r from-cyan-200 via-white to-fuchsia-200 bg-clip-text text-4xl font-bold text-transparent">
+              Portail des tournois
+            </h1>
+            <p className="text-sm text-cyan-100/70">
+              Rejoignez des tournois toutes les deux heures, affrontez des joueurs connectés et suivez vos résultats en direct.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-4">
+            {summaryMetrics.map(metric => {
+              const Icon = metric.icon;
+              return (
+                <Card
+                  key={metric.label}
+                  className="relative overflow-hidden rounded-2xl border border-cyan-400/20 bg-black/50 p-5 shadow-[0_0_35px_rgba(34,211,238,0.2)]"
+                >
+                  <div className={`pointer-events-none absolute inset-x-6 top-0 h-1 rounded-b-full bg-gradient-to-r ${metric.accent}`} />
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 p-0">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500/10">
+                        <Icon className="h-5 w-5 text-cyan-200" />
+                      </span>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-white">{metric.value}</CardTitle>
+                        <p className="text-xs text-cyan-100/60">{metric.label}</p>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="mt-4 space-y-3 p-0">
+                    <p className="text-xs text-cyan-100/60">{metric.description}</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+          <div className="flex flex-col gap-4 rounded-2xl border border-cyan-500/20 bg-black/40 p-4 backdrop-blur-lg md:flex-row md:items-center md:justify-between">
+            <div className="text-sm text-cyan-100/70">
+              {tournamentsUnavailable
+                ? "Les tournois nécessitent une configuration Supabase spécifique."
+                : syncing || tournamentsLoading
+                  ? "Synchronisation des tournois en cours..."
+                  : "Programme mis à jour automatiquement toutes les 2h."}
+            </div>
+            <Button
+              variant="outline"
+              className="rounded-xl border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/10"
+              onClick={async () => {
+                setSyncing(true);
+                try {
+                  await syncTournaments();
+                  await queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+                  toast({ title: "Programme rafraîchi" });
+                } catch (error) {
+                  if (error instanceof TournamentFeatureUnavailableError) {
+                    setTournamentsUnavailable(true);
+                    toast({ title: "Tournois indisponibles", description: error.message, variant: "destructive" });
+                  } else {
+                    const message = error instanceof Error ? error.message : "Impossible de rafraîchir le programme";
+                    toast({ title: "Erreur", description: message, variant: "destructive" });
+                  }
+                } finally {
+                  setSyncing(false);
+                }
+              }}
+              disabled={syncing || tournamentsUnavailable}
+            >
+              {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Actualiser
+            </Button>
+          </div>
+        </header>
+
+        {tournamentsUnavailable ? (
+          <Alert className="border-rose-500/30 bg-rose-500/10 text-rose-100">
+            <AlertTitle>Configuration requise</AlertTitle>
+            <AlertDescription>
+              Cette instance n'a pas encore provisionné les tables et fonctions Supabase liées aux tournois. Exécutez les
+              migrations SQL et déployez les edge functions `sync-tournaments`, `tournament-matchmaking` et
+              `report-tournament-match` pour activer la fonctionnalité.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {user && ongoingMatchRegistration && ongoingMatchRegistration.current_match && (
+          <Card className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-6 text-emerald-50 shadow-[0_0_35px_rgba(52,211,153,0.25)]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Ma partie de tournoi en cours</h2>
+                <p className="text-sm text-emerald-100/80">
+                  {ongoingMatchRegistration.current_match.status === "pending"
+                    ? "Nous attendons qu'un adversaire rejoigne votre table."
+                    : "Votre adversaire est connecté, il est temps de lancer la partie !"}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-emerald-100/70">
+                  <Badge variant="outline" className="border-emerald-300/40 bg-emerald-500/20 text-emerald-100">
+                    Table {ongoingMatchRegistration.current_match.table_number ?? "-"}
+                  </Badge>
+                  <Badge variant="outline" className="border-emerald-300/40 bg-emerald-500/20 text-emerald-100">
+                    {ongoingMatchTournament?.name ?? "Tournoi"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ongoingMatchRegistration.current_match.status === "in_progress" && (
+                  <>
+                    <Button
+                      size="sm"
+                      className="rounded-xl bg-emerald-400 text-black hover:bg-emerald-300"
+                      onClick={() =>
+                        void handleReportMatch(
+                          ongoingMatchRegistration.current_match!.id,
+                          ongoingMatchRegistration.current_match!.player1_id === user.id ? "player1" : "player2",
+                        )
+                      }
+                      disabled={reportingMatchId === ongoingMatchRegistration.current_match.id}
+                    >
+                      {reportingMatchId === ongoingMatchRegistration.current_match.id ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Je gagne
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/20"
+                      onClick={() =>
+                        void handleReportMatch(
+                          ongoingMatchRegistration.current_match!.id,
+                          ongoingMatchRegistration.current_match!.player1_id === user.id ? "player2" : "player1",
+                        )
+                      }
+                      disabled={reportingMatchId === ongoingMatchRegistration.current_match.id}
+                    >
+                      {reportingMatchId === ongoingMatchRegistration.current_match.id ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Je perds
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/20"
+                      onClick={() =>
+                        void handleReportMatch(ongoingMatchRegistration.current_match!.id, "draw")
+                      }
+                      disabled={reportingMatchId === ongoingMatchRegistration.current_match.id}
+                    >
+                      {reportingMatchId === ongoingMatchRegistration.current_match.id ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Partie nulle
+                    </Button>
+                  </>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/20"
+                  onClick={() => {
+                    if (ongoingMatchRegistration?.current_match) {
+                      void openTournamentLobby(ongoingMatchRegistration.current_match);
+                    } else {
+                      toast({
+                        title: "Salle indisponible",
+                        description: "Aucune salle n'est associée à votre match en cours.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  Ouvrir la salle
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        <Tabs value={activeTab} onValueChange={value => setActiveTab(value as TournamentTab)} className="space-y-6">
+          <TabsList className="flex h-auto flex-wrap gap-3 rounded-2xl bg-black/40 p-3">
+            {tabConfig.map(tab => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className={`rounded-xl border border-transparent px-5 py-2 text-sm transition-all ${
+                  activeTab === tab.id
+                    ? "border-cyan-400/60 bg-cyan-500/10 text-white shadow-[0_0_20px_rgba(34,211,238,0.35)]"
+                    : "text-cyan-100/70 hover:border-cyan-400/40 hover:bg-cyan-500/5"
+                }`}
+              >
+                <span className="mr-2 rounded-full bg-cyan-500/20 px-2 py-0.5 text-xs font-semibold text-cyan-200/80">
+                  {tab.tournaments.length}
+                </span>
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {tabConfig.map(tab => (
+            <TabsContent key={tab.id} value={tab.id} className="mt-6 space-y-4">
+              {tab.tournaments.map(tournament => {
+                const registration = registrationByTournament.get(tournament.id);
+                const isUserRegistered = Boolean(registration);
+                const isLoadingJoin = joiningTournamentId === tournament.id;
+                const isLoadingRegister = registeringTournamentId === tournament.id;
+                const canJoin = isUserRegistered && new Date(tournament.start_time).getTime() <= Date.now();
+                const Icon = tournament.status === "completed" ? Swords : Trophy;
+
+                return (
+                  <Card
+                    key={tournament.id}
+                    className="flex flex-col gap-4 rounded-2xl border border-cyan-400/20 bg-black/50 p-5 shadow-[0_0_25px_rgba(34,211,238,0.2)] md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500/10">
+                          <Icon className="h-5 w-5 text-cyan-200" />
+                        </span>
+                        <div>
+                          <p className="text-lg font-semibold text-white">{tournament.name}</p>
+                          <p className="text-xs uppercase tracking-wide text-cyan-100/60">
+                            Variante : {tournament.variant_name}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-cyan-100/70">
+                        <span className="flex items-center gap-1">
+                          <CalendarClock className="h-4 w-4 text-cyan-300" /> Début : {formatDateTime(tournament.start_time)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <CalendarClock className="h-4 w-4 text-amber-300" /> Fin : {formatDateTime(tournament.end_time)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Swords className="h-4 w-4 text-fuchsia-300" /> {computeTimeInfo(tournament)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-start gap-3 md:items-end">
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className="rounded-full border-cyan-500/40 text-cyan-100">
+                          {tournament.player_count} joueurs
+                        </Badge>
+                        <TournamentStatusBadge tournament={tournament} />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          className="rounded-xl border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/10"
+                          onClick={() => handleOpenDetails(tournament.id)}
+                        >
+                          Voir le classement
+                        </Button>
+                        {isUserRegistered ? (
+                          <Badge className="rounded-xl bg-emerald-500/20 text-emerald-100">Inscrit</Badge>
+                        ) : (
+                          <Button
+                            className="rounded-xl bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-amber-400 px-6 text-black shadow-[0_0_30px_rgba(34,211,238,0.35)]"
+                            onClick={() => void handleRegister(tournament)}
+                            disabled={isLoadingRegister}
+                          >
+                            {isLoadingRegister ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            S'inscrire
+                          </Button>
+                        )}
+                        {canJoin && (
+                          <Button
+                            variant="outline"
+                            className="rounded-xl border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/10"
+                            onClick={() => void handleJoinMatch(tournament.id)}
+                            disabled={isLoadingJoin}
+                          >
+                            {isLoadingJoin ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Participer maintenant
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+
+              {tab.tournaments.length === 0 && (
+                <Card className="rounded-2xl border border-cyan-400/20 bg-black/40 p-10 text-center text-cyan-100/70">
+                  Aucun tournoi dans cette catégorie pour le moment.
+                </Card>
+              )}
+            </TabsContent>
+          ))}
+        </Tabs>
       </div>
 
-      {error ? (
-        <div className="rounded-lg border border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-100">{error}</div>
-      ) : null}
+      <Dialog open={detailsOpen} onOpenChange={handleDetailsOpenChange}>
+        <DialogContent className="max-w-3xl border-cyan-400/40 bg-black/90 text-white">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold">
+              {selectedTournament?.name ?? "Tournoi"}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-cyan-100/70">
+              Classement mis à jour automatiquement à la fin de chaque match.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            {selectedTournament ? (
+              <div className="grid gap-3 text-xs text-cyan-100/70 md:grid-cols-3">
+                <div className="rounded-xl border border-cyan-500/30 bg-black/40 p-4">
+                  <p className="text-cyan-200/80">Fenêtre</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatDateTime(selectedTournament.start_time)} → {formatDateTime(selectedTournament.end_time)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-cyan-500/30 bg-black/40 p-4">
+                  <p className="text-cyan-200/80">Participants</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{selectedTournament.player_count}</p>
+                </div>
+                <div className="rounded-xl border border-cyan-500/30 bg-black/40 p-4">
+                  <p className="text-cyan-200/80">Matches disputés</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{selectedTournament.completed_match_count}</p>
+                </div>
+              </div>
+            ) : null}
 
-      {loading ? (
-        <div className="flex items-center justify-center rounded-lg border border-white/10 bg-black/40 p-8 text-white/80">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Chargement des tournois...
-        </div>
-      ) : tournaments.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-white/20 bg-black/30 p-8 text-center text-sm text-white/70">
-          Aucun tournoi n&apos;est disponible pour le moment. Synchronisez les données ou revenez plus tard.
-        </div>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          {tournaments.map(tournament => (
-            <TournamentCard
-              key={tournament.id}
-              overview={tournament}
-              leaderboard={leaderboards[tournament.id]}
-              leaderboardError={leaderboardErrors[tournament.id] ?? undefined}
-              now={now}
-              isRegistered={Boolean(userRegistrations[tournament.id])}
-              canRegister={tournament.status !== "completed" && tournament.status !== "cancelled"}
-              onRegister={() => handleRegister(tournament)}
-              registering={Boolean(registeringIds[tournament.id])}
-              requiresAuth={!user}
-            />
-          ))}
-        </div>
-      )}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Classement</h3>
+                {leaderboardState.loading && <Loader2 className="h-4 w-4 animate-spin text-cyan-200" />}
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-cyan-500/30">
+                    <TableHead className="text-cyan-200/80">#</TableHead>
+                    <TableHead className="text-cyan-200/80">Joueur</TableHead>
+                    <TableHead className="text-cyan-200/80 text-center">Pts</TableHead>
+                    <TableHead className="text-cyan-200/80 text-center">G</TableHead>
+                    <TableHead className="text-cyan-200/80 text-center">N</TableHead>
+                    <TableHead className="text-cyan-200/80 text-center">P</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {leaderboardState.entries.length === 0 && !leaderboardState.loading ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-cyan-100/70">
+                        Aucun résultat enregistré pour le moment.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    leaderboardState.entries.map((entry, index) => (
+                      <TableRow key={`${entry.user_id}-${index}`} className="border-cyan-500/10">
+                        <TableCell className="text-cyan-100/80">{index + 1}</TableCell>
+                        <TableCell className="text-white">{entry.display_name ?? entry.user_id}</TableCell>
+                        <TableCell className="text-center text-cyan-100/80">{entry.points.toFixed(1)}</TableCell>
+                        <TableCell className="text-center text-emerald-200">{entry.wins}</TableCell>
+                        <TableCell className="text-center text-amber-200">{entry.draws}</TableCell>
+                        <TableCell className="text-center text-rose-200">{entry.losses}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {selectedDetailsQuery.isLoading ? (
+              <div className="flex items-center justify-center rounded-xl border border-cyan-500/20 bg-black/40 p-6 text-cyan-100/70">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Chargement des matches en cours...
+              </div>
+            ) : selectedDetailsQuery.data?.matches.length ? (
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold">Matches récents</h3>
+                <div className="grid gap-3">
+                  {selectedDetailsQuery.data.matches.slice(0, 5).map(match => (
+                    <div
+                      key={match.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-500/20 bg-black/40 p-4 text-sm text-cyan-100/80"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="border-cyan-500/30 text-cyan-100">
+                          Table {match.table_number ?? "-"}
+                        </Badge>
+                        <span>ID : {match.id.slice(0, 8)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <Badge
+                          className={
+                            match.status === "completed"
+                              ? "bg-emerald-500/20 text-emerald-100"
+                              : "bg-cyan-500/20 text-cyan-100"
+                          }
+                        >
+                          {match.status === "completed" ? "Terminé" : match.status === "in_progress" ? "En cours" : "En attente"}
+                        </Badge>
+                        {match.result && (
+                          <Badge className="bg-fuchsia-500/20 text-fuchsia-100">Résultat : {match.result}</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-cyan-500/20 bg-black/40 p-4 text-center text-sm text-cyan-100/70">
+                Aucun match n'a encore été disputé pour ce tournoi.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

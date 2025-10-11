@@ -1,22 +1,7 @@
-project_id = "ucaqbhmyutlnitnedowk"
+project_id = "pfcaolibtgvynnwaxvol"
 
 [functions.chess-insights]
 verify_jwt = false
 
 [functions.generate-chess-rule]
 verify_jwt = false
-
-[functions.load-user-games]
-verify_jwt = true
-
-[functions.record-user-game]
-verify_jwt = true
-
-[functions.report-tournament-match]
-verify_jwt = true
-
-[functions.sync-tournaments]
-verify_jwt = false
-
-[functions.tournament-matchmaking]
-verify_jwt = true

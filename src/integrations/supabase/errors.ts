@@ -26,16 +26,22 @@ export const getSupabaseFunctionErrorMessage = (
     return fallbackMessage;
   }
 
-  if (rawMessage.includes('429') || rawMessage.toLowerCase().includes('too many requests')) {
-    return "Limite de requêtes atteinte. Veuillez patienter quelques instants avant de réessayer.";
+  // Lovable AI rate limit (429)
+  if (rawMessage.includes('429') || rawMessage.includes('Rate limit') || rawMessage.includes('Too Many Requests')) {
+    return "Limite de requêtes Lovable AI atteinte. Veuillez patienter quelques instants avant de réessayer.";
   }
 
-  if (rawMessage.includes('402') || rawMessage.toLowerCase().includes('payment required')) {
-    return "Crédits ou quota insuffisants sur l'API distante.";
+  // Lovable AI credits exhausted (402)
+  if (rawMessage.includes('402') || rawMessage.includes('Payment Required') || rawMessage.includes('credits')) {
+    return "Crédits Lovable AI épuisés. Veuillez recharger vos crédits pour continuer à utiliser l'IA.";
   }
 
   if (rawMessage.includes(EDGE_FUNCTION_ERROR_SIGNATURE)) {
     return "Impossible de contacter la fonction. Vérifiez votre connexion internet.";
+  }
+
+  if (rawMessage.includes('LOVABLE_API_KEY is not configured')) {
+    return "La clé API Lovable n'est pas configurée. Contactez le support.";
   }
 
   if (NETWORK_ERROR_PATTERNS.some(pattern => rawMessage.includes(pattern))) {

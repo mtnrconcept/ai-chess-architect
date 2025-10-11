@@ -42,10 +42,6 @@ export type StoredGameRecord = Omit<UserGamesRow, 'analysis_overview' | 'move_hi
   starting_board: PostGameAnalysisResult['startingBoard'];
 };
 
-type RecordUserGameResponse = { gameId: string };
-
-type LoadUserGamesResponse = { games: UserGamesRow[] };
-
 export const saveCompletedGame = async ({
   userId,
   opponentName,
@@ -58,42 +54,62 @@ export const saveCompletedGame = async ({
   durationSeconds,
   metadata,
 }: SaveGamePayload) => {
-  const { error, data } = await supabase.functions.invoke<RecordUserGameResponse>('record-user-game', {
-    body: {
-      userId,
-      opponentName: opponentName ?? null,
-      opponentType,
-      result,
-      variantName: variantName ?? null,
-      timeControl: timeControl ?? null,
-      playerColor,
-      analysis,
-      durationSeconds: durationSeconds ?? null,
-      metadata: metadata ?? null,
-    },
+  const overview: AnalysisOverviewPayload = {
+    evaluationByMove: analysis.evaluationByMove,
+    moveTimeBuckets: analysis.moveTimeBuckets,
+    mistakeHistogram: analysis.mistakeHistogram,
+    imbalanceByPhase: analysis.imbalanceByPhase,
+    keyMoments: analysis.keyMoments,
+    pieceStats: analysis.pieceStats,
+    recommendations: analysis.recommendations,
+    summary: analysis.summary,
+  };
+
+  const sanitizedMoves: StoredAnalyzedMove[] = analysis.analyzedMoves.map(move => ({
+    ...move,
+    timestamp: move.timestamp ?? null,
+    durationMs: typeof move.durationMs === 'number' ? move.durationMs : null,
+    capturedPiece: move.capturedPiece ?? null,
+  }));
+
+  const { error } = await supabase.from('user_games').insert({
+    user_id: userId,
+    opponent_name: opponentName ?? null,
+    opponent_type: opponentType,
+    result,
+    variant_name: variantName ?? null,
+    time_control: timeControl ?? null,
+    player_color: playerColor,
+    move_history: sanitizedMoves,
+    analysis_overview: overview,
+    starting_board: analysis.startingBoard,
+    accuracy: analysis.accuracy,
+    total_moves: analysis.totalMoves,
+    duration_seconds: durationSeconds ?? null,
+    metadata: metadata ?? null,
   });
 
   if (error) {
-    throw new Error(error.message ?? "Impossible d'enregistrer la partie");
-  }
-
-  if (!data?.gameId) {
-    throw new Error("La réponse du backend ne contient pas d'identifiant de partie");
+    throw error;
   }
 };
 
-export const fetchUserGames = async (_userId: string): Promise<StoredGameRecord[]> => {
-  const { data, error } = await supabase.functions.invoke<LoadUserGamesResponse>('load-user-games', {
-    body: { userId: _userId },
-  });
+export const fetchUserGames = async (userId: string): Promise<StoredGameRecord[]> => {
+  const { data, error } = await supabase
+    .from('user_games')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
 
   if (error) {
-    throw new Error(error.message ?? "Impossible de récupérer les parties");
+    throw error;
   }
 
-  const records: UserGamesRow[] = Array.isArray(data?.games) ? (data.games as UserGamesRow[]) : [];
+  if (!data) {
+    return [];
+  }
 
-  return records.map(record => ({
+  return data.map(record => ({
     ...record,
     analysis_overview: record.analysis_overview as AnalysisOverviewPayload,
     move_history: record.move_history as StoredAnalyzedMove[],

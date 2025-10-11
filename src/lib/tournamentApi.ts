@@ -23,14 +23,20 @@ const isOverviewViewMissing = (error: PostgrestError | null) => {
     return false;
   }
 
-  const status = (error as { status?: number | string }).status;
-  if (
-    error.code === "42P01" ||
-    error.code === "PGRST302" ||
-    error.code === "404" ||
-    status === 404 ||
-    status === "404"
-  ) {
+  if (error.code === "42P01") {
+    return true;
+  }
+
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  return message.includes("tournament_overview");
+};
+
+const isRelationMissing = (error: PostgrestError | null) => {
+  if (!error) {
+    return false;
+  }
+
+  if (error.code === "42P01" || error.code === "PGRST302" || error.code === "PGRST205") {
     return true;
   }
 
@@ -42,39 +48,6 @@ const isOverviewViewMissing = (error: PostgrestError | null) => {
   }
 
   const haystack = `${message} ${details}`;
-  return haystack.includes("tournament_overview");
-};
-
-const isRelationMissing = (error: PostgrestError | null) => {
-  if (!error) {
-    return false;
-  }
-
-  const status = (error as { status?: number | string }).status;
-
-  if (
-    error.code === "42P01" ||
-    error.code === "PGRST302" ||
-    error.code === "PGRST205" ||
-    error.code === "404" ||
-    error.code === "503" ||
-    status === 404 ||
-    status === 503 ||
-    status === "404" ||
-    status === "503"
-  ) {
-    return true;
-  }
-
-  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
-  const details = typeof error.details === "string" ? error.details.toLowerCase() : "";
-  const hint = typeof error.hint === "string" ? error.hint.toLowerCase() : "";
-
-  if (!message && !details && !hint) {
-    return false;
-  }
-
-  const haystack = `${message} ${details} ${hint}`;
   return (
     haystack.includes("does not exist") ||
     haystack.includes("not exist") ||
@@ -82,9 +55,6 @@ const isRelationMissing = (error: PostgrestError | null) => {
     haystack.includes("schema cache")
   );
 };
-
-const isSupabaseFetchError = (error: unknown): error is TypeError =>
-  error instanceof TypeError && typeof error.message === "string" && error.message.includes("fetch");
 
 const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
   const tournamentsQuery = supabase.from("tournaments").select("*").order("start_time", { ascending: true });
@@ -236,10 +206,8 @@ export const syncTournaments = async () => {
       throw new Error(message || "Impossible de synchroniser les tournois");
     }
   } catch (unknownError) {
-    if (isSupabaseFetchError(unknownError)) {
-      throw new TournamentFeatureUnavailableError(
-        "La fonction de synchronisation Supabase est inaccessible. Vérifiez la configuration du projet Supabase.",
-      );
+    if (unknownError instanceof TypeError && unknownError.message.includes("fetch")) {
+      throw new Error("Impossible de synchroniser les tournois : accès au service Supabase indisponible.");
     }
 
     if (unknownError instanceof TournamentFeatureUnavailableError) {
@@ -368,80 +336,44 @@ export const requestTournamentMatch = async (
   tournamentId: string,
   displayName?: string,
 ): Promise<MatchmakingResponse> => {
-  try {
-    const { data, error } = await supabase.functions.invoke<MatchmakingResponse>(
-      "tournament-matchmaking",
-      { body: { tournamentId, displayName } },
-    );
+  const { data, error } = await supabase.functions.invoke<MatchmakingResponse>(
+    "tournament-matchmaking",
+    { body: { tournamentId, displayName } },
+  );
 
-    if (error) {
-      const message = error.message?.toLowerCase() ?? "";
-      if (message.includes("not found") || message.includes("not exist")) {
-        throw new TournamentFeatureUnavailableError(
-          "La fonction de matchmaking Supabase n'est pas disponible. Déployez 'tournament-matchmaking'.",
-        );
-      }
-      throw new Error(error.message);
-    }
-
-    return data ?? { match: null, registration: null };
-  } catch (unknownError) {
-    if (isSupabaseFetchError(unknownError)) {
+  if (error) {
+    const message = error.message?.toLowerCase() ?? "";
+    if (message.includes("not found") || message.includes("not exist")) {
       throw new TournamentFeatureUnavailableError(
-        "Impossible d'accéder au matchmaking Supabase. Vérifiez la configuration des edge functions.",
+        "La fonction de matchmaking Supabase n'est pas disponible. Déployez 'tournament-matchmaking'.",
       );
     }
-
-    if (unknownError instanceof TournamentFeatureUnavailableError) {
-      throw unknownError;
-    }
-
-    if (unknownError instanceof Error) {
-      throw unknownError;
-    }
-
-    throw new Error("Matchmaking indisponible");
+    throw new Error(error.message);
   }
+
+  return data ?? { match: null, registration: null };
 };
 
 export const reportTournamentMatch = async (
   matchId: string,
   result: "player1" | "player2" | "draw",
 ) => {
-  try {
-    const { data, error } = await supabase.functions.invoke<{
-      match: TournamentMatch;
-      leaderboard: TournamentLeaderboardEntry[];
-    }>("report-tournament-match", { body: { matchId, result } });
+  const { data, error } = await supabase.functions.invoke<{
+    match: TournamentMatch;
+    leaderboard: TournamentLeaderboardEntry[];
+  }>("report-tournament-match", { body: { matchId, result } });
 
-    if (error) {
-      const message = error.message?.toLowerCase() ?? "";
-      if (message.includes("not found") || message.includes("not exist")) {
-        throw new TournamentFeatureUnavailableError(
-          "La fonction de reporting Supabase n'est pas disponible. Déployez 'report-tournament-match'.",
-        );
-      }
-      throw new Error(error.message);
-    }
-
-    return data;
-  } catch (unknownError) {
-    if (isSupabaseFetchError(unknownError)) {
+  if (error) {
+    const message = error.message?.toLowerCase() ?? "";
+    if (message.includes("not found") || message.includes("not exist")) {
       throw new TournamentFeatureUnavailableError(
-        "Impossible d'accéder au reporting Supabase. Vérifiez la configuration des edge functions.",
+        "La fonction de reporting Supabase n'est pas disponible. Déployez 'report-tournament-match'.",
       );
     }
-
-    if (unknownError instanceof TournamentFeatureUnavailableError) {
-      throw unknownError;
-    }
-
-    if (unknownError instanceof Error) {
-      throw unknownError;
-    }
-
-    throw new Error("Reporting de match indisponible");
+    throw new Error(error.message);
   }
+
+  return data;
 };
 
 export const fetchTournamentLeaderboard = async (
