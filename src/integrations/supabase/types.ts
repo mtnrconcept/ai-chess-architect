@@ -27,6 +27,7 @@ export type Database = {
           priority: number | null
           rule_id: string
           rule_name: string
+          tags: string[] | null
           trigger: string
           updated_at: string
           usage_count: number | null
@@ -45,6 +46,7 @@ export type Database = {
           priority?: number | null
           rule_id: string
           rule_name: string
+          tags?: string[] | null
           trigger: string
           updated_at?: string
           usage_count?: number | null
@@ -63,6 +65,7 @@ export type Database = {
           priority?: number | null
           rule_id?: string
           rule_name?: string
+          tags?: string[] | null
           trigger?: string
           updated_at?: string
           usage_count?: number | null
@@ -79,8 +82,12 @@ export type Database = {
           game_state: Json | null
           id: string
           is_active: boolean | null
+          mode: "ai" | "player"
           max_players: number | null
           name: string
+          opponent_id: string | null
+          opponent_name: string | null
+          status: "waiting" | "matched" | "cancelled"
           updated_at: string
         }
         Insert: {
@@ -90,8 +97,12 @@ export type Database = {
           game_state?: Json | null
           id?: string
           is_active?: boolean | null
+          mode?: "ai" | "player"
           max_players?: number | null
           name: string
+          opponent_id?: string | null
+          opponent_name?: string | null
+          status?: "waiting" | "matched" | "cancelled"
           updated_at?: string
         }
         Update: {
@@ -101,15 +112,200 @@ export type Database = {
           game_state?: Json | null
           id?: string
           is_active?: boolean | null
+          mode?: "ai" | "player"
           max_players?: number | null
           name?: string
+          opponent_id?: string | null
+          opponent_name?: string | null
+          status?: "waiting" | "matched" | "cancelled"
           updated_at?: string
+        }
+        Relationships: []
+      }
+      tournament_matches: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          lobby_id: string | null
+          player1_id: string
+          player2_id: string | null
+          reported_by: string | null
+          result: "player1" | "player2" | "draw" | null
+          started_at: string | null
+          status: "pending" | "in_progress" | "completed" | "cancelled"
+          table_number: number | null
+          tournament_id: string
+          updated_at: string
+          variant_rules: string[] | null
+          winner_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          lobby_id?: string | null
+          player1_id: string
+          player2_id?: string | null
+          reported_by?: string | null
+          result?: "player1" | "player2" | "draw" | null
+          started_at?: string | null
+          status?: "pending" | "in_progress" | "completed" | "cancelled"
+          table_number?: number | null
+          tournament_id: string
+          updated_at?: string
+          variant_rules?: string[] | null
+          winner_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          lobby_id?: string | null
+          player1_id?: string
+          player2_id?: string | null
+          reported_by?: string | null
+          result?: "player1" | "player2" | "draw" | null
+          started_at?: string | null
+          status?: "pending" | "in_progress" | "completed" | "cancelled"
+          table_number?: number | null
+          tournament_id?: string
+          updated_at?: string
+          variant_rules?: string[] | null
+          winner_id?: string | null
+        }
+        Relationships: []
+      }
+      tournament_registrations: {
+        Row: {
+          avatar_url: string | null
+          current_match_id: string | null
+          display_name: string | null
+          draws: number
+          id: string
+          is_waiting: boolean
+          joined_at: string
+          last_active_at: string
+          losses: number
+          points: number
+          tournament_id: string
+          user_id: string
+          wins: number
+        }
+        Insert: {
+          avatar_url?: string | null
+          current_match_id?: string | null
+          display_name?: string | null
+          draws?: number
+          id?: string
+          is_waiting?: boolean
+          joined_at?: string
+          last_active_at?: string
+          losses?: number
+          points?: number
+          tournament_id: string
+          user_id: string
+          wins?: number
+        }
+        Update: {
+          avatar_url?: string | null
+          current_match_id?: string | null
+          display_name?: string | null
+          draws?: number
+          id?: string
+          is_waiting?: boolean
+          joined_at?: string
+          last_active_at?: string
+          losses?: number
+          points?: number
+          tournament_id?: string
+          user_id?: string
+          wins?: number
+        }
+        Relationships: []
+      }
+      tournaments: {
+        Row: {
+          created_at: string
+          description: string | null
+          end_time: string
+          id: string
+          name: string
+          start_time: string
+          status: "scheduled" | "running" | "completed" | "cancelled"
+          updated_at: string
+          variant_lobby_id: string | null
+          variant_name: string
+          variant_rules: string[]
+          variant_source: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          end_time: string
+          id?: string
+          name: string
+          start_time: string
+          status?: "scheduled" | "running" | "completed" | "cancelled"
+          updated_at?: string
+          variant_lobby_id?: string | null
+          variant_name: string
+          variant_rules: string[]
+          variant_source?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          end_time?: string
+          id?: string
+          name?: string
+          start_time?: string
+          status?: "scheduled" | "running" | "completed" | "cancelled"
+          updated_at?: string
+          variant_lobby_id?: string | null
+          variant_name?: string
+          variant_rules?: string[]
+          variant_source?: string | null
         }
         Relationships: []
       }
     }
     Views: {
-      [_ in never]: never
+      tournament_leaderboard: {
+        Row: {
+          avatar_url: string | null
+          display_name: string | null
+          draws: number
+          joined_at: string
+          last_active_at: string
+          losses: number
+          points: number
+          tournament_id: string
+          user_id: string
+          wins: number
+        }
+        Relationships: []
+      }
+      tournament_overview: {
+        Row: {
+          active_match_count: number
+          completed_match_count: number
+          created_at: string
+          description: string | null
+          end_time: string
+          id: string
+          name: string
+          player_count: number
+          start_time: string
+          status: "scheduled" | "running" | "completed" | "cancelled"
+          updated_at: string
+          variant_lobby_id: string | null
+          variant_name: string
+          variant_rules: string[]
+          variant_source: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never
