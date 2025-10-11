@@ -62,23 +62,39 @@ This project is built with:
 
 ## Local configuration
 
-This project now targets the Supabase instance available at `https://ucaqbhmyutlnitnedowk.supabase.co`. Update your local `.env` file with the corresponding project reference, REST URL, and anon publishable key from **Project Settings → API** before starting the Vite dev server. The Supabase CLI also needs the same project reference to deploy edge functions and run migrations.
-
-Some serverless features depend on the Lovable AI gateway. Both edge functions under `supabase/functions` require the `LOVABLE_API_KEY` secret to be present in the Supabase project so that they can authenticate against the gateway.
-
-Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
+Copy `env.example` to `.env` and provide the Supabase project credentials:
 
 ```sh
-npx supabase secrets set LOVABLE_API_KEY=sk_live_xxx
+cp env.example .env
 ```
 
-If you do not use the CLI, the secret can also be configured from the Supabase dashboard by navigating to **Project Settings → API → Secrets** and adding a new entry named `LOVABLE_API_KEY`.
+- `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` sont requis côté client. Le build Vite échoue si ces variables manquent.
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` et `SUPABASE_DB_URL` sont optionnelles pour l'exécution des scripts et des Edge Functions depuis votre environnement local.
 
-Whenever the secret is updated, redeploy the edge functions so they pick up the latest value:
+Au démarrage du client (`npm run dev`), l'initialisation du SDK affiche `Supabase URL present` dans la console pour signaler que la configuration est détectée sans exposer la clé publique.
 
-```sh
-npx supabase functions deploy generate-chess-rule chess-insights
-```
+Les Edge Functions n'utilisent plus de passerelle Lovable privée et n'ont besoin que des secrets Supabase standards (URL + clé Service Role) définis via `supabase secrets set`.
+
+## Lovable Cloud Setup
+
+Configurez Supabase afin que les aperçus Lovable fonctionnent avec l'authentification et les Edge Functions :
+
+- **Auth → Site URL** : domaine de production Lovable (`https://<project>.lovable.app`).
+- **Auth → Additional Redirect URLs** : domaine de prévisualisation Lovable (`https://preview-*.lovable.app`).
+- **API → Allowed Origins** : ajoutez les domaines de prévisualisation et de production Lovable pour autoriser les appels REST et Edge Functions depuis ces environnements.
+
+La CI Lovable doit fournir `SUPABASE_DB_URL` afin d'appliquer les migrations avant la mise en production.
+
+## QA & smoke tests
+
+Avant chaque livraison, validez la connexion Supabase à l'aide du client partagé :
+
+1. `supabase.auth.signInWithOtp` avec une adresse de test et vérifiez la réception du lien magique.
+2. `supabase.auth.getSession` pour confirmer la persistance de session dans le navigateur.
+3. Un `select` sur une table publique (ex : `lobbies`) afin de s'assurer que la politique CORS autorise Lovable.
+4. Un `insert` sur une table protégée par RLS via une Edge Function ou l'API REST pour valider les politiques.
+
+La console du navigateur ne doit afficher aucune lecture de variables `import.meta.env` sans préfixe `VITE_`.
 
 ## Supabase migrations
 
