@@ -78,6 +78,20 @@ Whenever the secret is updated, redeploy the edge functions so they pick up the 
 npx supabase functions deploy generate-chess-rule chess-insights
 ```
 
+## Supabase migrations
+
+The tournament Edge Functions expect the Supabase schema defined in `supabase/migrations`. To create the missing tables, run the
+new migration helper from the project root:
+
+```sh
+SUPABASE_DB_URL="postgresql://postgres:<your-db-password>@db.pfcaolibtgvynnwaxvol.supabase.co:6543/postgres?pgbouncer=true&sslmode=require" \
+npm run supabase:migrate
+```
+
+The script reads every SQL file in `supabase/migrations`, applies pending migrations inside a transaction, and records the
+applied versions in `supabase_migrations.schema_migrations`. You can also provide the connection string through the
+`SUPABASE_DB_CONNECTION_STRING` or `DATABASE_URL` environment variables when running the command.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/1e794698-feca-4fca-ab3b-11990c0b270d) and click on Share -> Publish.
