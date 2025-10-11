@@ -60,6 +60,24 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Local configuration
+
+Some serverless features depend on the Lovable AI gateway. Both edge functions under `supabase/functions` require the `LOVABLE_API_KEY` secret to be present in the Supabase project so that they can authenticate against the gateway.
+
+Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
+
+```sh
+npx supabase secrets set LOVABLE_API_KEY=sk_live_xxx
+```
+
+If you do not use the CLI, the secret can also be configured from the Supabase dashboard by navigating to **Project Settings → API → Secrets** and adding a new entry named `LOVABLE_API_KEY`.
+
+Whenever the secret is updated, redeploy the edge functions so they pick up the latest value:
+
+```sh
+npx supabase functions deploy generate-chess-rule chess-insights
+```
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/1e794698-feca-4fca-ab3b-11990c0b270d) and click on Share -> Publish.
