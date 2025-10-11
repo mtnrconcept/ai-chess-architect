@@ -208,6 +208,9 @@ const Play = () => {
     return allPresetRules.find(rule => rule.ruleId === firstRuleId) ?? null;
   }, [initialPresetRuleIds]);
   const appliedPresetRuleIds = useMemo(() => new Set(initialPresetRuleIds), [initialPresetRuleIds]);
+  const primaryRule = customRules[0] ?? activePresetRule ?? null;
+  const variantName = primaryRule?.ruleName ?? 'Standard';
+  const activeCustomRulesCount = customRules.length;
 
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(() => {
     if (typeof window !== 'undefined') {
@@ -1750,10 +1753,6 @@ const Play = () => {
     gameStartTimeRef.current = Date.now();
     gameSavedRef.current = false;
   };
-
-  const primaryRule = customRules[0] ?? activePresetRule ?? null;
-  const variantName = primaryRule?.ruleName ?? 'Standard';
-  const activeCustomRulesCount = customRules.length;
 
   const headerBadges = (
     <div className="flex flex-wrap items-center justify-end gap-2">
