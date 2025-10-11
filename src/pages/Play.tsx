@@ -198,47 +198,6 @@ const Play = () => {
   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
 
-  const capturedPiecesByColor = useMemo(() => {
-    const grouped: Record<PieceColor, ChessPiece[]> = { white: [], black: [] };
-    for (const piece of gameState.capturedPieces) {
-      grouped[piece.color].push(piece);
-    }
-
-    return {
-      white: [...grouped.white].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type]),
-      black: [...grouped.black].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type])
-    };
-  }, [gameState.capturedPieces]);
-
-  const specialAbility = useMemo(() => {
-    for (const rule of gameState.activeRules) {
-      const abilityEffect = rule.effects.find(effect => effect.action === 'addAbility' && typeof effect.parameters?.ability === 'string');
-      if (abilityEffect && typeof abilityEffect.parameters?.ability === 'string') {
-        return {
-          ruleName: rule.ruleName,
-          ability: abilityEffect.parameters.ability as string,
-        };
-      }
-    }
-    return null;
-  }, [gameState.activeRules]);
-
-  const specialAbilityLabel = specialAbility ? ABILITY_LABELS[specialAbility.ability] ?? specialAbility.ability : '';
-
-  const handleSpecialAction = useCallback(() => {
-    if (!specialAbility) return;
-
-    const title = specialAbilityLabel ? `${specialAbilityLabel} déclenchée` : 'Attaque spéciale déclenchée';
-    const description = specialAbilityLabel
-      ? `La capacité « ${specialAbilityLabel} » issue de la règle ${specialAbility.ruleName} est activée.`
-      : `La règle ${specialAbility.ruleName} propose une action spéciale.`;
-
-    toast({ title, description });
-  }, [specialAbility, specialAbilityLabel, toast]);
-
-  const whiteCapturedPieces = capturedPiecesByColor.black;
-  const blackCapturedPieces = capturedPiecesByColor.white;
-
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 1024;
@@ -295,6 +254,47 @@ const Play = () => {
     white: initialTimeSeconds,
     black: initialTimeSeconds,
   }));
+
+  const capturedPiecesByColor = useMemo(() => {
+    const grouped: Record<PieceColor, ChessPiece[]> = { white: [], black: [] };
+    for (const piece of gameState.capturedPieces) {
+      grouped[piece.color].push(piece);
+    }
+
+    return {
+      white: [...grouped.white].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type]),
+      black: [...grouped.black].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type])
+    };
+  }, [gameState.capturedPieces]);
+
+  const specialAbility = useMemo(() => {
+    for (const rule of gameState.activeRules) {
+      const abilityEffect = rule.effects.find(effect => effect.action === 'addAbility' && typeof effect.parameters?.ability === 'string');
+      if (abilityEffect && typeof abilityEffect.parameters?.ability === 'string') {
+        return {
+          ruleName: rule.ruleName,
+          ability: abilityEffect.parameters.ability as string,
+        };
+      }
+    }
+    return null;
+  }, [gameState.activeRules]);
+
+  const specialAbilityLabel = specialAbility ? ABILITY_LABELS[specialAbility.ability] ?? specialAbility.ability : '';
+
+  const handleSpecialAction = useCallback(() => {
+    if (!specialAbility) return;
+
+    const title = specialAbilityLabel ? `${specialAbilityLabel} déclenchée` : 'Attaque spéciale déclenchée';
+    const description = specialAbilityLabel
+      ? `La capacité « ${specialAbilityLabel} » issue de la règle ${specialAbility.ruleName} est activée.`
+      : `La règle ${specialAbility.ruleName} propose une action spéciale.`;
+
+    toast({ title, description });
+  }, [specialAbility, specialAbilityLabel, toast]);
+
+  const whiteCapturedPieces = capturedPiecesByColor.black;
+  const blackCapturedPieces = capturedPiecesByColor.white;
 
   const [coachMessages, setCoachMessages] = useState<CoachChatMessage[]>(() => [createWelcomeMessage()]);
   const [coachLoading, setCoachLoading] = useState(false);
