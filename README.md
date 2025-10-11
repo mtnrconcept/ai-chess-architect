@@ -62,6 +62,8 @@ This project is built with:
 
 ## Local configuration
 
+This project now targets the Supabase instance available at `https://ucaqbhmyutlnitnedowk.supabase.co`. Update your local `.env` file with the corresponding project reference, REST URL, and anon publishable key from **Project Settings → API** before starting the Vite dev server. The Supabase CLI also needs the same project reference to deploy edge functions and run migrations.
+
 Some serverless features depend on the Lovable AI gateway. Both edge functions under `supabase/functions` require the `LOVABLE_API_KEY` secret to be present in the Supabase project so that they can authenticate against the gateway.
 
 Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
@@ -85,7 +87,7 @@ automatically attempts to run these migrations at startup whenever a Supabase co
 manually (or from CI), run the new migration helper from the project root:
 
 ```sh
-SUPABASE_DB_URL="postgresql://postgres:<your-db-password>@db.pfcaolibtgvynnwaxvol.supabase.co:6543/postgres?pgbouncer=true&sslmode=require" \
+SUPABASE_DB_URL="postgresql://postgres:<your-db-password>@db.ucaqbhmyutlnitnedowk.supabase.co:6543/postgres?pgbouncer=true&sslmode=require" \
 npm run supabase:migrate
 ```
 
