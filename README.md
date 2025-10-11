@@ -80,8 +80,9 @@ npx supabase functions deploy generate-chess-rule chess-insights
 
 ## Supabase migrations
 
-The tournament Edge Functions expect the Supabase schema defined in `supabase/migrations`. To create the missing tables, run the
-new migration helper from the project root:
+The tournament Edge Functions expect the Supabase schema defined in `supabase/migrations`. The Express tournament service
+automatically attempts to run these migrations at startup whenever a Supabase connection string is available. To apply them
+manually (or from CI), run the new migration helper from the project root:
 
 ```sh
 SUPABASE_DB_URL="postgresql://postgres:<your-db-password>@db.pfcaolibtgvynnwaxvol.supabase.co:6543/postgres?pgbouncer=true&sslmode=require" \
