@@ -1,3 +1,5 @@
+import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+
 type ChatHistoryEntry = {
   role: 'assistant' | 'user';
   content: string;
@@ -15,21 +17,10 @@ type RequestPayload = {
   history?: ChatHistoryEntry[];
 };
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Max-Age": "86400",
-};
+const corsOptions = { methods: ["POST"] } as const;
 
-function json(body: unknown, init: ResponseInit = {}) {
-  const headers = new Headers(init.headers ?? {});
-  headers.set("Content-Type", "application/json; charset=utf-8");
-  for (const [key, value] of Object.entries(corsHeaders)) {
-    headers.set(key, value);
-  }
-  return new Response(JSON.stringify(body), { ...init, headers });
-}
+const json = (req: Request, body: unknown, init: ResponseInit = {}) =>
+  jsonResponse(req, body, init, corsOptions);
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -108,18 +99,18 @@ const buildFallbackMessage = (payload: RequestPayload, reason: string) => {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { status: 204, headers: corsHeaders });
+    return handleOptions(req, corsOptions);
   }
 
   try {
     if (req.method !== "POST") {
-      return json({ error: "Method not allowed" }, { status: 405 });
+      return json(req, { error: "Method not allowed" }, { status: 405 });
     }
 
     const payload = await req.json().catch(() => null) as RequestPayload | null;
 
     if (!payload || !payload.board) {
-      return json({ error: "Game state is required" }, { status: 400 });
+      return json(req, { error: "Game state is required" }, { status: 400 });
     }
 
     const history = Array.isArray(payload.history)
@@ -178,7 +169,7 @@ Deno.serve(async (req) => {
           const errorText = await response.text();
           console.error("AI Gateway error:", response.status, errorText);
           if (response.status === 429) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 });
+            return json(req, { error: "Rate limit exceeded. Please try again later." }, { status: 429 });
           }
           throw new Error(`AI Gateway error: ${response.status}`);
         }
@@ -205,10 +196,10 @@ Deno.serve(async (req) => {
       assistantMessage = buildFallbackMessage(payload, reason);
     }
 
-    return json({ message: assistantMessage });
+    return json(req, { message: assistantMessage });
   } catch (error) {
     console.error("Error in chess-insights:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return json({ error: errorMessage }, { status: 500 });
+    return json(req, { error: errorMessage }, { status: 500 });
   }
 });

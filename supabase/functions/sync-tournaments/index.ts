@@ -1,11 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const corsOptions = { methods: ["POST"] } as const;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -199,18 +196,15 @@ const ensureBlockTournaments = async (blockStart: Date) => {
 
 serve(async req => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { status: 200, headers: corsHeaders });
+    return handleOptions(req, corsOptions);
   }
 
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+    return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);
   }
 
   if (!supabase) {
-    return new Response(JSON.stringify({ error: "Supabase client not configured" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: "Supabase client not configured" }, { status: 500 }, corsOptions);
   }
 
   try {
@@ -226,16 +220,10 @@ serve(async req => {
 
     const created = results.reduce((acc, current) => acc + (current.created ?? 0), 0);
 
-    return new Response(
-      JSON.stringify({ created, ensuredBlocks: 2 }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return jsonResponse(req, { created, ensuredBlocks: 2 }, { status: 200 }, corsOptions);
   } catch (error) {
     console.error("sync-tournaments error", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
   }
 });
