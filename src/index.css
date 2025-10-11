@@ -59,6 +59,12 @@
 
     /* Transitions */
     --transition-smooth: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    --ui-scale: 1;
+    --neon-intensity: 0.85;
+    --app-background-image: url('/background.jpg');
+    --spectral-trails-opacity: 0;
+    --board-reflection-strength: 0;
+    --coordinate-scale: 1;
   }
 
   .dark {
@@ -98,6 +104,90 @@
     --sidebar-border: 229 58% 18%;
     --sidebar-ring: 183 97% 58%;
   }
+
+  :root[data-voltus-theme="luminous"] {
+    --background: 198 92% 94%;
+    --foreground: 224 35% 16%;
+
+    --card: 196 82% 98%;
+    --card-foreground: 224 35% 16%;
+
+    --popover: 197 88% 96%;
+    --popover-foreground: 224 35% 16%;
+
+    --primary: 192 95% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 283 82% 60%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 197 65% 92%;
+    --muted-foreground: 216 31% 32%;
+
+    --accent: 312 82% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 7 88% 55%;
+    --destructive-foreground: 236 100% 11%;
+
+    --border: 196 64% 88%;
+    --input: 196 64% 88%;
+    --ring: 192 95% 48%;
+
+    --sidebar-background: 200 78% 92%;
+    --sidebar-foreground: 222 30% 22%;
+    --sidebar-primary: 192 95% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 302 68% 65%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 196 64% 82%;
+    --sidebar-ring: 192 95% 48%;
+
+    --chess-board-light: 52 96% 85%;
+    --chess-board-dark: 198 70% 42%;
+  }
+
+  :root[data-voltus-theme="stealth"] {
+    --background: 227 24% 6%;
+    --foreground: 186 100% 96%;
+
+    --card: 230 28% 9%;
+    --card-foreground: 186 100% 96%;
+
+    --popover: 230 28% 11%;
+    --popover-foreground: 186 100% 96%;
+
+    --primary: 192 94% 58%;
+    --primary-foreground: 229 84% 10%;
+
+    --secondary: 268 83% 62%;
+    --secondary-foreground: 229 84% 10%;
+
+    --muted: 230 30% 16%;
+    --muted-foreground: 210 24% 78%;
+
+    --accent: 320 84% 62%;
+    --accent-foreground: 229 84% 10%;
+
+    --destructive: 7 88% 55%;
+    --destructive-foreground: 236 100% 11%;
+
+    --border: 228 30% 18%;
+    --input: 228 30% 18%;
+    --ring: 192 94% 58%;
+
+    --sidebar-background: 230 28% 9%;
+    --sidebar-foreground: 186 100% 96%;
+    --sidebar-primary: 192 94% 58%;
+    --sidebar-primary-foreground: 229 84% 10%;
+    --sidebar-accent: 320 84% 62%;
+    --sidebar-accent-foreground: 229 84% 10%;
+    --sidebar-border: 230 30% 16%;
+    --sidebar-ring: 192 94% 58%;
+
+    --chess-board-light: 189 75% 37%;
+    --chess-board-dark: 225 38% 12%;
+  }
 }
 
 @layer base {
@@ -107,10 +197,116 @@
 
   body {
     @apply text-foreground;
-    background-image: url('/background.jpg');
+    font-size: calc(16px * var(--ui-scale));
+    background-color: hsl(var(--background));
+    background-image: var(--app-background-image);
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
     background-attachment: fixed;
+    transition: var(--transition-smooth);
+    position: relative;
+    min-height: 100vh;
+    box-shadow: inset 0 0 calc(220px * var(--neon-intensity)) hsl(183 97% 58% / 0.07);
+  }
+  body::before,
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    transition: opacity 0.45s ease;
+    opacity: 0;
+    z-index: -1;
+  }
+
+  body::before {
+    background: radial-gradient(circle at 50% 120%, hsl(183 97% 58% / 0.35), transparent 55%),
+      radial-gradient(circle at 50% -20%, hsl(316 91% 58% / 0.3), transparent 65%);
+    mix-blend-mode: screen;
+  }
+
+  body[data-board-reflections="on"]::before {
+    opacity: var(--board-reflection-strength);
+  }
+
+  body::after {
+    background: conic-gradient(from 90deg, hsl(183 97% 58% / 0.15), transparent 65%);
+    filter: blur(48px);
+    animation: spectral-trails-flow 12s linear infinite;
+  }
+
+  body[data-spectral-trails="on"]::after {
+    opacity: var(--spectral-trails-opacity);
+  }
+
+  body[data-high-contrast="on"] {
+    filter: contrast(1.12) saturate(1.08);
+  }
+
+  body[data-color-blind="on"] {
+    --chess-board-light: 55 96% 72%;
+    --chess-board-dark: 205 86% 34%;
+  }
+
+  body[data-reduce-animations="on"] *,
+  body[data-reduce-animations="on"] *::before,
+  body[data-reduce-animations="on"] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.05s !important;
+  }
+
+  body[data-large-coordinates="on"] {
+    --coordinate-scale: 1.35;
+  }
+
+  body:not([data-large-coordinates="on"]) {
+    --coordinate-scale: 1;
+  }
+
+  @keyframes spectral-trails-flow {
+    0% {
+      transform: translate3d(-2%, -2%, 0) rotate(0deg);
+    }
+    50% {
+      transform: translate3d(2%, 2%, 0) rotate(180deg);
+    }
+    100% {
+      transform: translate3d(-2%, -2%, 0) rotate(360deg);
+    }
+  }
+
+  .settings-board-preview {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 14px;
+    border-radius: 1.25rem;
+    background: hsl(var(--card) / 0.85);
+    box-shadow: 0 0 calc(40px * var(--neon-intensity)) hsl(183 97% 58% / 0.25);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .settings-board-preview .settings-square {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border-radius: 0.85rem;
+    background: hsl(var(--chess-board-dark));
+  }
+
+  .settings-board-preview .settings-square:nth-child(even) {
+    background: hsl(var(--chess-board-light));
+  }
+
+  .settings-board-preview .settings-coordinate {
+    position: absolute;
+    inset: auto 10px 8px auto;
+    font-size: calc(0.65rem * var(--coordinate-scale));
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: hsl(var(--foreground));
   }
 }
