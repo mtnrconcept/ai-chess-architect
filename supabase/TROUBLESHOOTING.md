@@ -21,6 +21,12 @@ The rest of the connections in the logs (for example `supabase_admin`, `authenti
 
 ### How to locate the faulty definition
 
+You can inspect definitions manually or run the companion script `supabase/scripts/find_missing_ordered_set_aggregates.sql` from psql:
+
+```
+\i supabase/scripts/find_missing_ordered_set_aggregates.sql
+```
+
 Run the following searches while connected as an admin role to find functions or views that call ordered-set aggregates incorrectly:
 
 ```sql
