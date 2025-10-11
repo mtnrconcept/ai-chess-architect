@@ -1,27 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const corsOptions = { methods: ["POST"] } as const;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      status: 200,
-      headers: corsHeaders,
-    });
+    return handleOptions(req, corsOptions);
   }
 
   try {
+    if (req.method !== "POST") {
+      return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);
+    }
+
     const { prompt } = await req.json();
-    
+
     if (!prompt || !prompt.trim()) {
-      return new Response(
-        JSON.stringify({ error: "Prompt is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse(req, { error: "Prompt is required" }, { status: 400 }, corsOptions);
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -96,14 +91,16 @@ RÈGLES IMPORTANTES :
     if (!response.ok) {
       const errorText = await response.text();
       console.error("AI Gateway error:", response.status, errorText);
-      
+
       if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        return jsonResponse(
+          req,
+          { error: "Rate limit exceeded. Please try again later." },
+          { status: 429 },
+          corsOptions,
         );
       }
-      
+
       throw new Error(`AI Gateway error: ${response.status}`);
     }
 
@@ -160,17 +157,11 @@ RÈGLES IMPORTANTES :
     parsedRule.conditions = Array.isArray(parsedRule.conditions) ? parsedRule.conditions : [];
     parsedRule.effects = Array.isArray(parsedRule.effects) ? parsedRule.effects : [];
 
-    return new Response(
-      JSON.stringify({ rule: parsedRule }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-    
+    return jsonResponse(req, { rule: parsedRule }, { status: 200 }, corsOptions);
+
   } catch (error) {
     console.error("Error in generate-chess-rule:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return jsonResponse(req, { error: errorMessage }, { status: 500 }, corsOptions);
   }
 });

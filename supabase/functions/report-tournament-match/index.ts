@@ -1,11 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const corsOptions = { methods: ["POST"] } as const;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -34,37 +31,28 @@ const computeStandingsDelta = (result: MatchResult, isPlayerOne: boolean) => {
 
 serve(async req => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { status: 200, headers: corsHeaders });
+    return handleOptions(req, corsOptions);
   }
 
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+    return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);
   }
 
   if (!supabase) {
-    return new Response(JSON.stringify({ error: "Supabase client misconfigured" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: "Supabase client misconfigured" }, { status: 500 }, corsOptions);
   }
 
   const authHeader = req.headers.get("Authorization");
   const token = authHeader?.replace("Bearer ", "");
 
   if (!token) {
-    return new Response(JSON.stringify({ error: "Missing access token" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: "Missing access token" }, { status: 401 }, corsOptions);
   }
 
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !authData?.user) {
     const message = authError?.message ?? "Unable to verify user";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: message }, { status: 401 }, corsOptions);
   }
 
   const user = authData.user;
@@ -75,10 +63,7 @@ serve(async req => {
     const result = body?.result as MatchResult | null;
 
     if (!matchId || !result || !["player1", "player2", "draw"].includes(result)) {
-      return new Response(JSON.stringify({ error: "matchId et result sont requis" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "matchId et result sont requis" }, { status: 400 }, corsOptions);
     }
 
     const { data: match, error: matchError } = await supabase
@@ -89,31 +74,19 @@ serve(async req => {
 
     if (matchError || !match) {
       const message = matchError?.message ?? "Match introuvable";
-      return new Response(JSON.stringify({ error: message }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: message }, { status: 404 }, corsOptions);
     }
 
     if (match.status === "completed") {
-      return new Response(JSON.stringify({ error: "Le résultat a déjà été enregistré" }), {
-        status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Le résultat a déjà été enregistré" }, { status: 409 }, corsOptions);
     }
 
     if (!match.player2_id) {
-      return new Response(JSON.stringify({ error: "Le match n'a pas encore d'adversaire" }), {
-        status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Le match n'a pas encore d'adversaire" }, { status: 409 }, corsOptions);
     }
 
     if (user.id !== match.player1_id && user.id !== match.player2_id) {
-      return new Response(JSON.stringify({ error: "Vous ne participez pas à ce match" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Vous ne participez pas à ce match" }, { status: 403 }, corsOptions);
     }
 
     const winnerId = result === "draw"
@@ -138,10 +111,7 @@ serve(async req => {
 
     if (updateMatchError) {
       console.error("Unable to update match", updateMatchError.message);
-      return new Response(JSON.stringify({ error: "Impossible d'enregistrer le résultat" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Impossible d'enregistrer le résultat" }, { status: 500 }, corsOptions);
     }
 
     if (match.lobby_id) {
@@ -159,10 +129,7 @@ serve(async req => {
 
     if (registrationsError) {
       console.error("Unable to fetch registrations", registrationsError.message);
-      return new Response(JSON.stringify({ error: "Impossible de mettre à jour le classement" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Impossible de mettre à jour le classement" }, { status: 500 }, corsOptions);
     }
 
     const registrationMap = new Map(registrations?.map(entry => [entry.user_id, entry] as const));
@@ -218,19 +185,18 @@ serve(async req => {
       console.error("Unable to fetch leaderboard", leaderboardError.message);
     }
 
-    return new Response(JSON.stringify({
-      match: { ...match, status: "completed", result, winner_id: winnerId },
-      leaderboard: leaderboard ?? [],
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(
+      req,
+      {
+        match: { ...match, status: "completed", result, winner_id: winnerId },
+        leaderboard: leaderboard ?? [],
+      },
+      { status: 200 },
+      corsOptions,
+    );
   } catch (error) {
     console.error("report-tournament-match error", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
   }
 });

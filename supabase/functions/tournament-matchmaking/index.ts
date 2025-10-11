@@ -1,11 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const corsOptions = { methods: ["POST"] } as const;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -56,37 +53,28 @@ const getMatchDetails = async (matchId: string) => {
 
 serve(async req => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { status: 200, headers: corsHeaders });
+    return handleOptions(req, corsOptions);
   }
 
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+    return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);
   }
 
   if (!supabase) {
-    return new Response(JSON.stringify({ error: "Supabase client misconfigured" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: "Supabase client misconfigured" }, { status: 500 }, corsOptions);
   }
 
   const authHeader = req.headers.get("Authorization");
   const token = authHeader?.replace("Bearer ", "");
 
   if (!token) {
-    return new Response(JSON.stringify({ error: "Missing access token" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: "Missing access token" }, { status: 401 }, corsOptions);
   }
 
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !authData?.user) {
     const message = authError?.message ?? "Unable to verify user";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: message }, { status: 401 }, corsOptions);
   }
 
   const user = authData.user;
@@ -97,10 +85,7 @@ serve(async req => {
     const requestedName = typeof body?.displayName === "string" ? body.displayName : null;
 
     if (!tournamentId) {
-      return new Response(JSON.stringify({ error: "tournamentId is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "tournamentId is required" }, { status: 400 }, corsOptions);
     }
 
     const { data: tournament, error: tournamentError } = await supabase
@@ -111,10 +96,7 @@ serve(async req => {
 
     if (tournamentError || !tournament) {
       const message = tournamentError?.message ?? "Tournament not found";
-      return new Response(JSON.stringify({ error: message }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: message }, { status: 404 }, corsOptions);
     }
 
     const now = new Date();
@@ -122,17 +104,11 @@ serve(async req => {
     const end = new Date(tournament.end_time);
 
     if (now < start) {
-      return new Response(JSON.stringify({ error: "Le tournoi n'a pas encore commencé" }), {
-        status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Le tournoi n'a pas encore commencé" }, { status: 409 }, corsOptions);
     }
 
     if (now >= end) {
-      return new Response(JSON.stringify({ error: "Le tournoi est terminé" }), {
-        status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Le tournoi est terminé" }, { status: 409 }, corsOptions);
     }
 
     const displayName = inferDisplayName(user, requestedName);
@@ -154,18 +130,12 @@ serve(async req => {
 
     if (registrationError || !registration) {
       const message = registrationError?.message ?? "Impossible d'enregistrer la participation";
-      return new Response(JSON.stringify({ error: message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
     }
 
     if (registration.current_match_id) {
       const match = await getMatchDetails(registration.current_match_id);
-      return new Response(JSON.stringify({ match, registration }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { match, registration }, { status: 200 }, corsOptions);
     }
 
     const { data: waitingMatches, error: waitingError } = await supabase
@@ -255,10 +225,7 @@ serve(async req => {
 
       if (lobbyError || !lobby) {
         const message = lobbyError?.message ?? "Impossible de créer la salle du tournoi";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
       }
 
       const { data: createdMatch, error: matchError } = await supabase
@@ -276,10 +243,7 @@ serve(async req => {
 
       if (matchError || !createdMatch) {
         const message = matchError?.message ?? "Impossible de créer le match";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
       }
 
       await supabase
@@ -293,10 +257,7 @@ serve(async req => {
     }
 
     if (!matchResult) {
-      return new Response(JSON.stringify({ error: "Impossible de créer une appariement" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse(req, { error: "Impossible de créer une appariement" }, { status: 500 }, corsOptions);
     }
 
     const finalMatchId = typeof matchResult.id === "string"
@@ -307,23 +268,22 @@ serve(async req => {
 
     const match = finalMatchId ? await getMatchDetails(finalMatchId) : null;
 
-    return new Response(JSON.stringify({
-      match,
-      registration: {
-        ...registration,
-        current_match_id: finalMatchId,
-        is_waiting: registrationIsWaiting,
+    return jsonResponse(
+      req,
+      {
+        match,
+        registration: {
+          ...registration,
+          current_match_id: finalMatchId,
+          is_waiting: registrationIsWaiting,
+        },
       },
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+      { status: 200 },
+      corsOptions,
+    );
   } catch (error) {
     console.error("tournament-matchmaking error", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
   }
 });
