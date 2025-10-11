@@ -17,7 +17,7 @@ type RequestPayload = {
   history?: ChatHistoryEntry[];
 };
 
-const corsOptions = { methods: ["POST"] } as const;
+const corsOptions = { methods: ["POST"] };
 
 const json = (req: Request, body: unknown, init: ResponseInit = {}) =>
   jsonResponse(req, body, init, corsOptions);

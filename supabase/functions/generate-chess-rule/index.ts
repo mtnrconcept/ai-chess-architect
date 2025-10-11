@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 
-const corsOptions = { methods: ["POST"] } as const;
+const corsOptions = { methods: ["POST"] };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {

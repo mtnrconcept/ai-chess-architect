@@ -1,7 +1,7 @@
 project_id = "pfcaolibtgvynnwaxvol"
 
-[functions.generate-chess-rule]
+[functions.chess-insights]
 verify_jwt = false
 
-[functions.chess-insights]
+[functions.generate-chess-rule]
 verify_jwt = false
