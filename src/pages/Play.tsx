@@ -554,8 +554,11 @@ const Play = () => {
 
   useEffect(() => {
     const container = chatContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
+    if (container && coachMessages.length > 0) {
+      // Scroll vers le bas pour afficher les deux derniers messages
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+      });
     }
   }, [coachMessages]);
 
@@ -1512,7 +1515,7 @@ const Play = () => {
           </Button>
         </div>
 
-        <div ref={chatContainerRef} className="flex-1 space-y-3 overflow-y-auto rounded-3xl border border-fuchsia-300/20 bg-black/40 p-4">
+        <div ref={chatContainerRef} className="h-96 flex-1 space-y-3 overflow-y-auto rounded-3xl border border-fuchsia-300/20 bg-black/40 p-4 scroll-smooth">
           {coachMessages.map(message => {
             const isCoach = message.role === 'coach';
             const isPlayer = message.role === 'player';
