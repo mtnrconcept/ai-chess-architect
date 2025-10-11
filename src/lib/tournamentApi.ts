@@ -36,7 +36,7 @@ const isRelationMissing = (error: PostgrestError | null) => {
     return false;
   }
 
-  if (error.code === "42P01" || error.code === "PGRST302") {
+  if (error.code === "42P01" || error.code === "PGRST302" || error.code === "PGRST205") {
     return true;
   }
 
@@ -48,7 +48,12 @@ const isRelationMissing = (error: PostgrestError | null) => {
   }
 
   const haystack = `${message} ${details}`;
-  return haystack.includes("does not exist") || haystack.includes("not exist") || haystack.includes("not found");
+  return (
+    haystack.includes("does not exist") ||
+    haystack.includes("not exist") ||
+    haystack.includes("not found") ||
+    haystack.includes("schema cache")
+  );
 };
 
 const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
@@ -184,9 +189,18 @@ export const syncTournaments = async () => {
     const { error } = await supabase.functions.invoke("sync-tournaments", { body: {} });
     if (error) {
       const message = typeof error.message === "string" ? error.message : "";
-      if (message.toLowerCase().includes("not found") || message.toLowerCase().includes("not exist")) {
+      const code = typeof (error as { code?: unknown }).code === "string" ? (error as { code?: string }).code : "";
+      const haystack = message.toLowerCase();
+
+      if (
+        code === "feature_unavailable" ||
+        code === "PGRST205" ||
+        haystack.includes("not found") ||
+        haystack.includes("not exist") ||
+        haystack.includes("schema cache")
+      ) {
         throw new TournamentFeatureUnavailableError(
-          "La fonction de synchronisation Supabase n'est pas déployée. Déployez l'edge function 'sync-tournaments'.",
+          "La synchronisation des tournois n'est pas disponible. Vérifiez le déploiement de l'edge function 'sync-tournaments' et appliquez les migrations Supabase associées.",
         );
       }
       throw new Error(message || "Impossible de synchroniser les tournois");
