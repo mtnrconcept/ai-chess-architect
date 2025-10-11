@@ -381,7 +381,7 @@ const TournamentPage = () => {
   ];
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#030314] py-16 px-6">
+    <div className="relative min-h-screen overflow-hidden bg-[#030314] px-6 py-6 sm:py-16">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.18),transparent_60%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_bottom,_rgba(255,0,200,0.16),transparent_65%)]" />
       <div className="relative mx-auto max-w-6xl space-y-10">

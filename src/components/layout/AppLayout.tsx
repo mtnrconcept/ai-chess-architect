@@ -84,7 +84,10 @@ const AppLayout = () => {
         <div
           className={cn(
             "border-t border-white/10 bg-[#020312]/95 px-4 pb-4 pt-2 shadow-lg transition-all duration-200 md:hidden",
-            mobileOpen ? "visible opacity-100" : "invisible opacity-0",
+            "overflow-hidden",
+            mobileOpen
+              ? "visible max-h-[80vh] opacity-100 pointer-events-auto"
+              : "invisible max-h-0 opacity-0 pointer-events-none",
           )}
           id="mobile-navigation"
         >

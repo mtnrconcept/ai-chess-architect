@@ -77,7 +77,7 @@ const MatchAnalysis = () => {
   const accuracy = useMemo(() => 81.3, []);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#030314] py-16 px-6">
+    <div className="relative min-h-screen overflow-hidden bg-[#030314] px-6 py-6 sm:py-16">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(20,230,255,0.22),transparent_55%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_85%,rgba(255,0,200,0.18),transparent_60%)]" />
       <div className="relative mx-auto max-w-6xl space-y-10">
