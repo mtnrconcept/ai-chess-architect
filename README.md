@@ -89,8 +89,9 @@ npm run supabase:migrate
 ```
 
 The script reads every SQL file in `supabase/migrations`, applies pending migrations inside a transaction, and records the
-applied versions in `supabase_migrations.schema_migrations`. You can also provide the connection string through the
-`SUPABASE_DB_CONNECTION_STRING` or `DATABASE_URL` environment variables when running the command.
+applied versions in `supabase_migrations.schema_migrations`. Afterward it automatically triggers
+`pg_notify('pgrst','reload schema')` so PostgREST refreshes the new tables/views. You can also provide the connection string
+through the `SUPABASE_DB_CONNECTION_STRING` or `DATABASE_URL` environment variables when running the command.
 
 ## How can I deploy this project?
 
