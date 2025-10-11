@@ -159,6 +159,105 @@ Tailor the columns to match the application model if needed.
 
 ### 3. Refresh the PostgREST schema cache
 
+Run `select pg_notify('pgrst','reload schema');` (or restart the API from **Project Settings → API → Restart**) after creating
+or renaming tables so PostgREST immediately discovers the new structure.
+
+---
+
+## REST `/rest/v1` calls return **400 Bad Request** for seemingly valid filters
+
+PostgREST validates every query parameter. A 400 response usually means at least one clause refers to a column that does not
+exist in the cached schema. Common culprits:
+
+* `order=created_at.asc` when `created_at` is missing or renamed.
+* `select=active_rules,mode,status` when one column was dropped or belongs to another schema.
+* Passing filters such as `status=in.(waiting,matched)` with typos or incorrect URL encoding.
+
+### Quick checks
+
+1. Confirm the table is reachable:
+
+   ```bash
+   curl -s "$SUPABASE_URL/rest/v1/lobbies?select=count" \
+     -H "apikey: $SUPABASE_ANON_KEY" \
+     -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+   ```
+
+2. Inspect the canonical column list:
+
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'public' and table_name = 'lobbies'
+   order by ordinal_position;
+   ```
+
+3. Re-run the failing request with a minimal `select` and verified `order` clause. If it succeeds, add fields back gradually to
+   pinpoint the offender.
+
+### Fixes
+
+* Correct the column names in the client code.
+* If you recently ran a migration, trigger a schema reload (see previous section).
+* Avoid hand-crafted URLs—`@supabase/supabase-js` builds safe filters automatically and URL-encodes values for you.
+
+---
+
+## REST `/rest/v1/...` endpoints return **404 Not Found** for tables such as `tournaments`
+
+`404` combined with Supabase logs that mention `PGRST205` indicates the table or view is missing or PostgREST never refreshed its
+cache. Create the underlying objects (or run the migration that defines them) and notify PostgREST to reload. If you are using a
+non-`public` schema, remember to either set the schema on the client (`supabase.schema('app')`) or create synonyms in `public`.
+
+For a quick bootstrap environment, reuse the minimal DDL from `supabase/migrations/20251215100000_create_tournament_system.sql`
+and `20260301120000_create_user_games.sql`. After creation, run `select pg_notify('pgrst','reload schema');` to expose them.
+
+---
+
+## Edge Function `/functions/v1/sync-tournaments` returns **500 Internal Server Error**
+
+Unhandled exceptions bubble up as HTTP 500. Ensure the function logs the exact failure and that it has access to every table it
+touches (use the **service role key** when bypassing RLS). Wrap the handler in a try/catch and echo the message plus stack trace
+to the logs so Supabase's dashboard reveals the underlying issue. Example skeleton:
+
+```ts
+import { serve } from "https://deno.land/std/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+serve(async (req) => {
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } }
+    );
+
+    // TODO: add your sync logic here.
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  } catch (error) {
+    console.error("sync-tournaments error", error);
+    return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
+  }
+});
+```
+
+---
+
+## Edge Function `/functions/v1/chess-insights` returns **429 Too Many Requests**
+
+Supabase throttles edge functions per project. Burst requests from a UI (for example, firing on every keypress) exhaust the
+limit quickly.
+
+### Mitigations
+
+* **Debounce** or **throttle** client calls so only one request fires after user input settles (600–1000 ms works well).
+* Add a lightweight cache (Postgres table, Redis, or in-memory) keyed by `(user_id, payload)` inside the function and reuse
+  results for 60–120 seconds.
+* Serialize concurrent invocations per user. Track active calls in the UI and disable the trigger until the prior one resolves.
+* When a 429 slips through, perform exponential backoff retries and communicate the reason to the user via a toast/snackbar.
+
+These guardrails keep analytics features responsive without violating the rate limits.
+
 Even after creating the table, PostgREST may serve cached metadata. Force a reload:
 
 ```sql
