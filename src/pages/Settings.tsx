@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Palette,
   Volume2,
@@ -27,6 +27,131 @@ type UiSize = "sm" | "md" | "lg";
 type ProfileAccent = "cyber" | "aurora" | "ember";
 type DigestFrequency = "daily" | "weekly" | "monthly";
 
+type VoltusSettings = {
+  theme: ThemeId;
+  neonIntensity: number;
+  uiSize: UiSize;
+  spectralTrails: boolean;
+  boardReflections: boolean;
+  displayName: string;
+  email: string;
+  bio: string;
+  profileAccent: ProfileAccent;
+  avatarGlow: boolean;
+  soundEnabled: boolean;
+  musicVolume: number;
+  effectsVolume: number;
+  voiceVolume: number;
+  vibration: boolean;
+  hapticsIntensity: number;
+  highContrast: boolean;
+  colorBlindMode: boolean;
+  reduceAnimations: boolean;
+  largeCoordinates: boolean;
+  language: string;
+  secondaryLanguage: string;
+  autoTranslate: boolean;
+  subtitles: boolean;
+  pronunciationGuide: boolean;
+  gdprMode: boolean;
+  visibility: boolean;
+  dataSharing: boolean;
+  twoFactor: boolean;
+  sessionHistory: boolean;
+  challengeRequests: boolean;
+  emailNotifications: boolean;
+  pushNotifications: boolean;
+  matchReminders: boolean;
+  digestFrequency: DigestFrequency;
+  clanInvites: boolean;
+  marketingOptIn: boolean;
+};
+
+const SETTINGS_STORAGE_KEY = "voltus-settings";
+
+const defaultSettings: VoltusSettings = {
+  theme: "neon",
+  neonIntensity: 80,
+  uiSize: "md",
+  spectralTrails: false,
+  boardReflections: true,
+  displayName: "VoltusMaster",
+  email: "player@voltus.gg",
+  bio: "Stratège quantique passionné par les variantes les plus audacieuses.",
+  profileAccent: "cyber",
+  avatarGlow: true,
+  soundEnabled: true,
+  musicVolume: 65,
+  effectsVolume: 75,
+  voiceVolume: 45,
+  vibration: true,
+  hapticsIntensity: 70,
+  highContrast: true,
+  colorBlindMode: false,
+  reduceAnimations: false,
+  largeCoordinates: true,
+  language: "fr",
+  secondaryLanguage: "en",
+  autoTranslate: true,
+  subtitles: true,
+  pronunciationGuide: false,
+  gdprMode: true,
+  visibility: true,
+  dataSharing: false,
+  twoFactor: true,
+  sessionHistory: true,
+  challengeRequests: true,
+  emailNotifications: true,
+  pushNotifications: true,
+  matchReminders: true,
+  digestFrequency: "weekly",
+  clanInvites: true,
+  marketingOptIn: false,
+};
+
+const loadPersistedSettings = (): Partial<VoltusSettings> | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Partial<VoltusSettings>) : null;
+  } catch (error) {
+    console.warn("Impossible de charger les préférences Voltus depuis le stockage local:", error);
+    return null;
+  }
+};
+
+const booleanLabel = (value: boolean) => (value ? "Activé" : "Désactivé");
+
+const languageLabels: Record<string, string> = {
+  fr: "Français",
+  en: "Anglais",
+  es: "Espagnol",
+  de: "Allemand",
+  it: "Italien",
+  jp: "Japonais",
+};
+
+const themeLabels: Record<ThemeId, string> = {
+  neon: "Néon",
+  luminous: "Lumineux",
+  stealth: "Sombre",
+};
+
+const profileAccentLabels: Record<ProfileAccent, string> = {
+  cyber: "Cyber",
+  aurora: "Aurora",
+  ember: "Ember",
+};
+
+const digestLabels: Record<DigestFrequency, string> = {
+  daily: "Quotidien",
+  weekly: "Hebdomadaire",
+  monthly: "Mensuel",
+};
+
 const sidebarSections = [
   { id: "profile", label: "Profil", icon: UserCircle },
   { id: "appearance", label: "Apparence", icon: Palette },
@@ -38,51 +163,61 @@ const sidebarSections = [
 ];
 
 const Settings = () => {
+  const persistedSettingsRef = useRef<VoltusSettings | null>(null);
+  if (!persistedSettingsRef.current) {
+    const persisted = loadPersistedSettings();
+    persistedSettingsRef.current = {
+      ...defaultSettings,
+      ...(persisted ?? {}),
+    };
+  }
+  const initialSettings = persistedSettingsRef.current ?? defaultSettings;
+
   const { toast } = useToast();
   const [activeSection, setActiveSection] = useState("appearance");
-  const [theme, setTheme] = useState<ThemeId>("neon");
-  const [neonIntensity, setNeonIntensity] = useState(80);
-  const [uiSize, setUiSize] = useState<UiSize>("md");
-  const [spectralTrails, setSpectralTrails] = useState(false);
-  const [boardReflections, setBoardReflections] = useState(true);
+  const [theme, setTheme] = useState<ThemeId>(initialSettings.theme);
+  const [neonIntensity, setNeonIntensity] = useState(initialSettings.neonIntensity);
+  const [uiSize, setUiSize] = useState<UiSize>(initialSettings.uiSize);
+  const [spectralTrails, setSpectralTrails] = useState(initialSettings.spectralTrails);
+  const [boardReflections, setBoardReflections] = useState(initialSettings.boardReflections);
 
-  const [displayName, setDisplayName] = useState("VoltusMaster");
-  const [email, setEmail] = useState("player@voltus.gg");
-  const [bio, setBio] = useState("Stratège quantique passionné par les variantes les plus audacieuses.");
-  const [profileAccent, setProfileAccent] = useState<ProfileAccent>("cyber");
-  const [avatarGlow, setAvatarGlow] = useState(true);
+  const [displayName, setDisplayName] = useState(initialSettings.displayName);
+  const [email, setEmail] = useState(initialSettings.email);
+  const [bio, setBio] = useState(initialSettings.bio);
+  const [profileAccent, setProfileAccent] = useState<ProfileAccent>(initialSettings.profileAccent);
+  const [avatarGlow, setAvatarGlow] = useState(initialSettings.avatarGlow);
 
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [musicVolume, setMusicVolume] = useState(65);
-  const [effectsVolume, setEffectsVolume] = useState(75);
-  const [voiceVolume, setVoiceVolume] = useState(45);
-  const [vibration, setVibration] = useState(true);
-  const [hapticsIntensity, setHapticsIntensity] = useState(70);
+  const [soundEnabled, setSoundEnabled] = useState(initialSettings.soundEnabled);
+  const [musicVolume, setMusicVolume] = useState(initialSettings.musicVolume);
+  const [effectsVolume, setEffectsVolume] = useState(initialSettings.effectsVolume);
+  const [voiceVolume, setVoiceVolume] = useState(initialSettings.voiceVolume);
+  const [vibration, setVibration] = useState(initialSettings.vibration);
+  const [hapticsIntensity, setHapticsIntensity] = useState(initialSettings.hapticsIntensity);
 
-  const [highContrast, setHighContrast] = useState(true);
-  const [colorBlindMode, setColorBlindMode] = useState(false);
-  const [reduceAnimations, setReduceAnimations] = useState(false);
-  const [largeCoordinates, setLargeCoordinates] = useState(true);
+  const [highContrast, setHighContrast] = useState(initialSettings.highContrast);
+  const [colorBlindMode, setColorBlindMode] = useState(initialSettings.colorBlindMode);
+  const [reduceAnimations, setReduceAnimations] = useState(initialSettings.reduceAnimations);
+  const [largeCoordinates, setLargeCoordinates] = useState(initialSettings.largeCoordinates);
 
-  const [language, setLanguage] = useState("fr");
-  const [secondaryLanguage, setSecondaryLanguage] = useState("en");
-  const [autoTranslate, setAutoTranslate] = useState(true);
-  const [subtitles, setSubtitles] = useState(true);
-  const [pronunciationGuide, setPronunciationGuide] = useState(false);
+  const [language, setLanguage] = useState(initialSettings.language);
+  const [secondaryLanguage, setSecondaryLanguage] = useState(initialSettings.secondaryLanguage);
+  const [autoTranslate, setAutoTranslate] = useState(initialSettings.autoTranslate);
+  const [subtitles, setSubtitles] = useState(initialSettings.subtitles);
+  const [pronunciationGuide, setPronunciationGuide] = useState(initialSettings.pronunciationGuide);
 
-  const [gdprMode, setGdprMode] = useState(true);
-  const [visibility, setVisibility] = useState(true);
-  const [dataSharing, setDataSharing] = useState(false);
-  const [twoFactor, setTwoFactor] = useState(true);
-  const [sessionHistory, setSessionHistory] = useState(true);
-  const [challengeRequests, setChallengeRequests] = useState(true);
+  const [gdprMode, setGdprMode] = useState(initialSettings.gdprMode);
+  const [visibility, setVisibility] = useState(initialSettings.visibility);
+  const [dataSharing, setDataSharing] = useState(initialSettings.dataSharing);
+  const [twoFactor, setTwoFactor] = useState(initialSettings.twoFactor);
+  const [sessionHistory, setSessionHistory] = useState(initialSettings.sessionHistory);
+  const [challengeRequests, setChallengeRequests] = useState(initialSettings.challengeRequests);
 
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [matchReminders, setMatchReminders] = useState(true);
-  const [digestFrequency, setDigestFrequency] = useState<DigestFrequency>("weekly");
-  const [clanInvites, setClanInvites] = useState(true);
-  const [marketingOptIn, setMarketingOptIn] = useState(false);
+  const [emailNotifications, setEmailNotifications] = useState(initialSettings.emailNotifications);
+  const [pushNotifications, setPushNotifications] = useState(initialSettings.pushNotifications);
+  const [matchReminders, setMatchReminders] = useState(initialSettings.matchReminders);
+  const [digestFrequency, setDigestFrequency] = useState<DigestFrequency>(initialSettings.digestFrequency);
+  const [clanInvites, setClanInvites] = useState(initialSettings.clanInvites);
+  const [marketingOptIn, setMarketingOptIn] = useState(initialSettings.marketingOptIn);
 
   const sectionLabels = useMemo(
     () => Object.fromEntries(sidebarSections.map(section => [section.id, section.label.toLowerCase()])),
@@ -112,6 +247,100 @@ const Settings = () => {
     pronunciationGuide,
   });
 
+  const settingsSnapshot = useMemo<VoltusSettings>(
+    () => ({
+      theme,
+      neonIntensity,
+      uiSize,
+      spectralTrails,
+      boardReflections,
+      displayName,
+      email,
+      bio,
+      profileAccent,
+      avatarGlow,
+      soundEnabled,
+      musicVolume,
+      effectsVolume,
+      voiceVolume,
+      vibration,
+      hapticsIntensity,
+      highContrast,
+      colorBlindMode,
+      reduceAnimations,
+      largeCoordinates,
+      language,
+      secondaryLanguage,
+      autoTranslate,
+      subtitles,
+      pronunciationGuide,
+      gdprMode,
+      visibility,
+      dataSharing,
+      twoFactor,
+      sessionHistory,
+      challengeRequests,
+      emailNotifications,
+      pushNotifications,
+      matchReminders,
+      digestFrequency,
+      clanInvites,
+      marketingOptIn,
+    }),
+    [
+      theme,
+      neonIntensity,
+      uiSize,
+      spectralTrails,
+      boardReflections,
+      displayName,
+      email,
+      bio,
+      profileAccent,
+      avatarGlow,
+      soundEnabled,
+      musicVolume,
+      effectsVolume,
+      voiceVolume,
+      vibration,
+      hapticsIntensity,
+      highContrast,
+      colorBlindMode,
+      reduceAnimations,
+      largeCoordinates,
+      language,
+      secondaryLanguage,
+      autoTranslate,
+      subtitles,
+      pronunciationGuide,
+      gdprMode,
+      visibility,
+      dataSharing,
+      twoFactor,
+      sessionHistory,
+      challengeRequests,
+      emailNotifications,
+      pushNotifications,
+      matchReminders,
+      digestFrequency,
+      clanInvites,
+      marketingOptIn,
+    ],
+  );
+
+  useEffect(() => {
+    persistedSettingsRef.current = settingsSnapshot;
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsSnapshot));
+    } catch (error) {
+      console.warn("Impossible de sauvegarder les préférences Voltus:", error);
+    }
+  }, [settingsSnapshot]);
+
   const resetActiveSection = () => {
     switch (activeSection) {
       case "profile":
@@ -122,48 +351,48 @@ const Settings = () => {
         setAvatarGlow(true);
         break;
       case "appearance":
-        setTheme("neon");
-        setNeonIntensity(80);
-        setUiSize("md");
-        setSpectralTrails(false);
-        setBoardReflections(true);
+        setTheme(defaultSettings.theme);
+        setNeonIntensity(defaultSettings.neonIntensity);
+        setUiSize(defaultSettings.uiSize);
+        setSpectralTrails(defaultSettings.spectralTrails);
+        setBoardReflections(defaultSettings.boardReflections);
         break;
       case "audio":
-        setSoundEnabled(true);
-        setMusicVolume(65);
-        setEffectsVolume(75);
-        setVoiceVolume(45);
-        setVibration(true);
-        setHapticsIntensity(70);
+        setSoundEnabled(defaultSettings.soundEnabled);
+        setMusicVolume(defaultSettings.musicVolume);
+        setEffectsVolume(defaultSettings.effectsVolume);
+        setVoiceVolume(defaultSettings.voiceVolume);
+        setVibration(defaultSettings.vibration);
+        setHapticsIntensity(defaultSettings.hapticsIntensity);
         break;
       case "accessibility":
-        setHighContrast(true);
-        setColorBlindMode(false);
-        setReduceAnimations(false);
-        setLargeCoordinates(true);
+        setHighContrast(defaultSettings.highContrast);
+        setColorBlindMode(defaultSettings.colorBlindMode);
+        setReduceAnimations(defaultSettings.reduceAnimations);
+        setLargeCoordinates(defaultSettings.largeCoordinates);
         break;
       case "language":
-        setLanguage("fr");
-        setSecondaryLanguage("en");
-        setAutoTranslate(true);
-        setSubtitles(true);
-        setPronunciationGuide(false);
+        setLanguage(defaultSettings.language);
+        setSecondaryLanguage(defaultSettings.secondaryLanguage);
+        setAutoTranslate(defaultSettings.autoTranslate);
+        setSubtitles(defaultSettings.subtitles);
+        setPronunciationGuide(defaultSettings.pronunciationGuide);
         break;
       case "privacy":
-        setGdprMode(true);
-        setVisibility(true);
-        setDataSharing(false);
-        setTwoFactor(true);
-        setSessionHistory(true);
-        setChallengeRequests(true);
+        setGdprMode(defaultSettings.gdprMode);
+        setVisibility(defaultSettings.visibility);
+        setDataSharing(defaultSettings.dataSharing);
+        setTwoFactor(defaultSettings.twoFactor);
+        setSessionHistory(defaultSettings.sessionHistory);
+        setChallengeRequests(defaultSettings.challengeRequests);
         break;
       case "notifications":
-        setEmailNotifications(true);
-        setPushNotifications(true);
-        setMatchReminders(true);
-        setDigestFrequency("weekly");
-        setClanInvites(true);
-        setMarketingOptIn(false);
+        setEmailNotifications(defaultSettings.emailNotifications);
+        setPushNotifications(defaultSettings.pushNotifications);
+        setMatchReminders(defaultSettings.matchReminders);
+        setDigestFrequency(defaultSettings.digestFrequency);
+        setClanInvites(defaultSettings.clanInvites);
+        setMarketingOptIn(defaultSettings.marketingOptIn);
         break;
       default:
         break;
@@ -181,6 +410,98 @@ const Settings = () => {
       description: `Vos préférences ${sectionLabels[activeSection]} ont été mises à jour avec succès.`,
     });
   };
+
+  const sectionSummaries = useMemo(
+    () => ({
+      profile: [
+        { label: "Nom d'affichage", value: displayName },
+        { label: "Accent", value: profileAccentLabels[profileAccent] },
+        { label: "Lueur avatar", value: booleanLabel(avatarGlow) },
+      ],
+      appearance: [
+        { label: "Thème", value: themeLabels[theme] },
+        { label: "Intensité néon", value: `${neonIntensity}%` },
+        { label: "Interface", value: uiSize.toUpperCase() },
+        { label: "Traînées spectrales", value: booleanLabel(spectralTrails) },
+        { label: "Reflets", value: booleanLabel(boardReflections) },
+      ],
+      audio: [
+        { label: "Audio global", value: booleanLabel(soundEnabled) },
+        { label: "Musique", value: `${musicVolume}%` },
+        { label: "Effets", value: `${effectsVolume}%` },
+        { label: "Voix", value: `${voiceVolume}%` },
+        { label: "Vibration", value: booleanLabel(vibration) },
+      ],
+      accessibility: [
+        { label: "Contraste élevé", value: booleanLabel(highContrast) },
+        { label: "Daltonisme", value: booleanLabel(colorBlindMode) },
+        { label: "Animations réduites", value: booleanLabel(reduceAnimations) },
+        { label: "Coordonnées", value: booleanLabel(largeCoordinates) },
+      ],
+      language: [
+        { label: "Langue principale", value: languageLabels[language] ?? language.toUpperCase() },
+        {
+          label: "Langue secondaire",
+          value: languageLabels[secondaryLanguage] ?? secondaryLanguage.toUpperCase(),
+        },
+        { label: "Traduction auto", value: booleanLabel(autoTranslate) },
+        { label: "Sous-titres", value: booleanLabel(subtitles) },
+        { label: "Prononciation", value: booleanLabel(pronunciationGuide) },
+      ],
+      privacy: [
+        { label: "Mode RGPD", value: booleanLabel(gdprMode) },
+        { label: "Profil visible", value: booleanLabel(visibility) },
+        { label: "Partage données", value: booleanLabel(dataSharing) },
+        { label: "2FA", value: booleanLabel(twoFactor) },
+        { label: "Historique", value: booleanLabel(sessionHistory) },
+        { label: "Défis", value: booleanLabel(challengeRequests) },
+      ],
+      notifications: [
+        { label: "E-mails", value: booleanLabel(emailNotifications) },
+        { label: "Push", value: booleanLabel(pushNotifications) },
+        { label: "Rappels", value: booleanLabel(matchReminders) },
+        { label: "Digest", value: digestLabels[digestFrequency] },
+        { label: "Invitations", value: booleanLabel(clanInvites) },
+        { label: "Marketing", value: booleanLabel(marketingOptIn) },
+      ],
+    }),
+    [
+      displayName,
+      profileAccent,
+      avatarGlow,
+      theme,
+      neonIntensity,
+      uiSize,
+      spectralTrails,
+      boardReflections,
+      soundEnabled,
+      musicVolume,
+      effectsVolume,
+      voiceVolume,
+      vibration,
+      highContrast,
+      colorBlindMode,
+      reduceAnimations,
+      largeCoordinates,
+      language,
+      secondaryLanguage,
+      autoTranslate,
+      subtitles,
+      pronunciationGuide,
+      gdprMode,
+      visibility,
+      dataSharing,
+      twoFactor,
+      sessionHistory,
+      challengeRequests,
+      emailNotifications,
+      pushNotifications,
+      matchReminders,
+      digestFrequency,
+      clanInvites,
+      marketingOptIn,
+    ],
+  );
 
   const sectionMeta = useMemo(
     () => ({
@@ -886,6 +1207,28 @@ const Settings = () => {
             </CardHeader>
             <CardContent className="relative z-10 grid gap-10 pb-10">
               {renderSectionContent()}
+              <div className="rounded-2xl border border-cyan-400/20 bg-black/45 p-6 shadow-inner shadow-cyan-500/10">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-200/70">
+                      Paramètres actifs
+                    </p>
+                    <p className="text-sm text-slate-300/80">
+                      Aperçu instantané des réglages appliqués pour cette section.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {sectionSummaries[activeSection]?.map(item => (
+                    <span
+                      key={`${item.label}-${item.value}`}
+                      className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100/80"
+                    >
+                      <span className="text-cyan-300">{item.label}:</span> {item.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
               <div className="flex flex-col justify-between gap-4 rounded-2xl border border-cyan-400/20 bg-black/40 p-6 sm:flex-row">
                 <Button
                   variant="outline"
