@@ -104,11 +104,11 @@ Avant chaque livraison, validez la connexion Supabase à l'aide du client partag
 
 La console du navigateur ne doit afficher aucune lecture de variables `import.meta.env` sans préfixe `VITE_`.
 
-## Supabase migrations
+## Supabase migrations & Edge Functions
 
 The tournament Edge Functions expect the Supabase schema defined in `supabase/migrations`. The Express tournament service
 automatically attempts to run these migrations at startup whenever a Supabase connection string is available. To apply them
-manually (or from CI), run the new migration helper from the project root:
+manually (or from CI), run the migration helper from the project root:
 
 ```sh
 SUPABASE_DB_URL="postgresql://postgres:<your-db-password>@db.ucaqbhmyutlnitnedowk.supabase.co:6543/postgres?pgbouncer=true&sslmode=require" \
@@ -119,6 +119,11 @@ The script reads every SQL file in `supabase/migrations`, applies pending migrat
 applied versions in `supabase_migrations.schema_migrations`. Afterward it automatically triggers
 `pg_notify('pgrst','reload schema')` so PostgREST refreshes the new tables/views. You can also provide the connection string
 through the `SUPABASE_DB_CONNECTION_STRING` or `DATABASE_URL` environment variables when running the command.
+
+To deploy the Edge Functions used by the application, run `./supabase/deploy-edge-functions.sh`. The helper script relies on the
+project reference configured in `supabase/config.toml` (or the `SUPABASE_PROJECT_REF` environment variable) and deploys all
+functions located in `supabase/functions`. See [`docs/supabase-setup.md`](docs/supabase-setup.md) for the complete setup guide
+(environment variables, secrets, migrations and verification steps).
 
 ## How can I deploy this project?
 
