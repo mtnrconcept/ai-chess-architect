@@ -224,6 +224,74 @@ export type Database = {
         }
         Relationships: []
       }
+      user_games: {
+        Row: {
+          accuracy: number
+          analysis_overview: Json
+          coach_summary: string | null
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          metadata: Json | null
+          move_history: Json
+          opponent_name: string | null
+          opponent_type: 'ai' | 'player' | 'local'
+          player_color: 'white' | 'black'
+          result: 'win' | 'loss' | 'draw'
+          starting_board: Json
+          time_control: string | null
+          total_moves: number
+          user_id: string | null
+          variant_name: string | null
+        }
+        Insert: {
+          accuracy: number
+          analysis_overview: Json
+          coach_summary?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          metadata?: Json | null
+          move_history: Json
+          opponent_name?: string | null
+          opponent_type?: 'ai' | 'player' | 'local'
+          player_color?: 'white' | 'black'
+          result: 'win' | 'loss' | 'draw'
+          starting_board: Json
+          time_control?: string | null
+          total_moves?: number
+          user_id?: string | null
+          variant_name?: string | null
+        }
+        Update: {
+          accuracy?: number
+          analysis_overview?: Json
+          coach_summary?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          metadata?: Json | null
+          move_history?: Json
+          opponent_name?: string | null
+          opponent_type?: 'ai' | 'player' | 'local'
+          player_color?: 'white' | 'black'
+          result?: 'win' | 'loss' | 'draw'
+          starting_board?: Json
+          time_control?: string | null
+          total_moves?: number
+          user_id?: string | null
+          variant_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'user_games_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'users'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       tournaments: {
         Row: {
           created_at: string

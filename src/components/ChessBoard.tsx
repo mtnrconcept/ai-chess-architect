@@ -8,6 +8,8 @@ interface ChessBoardProps {
   gameState: GameState;
   onSquareClick: (position: Position) => void;
   onPieceClick: (piece: ChessPiece) => void;
+  readOnly?: boolean;
+  highlightSquares?: Position[];
 }
 
 const pieceSymbols: Record<ChessPiece['type'], { white: string; black: string }> = {
@@ -24,8 +26,8 @@ const pieceGradients: Record<ChessPiece['color'], string> = {
   black: 'from-amber-200 via-rose-400 to-purple-500'
 };
 
-const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps) => {
-  const { board, selectedPiece, validMoves, specialAttacks, visualEffects } = gameState;
+const ChessBoard = ({ gameState, onSquareClick, onPieceClick, readOnly = false, highlightSquares = [] }: ChessBoardProps) => {
+  const { board, selectedPiece, validMoves } = gameState;
 
   const isValidMove = (row: number, col: number) => {
     return validMoves.some(move => move.row === row && move.col === col);
@@ -33,6 +35,10 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
 
   const isSelected = (row: number, col: number) => {
     return selectedPiece?.position.row === row && selectedPiece?.position.col === col;
+  };
+
+  const isHighlighted = (row: number, col: number) => {
+    return highlightSquares.some(position => position.row === row && position.col === col);
   };
 
   return (
@@ -50,6 +56,7 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
                 const isSelectedSquare = isSelected(rowIndex, colIndex);
 
                 const handleClick = () => {
+                  if (readOnly) return;
                   const position = { row: rowIndex, col: colIndex };
 
                   if (isValidMoveSquare) {
@@ -75,14 +82,20 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
                   <button
                     type="button"
                     key={`${rowIndex}-${colIndex}`}
-                    onClick={handleClick}
+                    onClick={readOnly ? undefined : handleClick}
+                    aria-disabled={readOnly}
                     className={`
                       group relative flex aspect-square items-center justify-center overflow-hidden rounded-[0.95rem]
                       border border-white/5 transition-all duration-300 ease-out
                       ${isLight
                         ? 'bg-[radial-gradient(circle_at_30%_30%,rgba(34,211,238,0.45),rgba(2,6,23,0.92))]'
                         : 'bg-[radial-gradient(circle_at_70%_70%,rgba(236,72,153,0.55),rgba(2,6,23,0.92))]'}
-                      ${isSelectedSquare ? 'ring-2 ring-cyan-300/90 shadow-[0_0_28px_rgba(56,189,248,0.75)]' : 'hover:-translate-y-[1px] hover:shadow-[0_0_22px_rgba(168,85,247,0.45)]'}
+                      ${isSelectedSquare
+                        ? 'ring-2 ring-cyan-300/90 shadow-[0_0_28px_rgba(56,189,248,0.75)]'
+                        : isHighlighted(rowIndex, colIndex)
+                          ? 'ring-2 ring-amber-300/80 shadow-[0_0_26px_rgba(251,191,36,0.55)]'
+                          : 'hover:-translate-y-[1px] hover:shadow-[0_0_22px_rgba(168,85,247,0.45)]'}
+                      ${readOnly ? 'cursor-default' : ''}
                     `}
                   >
                     {isValidMoveSquare && (

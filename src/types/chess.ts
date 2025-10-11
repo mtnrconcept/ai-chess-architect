@@ -24,6 +24,18 @@ export interface ChessPiece {
   };
 }
 
+export interface SerializedPiece {
+  type: PieceType;
+  color: PieceColor;
+  row: number;
+  col: number;
+  isHidden?: boolean;
+}
+
+export interface SerializedBoardState {
+  pieces: SerializedPiece[];
+}
+
 export interface ChessMove {
   from: Position;
   to: Position;
@@ -39,6 +51,10 @@ export interface ChessMove {
     by: Position;
     piece: ChessPiece;
   }>;
+  timestamp?: string;
+  durationMs?: number | null;
+  notation?: string;
+  boardSnapshot?: SerializedBoardState;
 }
 
 export interface SpecialAttackInstance {

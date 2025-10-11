@@ -22,6 +22,14 @@ import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } fr
 import { useSoundEffects, type SoundEffect } from '@/hooks/useSoundEffects';
 import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
 import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  analyzeCompletedGame,
+  deserializeBoardState,
+  formatMoveNotation,
+  serializeBoardState,
+} from '@/lib/postGameAnalysis';
+import { saveCompletedGame } from '@/lib/gameStorage';
 
 const createChatMessageId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -134,6 +142,7 @@ interface SpecialAbilityOption {
 const Play = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
 
   const locationState = location.state as {
     customRules?: ChessRule[];
@@ -238,6 +247,8 @@ const Play = () => {
   }, []);
 
   const selectionTimestampRef = useRef<number | null>(null);
+  const gameSavedRef = useRef(false);
+  const gameStartTimeRef = useRef<number>(Date.now());
 
   const [gameState, setGameState] = useState<GameState>(() => {
     const initialBoard = ChessEngine.initializeBoard();
@@ -268,6 +279,7 @@ const Play = () => {
       visualEffects: [],
     };
   });
+  const initialBoardSnapshotRef = useRef(serializeBoardState(gameState.board));
   const [timeRemaining, setTimeRemaining] = useState(() => ({
     white: initialTimeSeconds,
     black: initialTimeSeconds,
@@ -347,6 +359,10 @@ const Play = () => {
         ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
         : 'Explosion au contact d\'un adversaire.';
 
+    const title = specialAbilityLabel ? `${specialAbilityLabel} déclenchée` : 'Attaque spéciale déclenchée';
+    const description = specialAbilityLabel
+      ? `La capacité « ${specialAbilityLabel} » issue de la règle ${specialAbility.ruleName} est activée.`
+      : `La règle ${specialAbility.ruleName} propose une action spéciale.`;
       toast({
         title: `${ability.label} prête`,
         description: `${ability.description} ${countdownInfo}`,
@@ -369,6 +385,14 @@ const Play = () => {
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
+
+  useEffect(() => {
+    if (gameState.moveHistory.length === 0) {
+      initialBoardSnapshotRef.current = serializeBoardState(gameState.board);
+      gameStartTimeRef.current = Date.now();
+      gameSavedRef.current = false;
+    }
+  }, [gameState.board, gameState.moveHistory.length]);
 
   // --- refs utilitaires ---
   const latestGameStateRef = useRef<GameState>(gameState);
@@ -931,6 +955,9 @@ const Play = () => {
     const hasRule = (ruleId: string) => activeRuleIds.has(ruleId);
 
     const move = ChessEngine.createMove(state.board, selectedPiece, destination, state);
+    move.timestamp = new Date().toISOString();
+    move.durationMs = typeof selectionDuration === 'number' ? selectionDuration : null;
+    const events: string[] = [];
     const events: SoundEffect[] = [];
     let updatedSpecialAttacks = state.specialAttacks.map(attack => ({ ...attack }));
     let updatedVisualEffects = [...state.visualEffects];
@@ -1222,6 +1249,9 @@ const Play = () => {
       events.push('check');
     }
 
+    move.boardSnapshot = serializeBoardState(newBoard);
+    move.notation = move.notation ?? formatMoveNotation(move);
+
     return {
       ...state,
       board: newBoard,
@@ -1437,6 +1467,81 @@ const Play = () => {
     });
   }, [timeRemaining, timeControl, initialTimeSeconds, playSound, soundEnabled]);
 
+  useEffect(() => {
+    if (!['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
+    if (gameState.moveHistory.length === 0) return;
+    if (gameSavedRef.current) return;
+
+    gameSavedRef.current = true;
+
+    const status = gameState.gameStatus;
+    const result: 'win' | 'loss' | 'draw' = status === 'checkmate'
+      ? (gameState.currentPlayer === HUMAN_COLOR ? 'loss' : 'win')
+      : status === 'timeout'
+        ? (gameState.currentPlayer === HUMAN_COLOR ? 'win' : 'loss')
+        : 'draw';
+
+    const durationSeconds = gameStartTimeRef.current
+      ? (Date.now() - gameStartTimeRef.current) / 1000
+      : undefined;
+
+    const initialBoardMatrix = deserializeBoardState(initialBoardSnapshotRef.current);
+
+    const analysis = analyzeCompletedGame(gameState.moveHistory, {
+      playerColor: HUMAN_COLOR,
+      result,
+      initialBoard: initialBoardMatrix,
+    });
+
+    const metadata = {
+      variantName,
+      opponentType,
+      opponentName: opponentDisplayName,
+      playerElo,
+      opponentElo,
+    };
+
+    void (async () => {
+      try {
+        await saveCompletedGame({
+          userId: user?.id ?? null,
+          opponentName: opponentDisplayName,
+          opponentType,
+          result,
+          variantName,
+          timeControl,
+          playerColor: HUMAN_COLOR,
+          analysis,
+          durationSeconds,
+          metadata,
+        });
+        toast({
+          title: 'Partie enregistrée',
+          description: 'Analyse disponible dans l’onglet Analyse.',
+        });
+      } catch (error) {
+        console.error('Failed to save completed game', error);
+        toast({
+          title: 'Sauvegarde impossible',
+          description: "Impossible d’enregistrer la partie pour l’analyse.",
+          variant: 'destructive',
+        });
+      }
+    })();
+  }, [
+    gameState.gameStatus,
+    gameState.currentPlayer,
+    gameState.moveHistory,
+    opponentDisplayName,
+    opponentElo,
+    opponentType,
+    playerElo,
+    timeControl,
+    toast,
+    user?.id,
+    variantName,
+  ]);
+
   const handlePieceClick = (piece: ChessPiece) => {
     if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
     if (piece.color !== gameState.currentPlayer) return;
@@ -1583,7 +1688,7 @@ const Play = () => {
           return prev;
         }
 
-        return applyMoveToState(prev, piece, bestMove.to, null);
+        return applyMoveToState(prev, piece, bestMove.to, delayMs);
       });
     }, delayMs);
   }, [gameState.currentPlayer, gameState.gameStatus, opponentType, findBestAIMove, applyMoveToState, timeControl]);
@@ -1632,6 +1737,9 @@ const Play = () => {
     const systemMessage = createWelcomeMessage();
     setCoachMessages([systemMessage]);
     coachMessagesRef.current = [systemMessage];
+    initialBoardSnapshotRef.current = serializeBoardState(initialBoard);
+    gameStartTimeRef.current = Date.now();
+    gameSavedRef.current = false;
   };
 
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
