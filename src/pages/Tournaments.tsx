@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Award,
   CalendarClock,
@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import {
   TournamentFeatureUnavailableError,
   fetchTournamentDetails,
@@ -41,13 +42,18 @@ import {
   requestTournamentMatch,
   syncTournaments,
 } from "@/lib/tournamentApi";
+import { supabase } from "@/integrations/supabase/client";
+import { allPresetRules } from "@/lib/presetRules";
+import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from "@/lib/customRuleMapper";
 import type {
   MatchmakingResponse,
   TournamentDetails,
   TournamentLeaderboardEntry,
   TournamentOverview,
   TournamentRegistrationWithMatch,
+  TournamentMatch,
 } from "@/types/tournament";
+import type { ChessRule } from "@/types/chess";
 
 const blockDurationHours = 2;
 
@@ -135,6 +141,7 @@ const TournamentPage = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<TournamentTab>("running");
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -212,6 +219,100 @@ const TournamentPage = () => {
   const myTournamentList = useMemo(
     () => tournaments.filter(tournament => registrationByTournament.has(tournament.id)),
     [tournaments, registrationByTournament],
+  );
+
+  const presetRuleMap = useMemo(() => new Map(allPresetRules.map(rule => [rule.ruleId, rule])), []);
+
+  const openTournamentLobby = useCallback(
+    async (match: TournamentMatch) => {
+      if (!match?.lobby) {
+        toast({
+          title: "Salle introuvable",
+          description: "Aucune salle multijoueur n'est associée à ce match.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!Array.isArray(match.variant_rules) || match.variant_rules.length === 0) {
+        toast({
+          title: "Règle manquante",
+          description: "Impossible d'identifier la règle associée à ce match de tournoi.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const [ruleId] = match.variant_rules;
+      if (!ruleId) {
+        toast({
+          title: "Règle introuvable",
+          description: "La règle du tournoi n'a pas été transmise par le serveur.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        let selectedRule: ChessRule | null = presetRuleMap.get(ruleId) ?? null;
+
+        if (!selectedRule) {
+          const { data, error } = await supabase
+            .from("custom_chess_rules")
+            .select("*")
+            .eq("rule_id", ruleId)
+            .limit(1);
+
+          if (error) {
+            throw new Error(error.message);
+          }
+
+          const row = (data ?? [])[0] as CustomRuleRow | undefined;
+          if (!row) {
+            throw new Error("La règle personnalisée associée à ce match est introuvable.");
+          }
+
+          selectedRule = mapCustomRuleRowsToChessRules([row])[0] ?? null;
+        }
+
+        if (!selectedRule) {
+          throw new Error("Impossible de charger la règle du tournoi.");
+        }
+
+        const preparedRule = { ...selectedRule, isActive: true };
+        const isPreset = presetRuleMap.has(ruleId);
+        const lobby = match.lobby;
+        const lobbyName = lobby.name ?? "Salle multijoueur";
+        const role: "creator" | "opponent" = user && user.id === match.player1_id ? "creator" : "opponent";
+        const playerName = resolveUserDisplayName(user ?? null);
+        const opponentName =
+          role === "creator"
+            ? lobby.opponent_name ?? "Adversaire"
+            : lobby.name ?? lobby.opponent_name ?? "Adversaire";
+
+        navigate("/play", {
+          state: {
+            customRules: isPreset ? [] : [preparedRule],
+            presetRuleIds: isPreset ? [ruleId] : [],
+            opponentType: "player",
+            lobbyId: lobby.id,
+            lobbyName,
+            role,
+            opponentName,
+            playerName,
+          },
+        });
+      } catch (error) {
+        const description =
+          error instanceof Error ? error.message : "Impossible d'ouvrir la salle du tournoi.";
+        toast({
+          title: "Salle inaccessible",
+          description,
+          variant: "destructive",
+        });
+      }
+    },
+    [navigate, presetRuleMap, toast, user],
   );
 
   const ongoingMatchRegistration = useMemo(() => {
@@ -379,6 +480,10 @@ const TournamentPage = () => {
         toast({ title: "Adversaire trouvé", description: "Votre match de tournoi peut commencer." });
       } else {
         toast({ title: "Participation enregistrée", description: "Votre inscription est confirmée." });
+      }
+
+      if (response.match) {
+        await openTournamentLobby(response.match);
       }
 
       await Promise.all([
@@ -638,12 +743,17 @@ const TournamentPage = () => {
                   size="sm"
                   variant="outline"
                   className="rounded-xl border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/20"
-                  onClick={() =>
-                    toast({
-                      title: "Lancez votre partie",
-                      description: "Rendez-vous dans la salle multijoueur correspondante pour commencer la partie.",
-                    })
-                  }
+                  onClick={() => {
+                    if (ongoingMatchRegistration?.current_match) {
+                      void openTournamentLobby(ongoingMatchRegistration.current_match);
+                    } else {
+                      toast({
+                        title: "Salle indisponible",
+                        description: "Aucune salle n'est associée à votre match en cours.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
                 >
                   Ouvrir la salle
                 </Button>
