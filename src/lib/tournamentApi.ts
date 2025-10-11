@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { PostgrestError } from "@supabase/supabase-js";
 import type {
   MatchmakingResponse,
   TournamentDetails,
@@ -8,38 +9,172 @@ import type {
   TournamentMatch,
 } from "@/types/tournament";
 
+const ACTIVE_MATCH_STATUSES = new Set(["pending", "in_progress"]);
+
+const isOverviewViewMissing = (error: PostgrestError | null) => {
+  if (!error) {
+    return false;
+  }
+
+  if (error.code === "42P01") {
+    return true;
+  }
+
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  return message.includes("tournament_overview");
+};
+
+const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
+  const tournamentsQuery = supabase.from("tournaments").select("*").order("start_time", { ascending: true });
+
+  if (tournamentId) {
+    tournamentsQuery.eq("id", tournamentId);
+  }
+
+  const { data: tournaments, error: tournamentsError } = await tournamentsQuery;
+
+  if (tournamentsError) {
+    throw new Error(tournamentsError.message);
+  }
+
+  const tournamentList = tournaments ?? [];
+
+  if (tournamentList.length === 0) {
+    return [];
+  }
+
+  const tournamentIds = tournamentList
+    .map(tournament => tournament.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+  const registrationCounts = new Map<string, number>();
+  const matchCounts = new Map<string, { active: number; completed: number }>();
+
+  if (tournamentIds.length > 0) {
+    const { data: registrations, error: registrationsError } = await supabase
+      .from("tournament_registrations")
+      .select("tournament_id")
+      .in("tournament_id", tournamentIds);
+
+    if (registrationsError) {
+      throw new Error(registrationsError.message);
+    }
+
+    (registrations ?? []).forEach(registration => {
+      const id = registration.tournament_id;
+      if (!id) return;
+      registrationCounts.set(id, (registrationCounts.get(id) ?? 0) + 1);
+    });
+
+    const { data: matches, error: matchesError } = await supabase
+      .from("tournament_matches")
+      .select("tournament_id, status")
+      .in("tournament_id", tournamentIds);
+
+    if (matchesError) {
+      throw new Error(matchesError.message);
+    }
+
+    (matches ?? []).forEach(match => {
+      const id = match.tournament_id;
+      if (!id) return;
+      const counts = matchCounts.get(id) ?? { active: 0, completed: 0 };
+      if (match.status === "completed") {
+        counts.completed += 1;
+      } else if (match.status && ACTIVE_MATCH_STATUSES.has(match.status)) {
+        counts.active += 1;
+      }
+      matchCounts.set(id, counts);
+    });
+  }
+
+  return tournamentList.map(tournament => ({
+    ...tournament,
+    player_count: registrationCounts.get(tournament.id) ?? 0,
+    active_match_count: matchCounts.get(tournament.id)?.active ?? 0,
+    completed_match_count: matchCounts.get(tournament.id)?.completed ?? 0,
+  })) as TournamentOverview[];
+};
+
+const fetchSingleTournamentOverview = async (tournamentId: string): Promise<TournamentOverview> => {
+  try {
+    const { data, error } = await supabase
+      .from("tournament_overview")
+      .select("*")
+      .eq("id", tournamentId)
+      .maybeSingle();
+
+    if (data) {
+      return data;
+    }
+
+    if (isOverviewViewMissing(error)) {
+      const fallback = await fetchTournamentOverviewFromBaseTables(tournamentId);
+      const overview = fallback[0];
+      if (overview) {
+        return overview;
+      }
+    }
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        throw new Error("Tournoi introuvable");
+      }
+      throw new Error(error.message);
+    }
+  } catch (unknownError) {
+    if (unknownError instanceof Error) {
+      throw unknownError;
+    }
+  }
+
+  throw new Error("Tournoi introuvable");
+};
+
 export const syncTournaments = async () => {
-  const { error } = await supabase.functions.invoke("sync-tournaments", { body: {} });
-  if (error) {
-    throw new Error(error.message ?? "Impossible de synchroniser les tournois");
+  try {
+    const { error } = await supabase.functions.invoke("sync-tournaments", { body: {} });
+    if (error) {
+      throw new Error(error.message ?? "Impossible de synchroniser les tournois");
+    }
+  } catch (unknownError) {
+    if (unknownError instanceof TypeError && unknownError.message.includes("fetch")) {
+      throw new Error("Impossible de synchroniser les tournois : accès au service Supabase indisponible.");
+    }
+
+    if (unknownError instanceof Error) {
+      throw unknownError;
+    }
+
+    throw new Error("Impossible de synchroniser les tournois");
   }
 };
 
 export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> => {
-  const { data, error } = await supabase
-    .from("tournament_overview")
-    .select("*")
-    .order("start_time", { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from("tournament_overview")
+      .select("*")
+      .order("start_time", { ascending: true });
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      if (isOverviewViewMissing(error)) {
+        return fetchTournamentOverviewFromBaseTables();
+      }
+      throw new Error(error.message);
+    }
+
+    return data ?? [];
+  } catch (unknownError) {
+    if (unknownError instanceof Error) {
+      throw unknownError;
+    }
+    throw new Error("Impossible de récupérer les tournois");
   }
-
-  return data ?? [];
 };
 
 export const fetchTournamentDetails = async (tournamentId: string): Promise<TournamentDetails> => {
-  const [{ data: overviewData, error: overviewError }] = await Promise.all([
-    supabase
-      .from("tournament_overview")
-      .select("*")
-      .eq("id", tournamentId)
-      .single(),
-  ]);
-
-  if (overviewError || !overviewData) {
-    throw new Error(overviewError?.message ?? "Tournoi introuvable");
-  }
+  const overviewData = await fetchSingleTournamentOverview(tournamentId);
 
   const { data: registrations, error: registrationsError } = await supabase
     .from("tournament_registrations")
