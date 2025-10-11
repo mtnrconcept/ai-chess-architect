@@ -23,20 +23,14 @@ const isOverviewViewMissing = (error: PostgrestError | null) => {
     return false;
   }
 
-  if (error.code === "42P01") {
-    return true;
-  }
-
-  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
-  return message.includes("tournament_overview");
-};
-
-const isRelationMissing = (error: PostgrestError | null) => {
-  if (!error) {
-    return false;
-  }
-
-  if (error.code === "42P01" || error.code === "PGRST302" || error.code === "PGRST205") {
+  const status = (error as { status?: number | string }).status;
+  if (
+    error.code === "42P01" ||
+    error.code === "PGRST302" ||
+    error.code === "404" ||
+    status === 404 ||
+    status === "404"
+  ) {
     return true;
   }
 
@@ -48,6 +42,39 @@ const isRelationMissing = (error: PostgrestError | null) => {
   }
 
   const haystack = `${message} ${details}`;
+  return haystack.includes("tournament_overview");
+};
+
+const isRelationMissing = (error: PostgrestError | null) => {
+  if (!error) {
+    return false;
+  }
+
+  const status = (error as { status?: number | string }).status;
+
+  if (
+    error.code === "42P01" ||
+    error.code === "PGRST302" ||
+    error.code === "PGRST205" ||
+    error.code === "404" ||
+    error.code === "503" ||
+    status === 404 ||
+    status === 503 ||
+    status === "404" ||
+    status === "503"
+  ) {
+    return true;
+  }
+
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  const details = typeof error.details === "string" ? error.details.toLowerCase() : "";
+  const hint = typeof error.hint === "string" ? error.hint.toLowerCase() : "";
+
+  if (!message && !details && !hint) {
+    return false;
+  }
+
+  const haystack = `${message} ${details} ${hint}`;
   return (
     haystack.includes("does not exist") ||
     haystack.includes("not exist") ||
