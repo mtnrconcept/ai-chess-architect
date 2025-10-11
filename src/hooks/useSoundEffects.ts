@@ -8,7 +8,11 @@ type SoundEffect =
   | 'castle'
   | 'en-passant'
   | 'time-warning'
-  | 'time-expired';
+  | 'time-expired'
+  | 'countdown'
+  | 'explosion'
+  | 'quantum-explosion'
+  | 'mine-detonation';
 
 type SoundSegment = {
   frequency: number;
@@ -54,6 +58,25 @@ const SOUND_SEQUENCES: Record<SoundEffect, SoundSegment[]> = {
   'time-expired': [
     { frequency: 220, duration: 0.4, type: 'sawtooth', volume: 0.3 },
     { frequency: 150, duration: 0.35, type: 'sine', volume: 0.28 },
+  ],
+  countdown: [
+    { frequency: 880, duration: 0.08, type: 'square', volume: 0.22 },
+    { frequency: 660, duration: 0.08, type: 'square', volume: 0.18 },
+  ],
+  explosion: [
+    { frequency: 160, duration: 0.22, type: 'sawtooth', volume: 0.34 },
+    { frequency: 90, duration: 0.24, type: 'triangle', volume: 0.3 },
+    { frequency: 60, duration: 0.28, type: 'sine', volume: 0.25 },
+  ],
+  'quantum-explosion': [
+    { frequency: 520, duration: 0.12, type: 'sawtooth', volume: 0.32 },
+    { frequency: 360, duration: 0.16, type: 'square', volume: 0.3 },
+    { frequency: 180, duration: 0.24, type: 'sine', volume: 0.26 },
+  ],
+  'mine-detonation': [
+    { frequency: 420, duration: 0.1, type: 'square', volume: 0.28 },
+    { frequency: 240, duration: 0.18, type: 'triangle', volume: 0.24 },
+    { frequency: 140, duration: 0.18, type: 'sine', volume: 0.2 },
   ],
 };
 

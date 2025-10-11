@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateCcw, Send, Sparkles, User, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateCcw, Send, Sparkles, Target, User, Volume2, VolumeX } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
 import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove } from '@/types/chess';
@@ -18,7 +19,8 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
-import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { useSoundEffects, type SoundEffect } from '@/hooks/useSoundEffects';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
 import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 
 const createChatMessageId = () => {
@@ -107,15 +109,27 @@ const CAPTURED_PIECE_SYMBOLS: Record<ChessPiece['type'], { white: string; black:
   pawn: { white: '♙', black: '♟' }
 };
 
-const ABILITY_LABELS: Record<string, string> = {
-  missile: 'Tir de missile',
-  missileStrike: 'Tir de missile',
-  teleport: 'Téléportation',
-  jump: 'Saut offensif',
-  straightMove: 'Percée en ligne',
-  diagonalMove: 'Percée diagonale',
-  lateralMove: 'Percée latérale',
+const ABILITY_ICON_MAP: Record<string, LucideIcon> = {
+  bomb: Bomb,
+  target: Target,
 };
+
+interface SpecialAbilityOption {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  ability: SpecialAbilityKey;
+  label: string;
+  description: string;
+  icon: 'bomb' | 'target';
+  trigger: SpecialAbilityTrigger;
+  radius: number;
+  countdown: number;
+  damage: number;
+  animation: string;
+  sound: string;
+  buttonLabel?: string;
+}
 
 const Play = () => {
   const navigate = useNavigate();
@@ -208,6 +222,7 @@ const Play = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [coachEnabled, setCoachEnabled] = useState(true);
+  const [pendingAbility, setPendingAbility] = useState<SpecialAbilityOption | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -248,7 +263,9 @@ const Play = () => {
       vipTokens: { white: 0, black: 0 },
       forcedMirrorResponse: null,
       secretSetupApplied: false,
-      blindOpeningRevealed: { white: false, black: false }
+      blindOpeningRevealed: { white: false, black: false },
+      specialAttacks: [],
+      visualEffects: [],
     };
   });
   const [timeRemaining, setTimeRemaining] = useState(() => ({
@@ -268,31 +285,82 @@ const Play = () => {
     };
   }, [gameState.capturedPieces]);
 
-  const specialAbility = useMemo(() => {
-    for (const rule of gameState.activeRules) {
-      const abilityEffect = rule.effects.find(effect => effect.action === 'addAbility' && typeof effect.parameters?.ability === 'string');
-      if (abilityEffect && typeof abilityEffect.parameters?.ability === 'string') {
-        return {
+  const specialAbilities = useMemo<SpecialAbilityOption[]>(() => {
+    const options: SpecialAbilityOption[] = [];
+    const seen = new Set<string>();
+
+    gameState.activeRules.forEach(rule => {
+      rule.effects.forEach((effect, index) => {
+        if (effect.action !== 'addAbility' || typeof effect.parameters?.ability !== 'string') {
+          return;
+        }
+
+        const normalized = normalizeSpecialAbilityParameters(
+          effect.parameters.ability,
+          effect.parameters as Record<string, unknown> | undefined,
+        );
+        const metadata = getSpecialAbilityMetadata(effect.parameters.ability);
+
+        if (!normalized || !metadata) {
+          return;
+        }
+
+        const id = `${rule.ruleId}-${normalized.ability}-${index}`;
+        if (seen.has(id)) {
+          return;
+        }
+        seen.add(id);
+
+        options.push({
+          id,
+          ruleId: rule.ruleId,
           ruleName: rule.ruleName,
-          ability: abilityEffect.parameters.ability as string,
-        };
-      }
-    }
-    return null;
+          ability: normalized.ability,
+          label: metadata.label,
+          description: metadata.description,
+          icon: metadata.icon,
+          trigger: normalized.trigger,
+          radius: normalized.radius,
+          countdown: normalized.countdown,
+          damage: normalized.damage,
+          animation: normalized.animation,
+          sound: normalized.sound,
+          buttonLabel: metadata.buttonLabel,
+        });
+      });
+    });
+
+    return options;
   }, [gameState.activeRules]);
 
-  const specialAbilityLabel = specialAbility ? ABILITY_LABELS[specialAbility.ability] ?? specialAbility.ability : '';
+  const handleSpecialAction = useCallback((ability: SpecialAbilityOption) => {
+    setPendingAbility(prev => {
+      if (prev?.id === ability.id) {
+        toast({
+          title: 'Sélection annulée',
+          description: `La capacité ${ability.label} est désactivée.`,
+        });
+        return null;
+      }
 
-  const handleSpecialAction = useCallback(() => {
-    if (!specialAbility) return;
+      const countdownInfo = ability.trigger === 'countdown'
+        ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
+        : 'Explosion au contact d\'un adversaire.';
 
-    const title = specialAbilityLabel ? `${specialAbilityLabel} déclenchée` : 'Attaque spéciale déclenchée';
-    const description = specialAbilityLabel
-      ? `La capacité « ${specialAbilityLabel} » issue de la règle ${specialAbility.ruleName} est activée.`
-      : `La règle ${specialAbility.ruleName} propose une action spéciale.`;
+      toast({
+        title: `${ability.label} prête`,
+        description: `${ability.description} ${countdownInfo}`,
+      });
 
-    toast({ title, description });
-  }, [specialAbility, specialAbilityLabel, toast]);
+      return ability;
+    });
+  }, [toast]);
+
+  useEffect(() => {
+    if (pendingAbility && !specialAbilities.some(ability => ability.id === pendingAbility.id)) {
+      setPendingAbility(null);
+    }
+  }, [pendingAbility, specialAbilities]);
 
   const whiteCapturedPieces = capturedPiecesByColor.black;
   const blackCapturedPieces = capturedPiecesByColor.white;
@@ -316,6 +384,9 @@ const Play = () => {
   const activePlayerRef = useRef<PieceColor>(gameState.currentPlayer);
   const timeWarningPlayedRef = useRef<Record<PieceColor, boolean>>({ white: false, black: false });
   const timeExpiredHandledRef = useRef<Record<PieceColor, boolean>>({ white: false, black: false });
+  const countdownAudioRef = useRef<Record<string, number>>({});
+  const pendingVisualEffectsTimeoutsRef = useRef<Record<string, number>>({});
+  const seenVisualEffectsRef = useRef<Set<string>>(new Set());
 
   const { playSound } = useSoundEffects();
 
@@ -389,6 +460,174 @@ const Play = () => {
   useEffect(() => {
     activePlayerRef.current = gameState.currentPlayer;
   }, [gameState.currentPlayer]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const detonated: GameState['specialAttacks'] = [];
+
+      setGameState(prev => {
+        if (!prev.specialAttacks.some(attack => attack.trigger === 'countdown')) {
+          return prev;
+        }
+
+        let changed = false;
+        const updatedAttacks: GameState['specialAttacks'] = [];
+        let visualEffects = prev.visualEffects;
+        const eventsSet = new Set(prev.events ?? []);
+
+        prev.specialAttacks.forEach(attack => {
+          if (attack.trigger !== 'countdown') {
+            updatedAttacks.push(attack);
+            return;
+          }
+
+          if (attack.remaining > 1) {
+            changed = true;
+            updatedAttacks.push({ ...attack, remaining: attack.remaining - 1 });
+            return;
+          }
+
+          changed = true;
+          detonated.push(attack);
+          visualEffects = [
+            ...visualEffects,
+            {
+              id: `${attack.id}-explosion-${Date.now()}`,
+              type: 'explosion',
+              position: attack.position,
+              radius: attack.radius,
+              animation: attack.animation,
+              durationMs: 900,
+              startedAt: Date.now(),
+              ability: attack.ability,
+              ruleName: attack.ruleName,
+              notify: false,
+            },
+          ];
+          const abilitySound = attack.sound as SoundEffect;
+          eventsSet.add(abilitySound);
+        });
+
+        if (!changed) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          specialAttacks: updatedAttacks,
+          visualEffects,
+          events: Array.from(eventsSet),
+        };
+      });
+
+      if (detonated.length > 0) {
+        detonated.forEach(attack => {
+          const metadata = getSpecialAbilityMetadata(attack.ability);
+          const coordinate = `${FILES[attack.position.col]}${8 - attack.position.row}`;
+          toast({
+            title: `${metadata?.label ?? 'Explosion'} déclenchée`,
+            description: `La charge posée sur ${coordinate} s'est déclenchée.`,
+          });
+          delete countdownAudioRef.current[attack.id];
+        });
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [toast]);
+
+  useEffect(() => {
+    const store = countdownAudioRef.current;
+    const activeIds = new Set(gameState.specialAttacks.map(attack => attack.id));
+
+    Object.keys(store).forEach(id => {
+      if (!activeIds.has(id)) {
+        delete store[id];
+      }
+    });
+
+    gameState.specialAttacks.forEach(attack => {
+      if (attack.trigger !== 'countdown') {
+        delete store[attack.id];
+        return;
+      }
+
+      if (attack.remaining <= 0) {
+        delete store[attack.id];
+        return;
+      }
+
+      if (attack.remaining <= 3) {
+        if (store[attack.id] !== attack.remaining) {
+          store[attack.id] = attack.remaining;
+          if (soundEnabled) {
+            void playSound('countdown');
+          }
+        }
+      } else {
+        store[attack.id] = attack.remaining;
+      }
+    });
+  }, [gameState.specialAttacks, playSound, soundEnabled]);
+
+  useEffect(() => {
+    const timeouts = pendingVisualEffectsTimeoutsRef.current;
+    const activeIds = new Set(gameState.visualEffects.map(effect => effect.id));
+
+    Object.entries(timeouts).forEach(([id, handle]) => {
+      if (!activeIds.has(id)) {
+        window.clearTimeout(handle);
+        delete timeouts[id];
+      }
+    });
+
+    gameState.visualEffects.forEach(effect => {
+      if (timeouts[effect.id]) return;
+      const timeout = window.setTimeout(() => {
+        setGameState(prev => ({
+          ...prev,
+          visualEffects: prev.visualEffects.filter(item => item.id !== effect.id),
+        }));
+        delete timeouts[effect.id];
+      }, effect.durationMs ?? 900);
+      timeouts[effect.id] = timeout;
+    });
+  }, [gameState.visualEffects]);
+
+  useEffect(() => {
+    const seen = seenVisualEffectsRef.current;
+    const activeIds = new Set(gameState.visualEffects.map(effect => effect.id));
+
+    Array.from(seen).forEach(id => {
+      if (!activeIds.has(id)) {
+        seen.delete(id);
+      }
+    });
+
+    gameState.visualEffects.forEach(effect => {
+      if (seen.has(effect.id)) return;
+      seen.add(effect.id);
+      if (effect.notify && effect.ability) {
+        const metadata = getSpecialAbilityMetadata(effect.ability);
+        const coordinate = `${FILES[effect.position.col]}${8 - effect.position.row}`;
+        toast({
+          title: `${metadata?.label ?? 'Explosion'} déclenchée`,
+          description: effect.ruleName
+            ? `${effect.ruleName} a explosé sur ${coordinate}.`
+            : `Une explosion s'est produite sur ${coordinate}.`,
+        });
+      }
+    });
+  }, [gameState.visualEffects, toast]);
+
+  useEffect(() => () => {
+    Object.values(pendingVisualEffectsTimeoutsRef.current).forEach(handle => {
+      window.clearTimeout(handle);
+    });
+    pendingVisualEffectsTimeoutsRef.current = {};
+  }, []);
   useEffect(() => {
     setTimeRemaining({ white: initialTimeSeconds, black: initialTimeSeconds });
     lastTickRef.current = null;
@@ -692,7 +931,9 @@ const Play = () => {
     const hasRule = (ruleId: string) => activeRuleIds.has(ruleId);
 
     const move = ChessEngine.createMove(state.board, selectedPiece, destination, state);
-    const events: string[] = [];
+    const events: SoundEffect[] = [];
+    let updatedSpecialAttacks = state.specialAttacks.map(attack => ({ ...attack }));
+    let updatedVisualEffects = [...state.visualEffects];
 
     let pendingTransformations = { ...state.pendingTransformations };
     if (hasRule('preset_vip_magnus_06') && pendingTransformations[state.currentPlayer] && selectedPiece.type === 'pawn') {
@@ -701,6 +942,48 @@ const Play = () => {
     }
 
     const newBoard = ChessEngine.executeMove(state.board, move, state);
+
+    if (updatedSpecialAttacks.length > 0) {
+      const remainingAttacks: typeof updatedSpecialAttacks = [];
+      const triggeredSounds = new Set<SoundEffect>();
+
+      updatedSpecialAttacks.forEach(attack => {
+        if (
+          attack.trigger === 'contact' &&
+          attack.owner !== state.currentPlayer &&
+          attack.position.row === move.to.row &&
+          attack.position.col === move.to.col
+        ) {
+          triggeredSounds.add(attack.sound as SoundEffect);
+          updatedVisualEffects = [
+            ...updatedVisualEffects,
+            {
+              id: `${attack.id}-contact-${Date.now()}`,
+              type: 'explosion',
+              position: attack.position,
+              radius: attack.radius,
+              animation: attack.animation,
+              durationMs: 900,
+              startedAt: Date.now(),
+              ability: attack.ability,
+              ruleName: attack.ruleName,
+              notify: true,
+            },
+          ];
+        } else {
+          remainingAttacks.push(attack);
+        }
+      });
+
+      updatedSpecialAttacks = remainingAttacks;
+      if (triggeredSounds.size > 0) {
+        triggeredSounds.forEach(sound => {
+          if (!events.includes(sound)) {
+            events.push(sound);
+          }
+        });
+      }
+    }
 
     const carnivorousPlantActive = state.activeRules.some(rule => rule.isActive && isCarnivorousPlantRule(rule));
     const plantCapturedPieces: ChessPiece[] = [];
@@ -870,7 +1153,9 @@ const Play = () => {
       vipTokens,
       forcedMirrorResponse: forcedMirror,
       secretSetupApplied: state.secretSetupApplied,
-      blindOpeningRevealed
+      blindOpeningRevealed,
+      specialAttacks: updatedSpecialAttacks,
+      visualEffects: updatedVisualEffects,
     };
 
     if (hasRule('preset_vip_magnus_10') && !move.captured && survivingPieceAfterMove) {
@@ -959,6 +1244,8 @@ const Play = () => {
       replayOpportunities,
       vipTokens,
       blindOpeningRevealed,
+      specialAttacks: updatedSpecialAttacks,
+      visualEffects: updatedVisualEffects,
       events
     };
   }, [respawnPawn]);
@@ -1088,9 +1375,12 @@ const Play = () => {
     const events = gameState.events ?? [];
     if (events.length === 0) return;
 
-    const prioritized: Array<'checkmate' | 'check' | 'castle' | 'en-passant' | 'capture' | 'move'> = [
+    const prioritized: SoundEffect[] = [
       'checkmate',
       'check',
+      'quantum-explosion',
+      'mine-detonation',
+      'explosion',
       'castle',
       'en-passant',
       'capture',
@@ -1183,6 +1473,66 @@ const Play = () => {
 
   const handleSquareClick = (position: Position) => {
     if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
+
+    if (pendingAbility) {
+      const existingPiece = ChessEngine.getPieceAt(gameState.board, position);
+      if (existingPiece) {
+        toast({
+          title: 'Case occupée',
+          description: 'Sélectionnez une case vide pour armer cette attaque spéciale.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const alreadyArmed = gameState.specialAttacks.some(
+        attack => attack.position.row === position.row && attack.position.col === position.col,
+      );
+      if (alreadyArmed) {
+        toast({
+          title: 'Zone déjà piégée',
+          description: 'Cette case possède déjà une charge spéciale active.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const ability = pendingAbility;
+      const attackId = `${ability.ability}-${Date.now()}`;
+      setGameState(prev => ({
+        ...prev,
+        specialAttacks: [
+          ...prev.specialAttacks,
+          {
+            id: attackId,
+            ability: ability.ability,
+            owner: prev.currentPlayer,
+            position,
+            radius: ability.radius,
+            countdown: ability.countdown,
+            remaining: ability.countdown,
+            damage: ability.damage,
+            trigger: ability.trigger,
+            animation: ability.animation,
+            sound: ability.sound,
+            ruleName: ability.ruleName,
+          },
+        ],
+        selectedPiece: null,
+        validMoves: [],
+      }));
+      setPendingAbility(null);
+
+      const coordinate = `${FILES[position.col]}${8 - position.row}`;
+      toast({
+        title: `${ability.label} armée`,
+        description: ability.trigger === 'countdown'
+          ? `Détonation programmée dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
+          : `Explosion au contact lorsqu'un adversaire atteint ${coordinate}.`,
+      });
+      return;
+    }
+
     if (!gameState.selectedPiece) return;
 
     const selectedPiece = gameState.selectedPiece;
@@ -1240,6 +1590,11 @@ const Play = () => {
 
   const resetGame = () => {
     const initialBoard = ChessEngine.initializeBoard();
+    setPendingAbility(null);
+    countdownAudioRef.current = {};
+    Object.values(pendingVisualEffectsTimeoutsRef.current).forEach(handle => window.clearTimeout(handle));
+    pendingVisualEffectsTimeoutsRef.current = {};
+    seenVisualEffectsRef.current.clear();
     setGameState({
       board: initialBoard,
       currentPlayer: 'white',
@@ -1262,7 +1617,10 @@ const Play = () => {
       vipTokens: { white: 0, black: 0 },
       forcedMirrorResponse: null,
       secretSetupApplied: false,
-      blindOpeningRevealed: { white: false, black: false }
+      blindOpeningRevealed: { white: false, black: false },
+      specialAttacks: [],
+      visualEffects: [],
+      events: [],
     });
     setTimeRemaining({ white: initialTimeSeconds, black: initialTimeSeconds });
     timeWarningPlayedRef.current = { white: false, black: false };
@@ -1710,15 +2068,34 @@ const Play = () => {
                           <Badge className="border-cyan-400/60 bg-cyan-500/10 px-3 py-1 text-[0.7rem] font-semibold text-cyan-100">
                             Variante : {variantName}
                           </Badge>
-                          {specialAbility && (
-                            <Button
-                              type="button"
-                              onClick={handleSpecialAction}
-                              className="flex items-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-100 transition-all duration-200 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white"
-                            >
-                              <Rocket className="h-4 w-4" />
-                              {specialAbilityLabel || 'Attaque spéciale'}
-                            </Button>
+                          {specialAbilities.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {specialAbilities.map(ability => {
+                                const Icon = ABILITY_ICON_MAP[ability.icon] ?? Rocket;
+                                const isSelected = pendingAbility?.id === ability.id;
+                                const info = ability.trigger === 'countdown'
+                                  ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`
+                                  : 'Détonation au contact';
+                                return (
+                                  <Button
+                                    key={ability.id}
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => handleSpecialAction(ability)}
+                                    className={cn(
+                                      'flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] transition-all duration-200',
+                                      isSelected
+                                        ? 'border-fuchsia-200/70 bg-fuchsia-500/20 text-fuchsia-100 shadow-[0_0_18px_rgba(244,114,182,0.4)]'
+                                        : 'border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white'
+                                    )}
+                                    title={`${ability.label} · Rayon ${ability.radius} · ${info} · Impact ${ability.damage}`}
+                                  >
+                                    <Icon className="h-4 w-4" />
+                                    {ability.buttonLabel ?? ability.label}
+                                  </Button>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
@@ -1773,6 +2150,11 @@ const Play = () => {
                     </div>
 
                     <div className="relative flex w-full justify-center">
+                      {pendingAbility && (
+                        <div className="absolute -top-9 left-1/2 z-20 -translate-x-1/2 rounded-full border border-fuchsia-400/40 bg-fuchsia-500/20 px-4 py-2 text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-fuchsia-100 shadow-[0_0_25px_rgba(236,72,153,0.35)]">
+                          Cliquez sur une case vide pour {pendingAbility.buttonLabel?.toLowerCase() ?? pendingAbility.label.toLowerCase()}
+                        </div>
+                      )}
                       <ChessBoard gameState={gameState} onSquareClick={handleSquareClick} onPieceClick={handlePieceClick} />
                     </div>
 
