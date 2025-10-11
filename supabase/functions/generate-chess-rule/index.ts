@@ -1,8 +1,184 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { LOVABLE_AI_CHAT_COMPLETIONS_URL, getLovableApiKey } from "../_shared/env.ts";
 
-const corsOptions = { methods: ["POST"] };
+const corsOptions = { methods: ["POST"] } as const;
+
+const TITLE_MAX_WORDS = 6;
+
+const categoryKeywords: Array<{ category: string; keywords: RegExp[] }> = [
+  { category: "movement", keywords: [/move/i, /déplacement/i, /step/i, /avance/i] },
+  { category: "capture", keywords: [/capture/i, /prendre/i, /prise/i, /take/i] },
+  { category: "special", keywords: [/special/i, /spéciale/i, /bonus/i, /unique/i] },
+  { category: "condition", keywords: [/si /i, /if /i, /condition/i] },
+  { category: "victory", keywords: [/victoire/i, /mate/i, /échec et mat/i, /win/i] },
+  { category: "restriction", keywords: [/restriction/i, /limite/i, /cannot/i, /interdit/i] },
+  { category: "defense", keywords: [/défense/i, /protect/i, /shield/i, /block/i] },
+  { category: "behavior", keywords: [/comportement/i, /behavior/i, /automatique/i, /auto/i] },
+];
+
+const triggerKeywords: Array<{ trigger: string; keywords: RegExp[] }> = [
+  { trigger: "onMove", keywords: [/move/i, /déplacement/i, /joue/i] },
+  { trigger: "onCapture", keywords: [/capture/i, /prendre/i, /prise/i] },
+  { trigger: "onCheck", keywords: [/check/i, /échec/i] },
+  { trigger: "onCheckmate", keywords: [/mate/i, /mat/i] },
+  { trigger: "turnBased", keywords: [/tour/i, /turn/i, /round/i] },
+  { trigger: "conditional", keywords: [/si /i, /if /i, /condition/i] },
+];
+
+const pieceKeywords = [
+  { piece: "king", patterns: [/king/i, /roi/i] },
+  { piece: "queen", patterns: [/queen/i, /reine/i] },
+  { piece: "rook", patterns: [/rook/i, /tour\b/i] },
+  { piece: "bishop", patterns: [/bishop/i, /fou/i] },
+  { piece: "knight", patterns: [/knight/i, /cavalier/i] },
+  { piece: "pawn", patterns: [/pawn/i, /pion/i] },
+];
+
+const toTitleCase = (value: string) =>
+  value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0]?.toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
+const extractRuleName = (prompt: string) => {
+  const words = prompt.trim().split(/\s+/).slice(0, TITLE_MAX_WORDS);
+  if (words.length === 0) {
+    return "Règle personnalisée";
+  }
+  return toTitleCase(words.join(" "));
+};
+
+const detectCategory = (prompt: string): string => {
+  for (const entry of categoryKeywords) {
+    if (entry.keywords.some((pattern) => pattern.test(prompt))) {
+      return entry.category;
+    }
+  }
+  return "special";
+};
+
+const detectTrigger = (prompt: string): string => {
+  for (const entry of triggerKeywords) {
+    if (entry.keywords.some((pattern) => pattern.test(prompt))) {
+      return entry.trigger;
+    }
+  }
+  return "always";
+};
+
+const detectAffectedPieces = (prompt: string): string[] => {
+  const detected = pieceKeywords
+    .filter((entry) => entry.patterns.some((pattern) => pattern.test(prompt)))
+    .map((entry) => entry.piece);
+
+  if (detected.length === 0) {
+    return ["all"];
+  }
+
+  return Array.from(new Set(detected));
+};
+
+const buildConditions = (prompt: string, affected: string[]): Array<{
+  type: string;
+  value: string;
+  operator: string;
+}> => {
+  const conditions: Array<{ type: string; value: string; operator: string }> = [];
+
+  if (affected.length === 1 && affected[0] !== "all") {
+    conditions.push({ type: "pieceType", value: affected[0], operator: "equals" });
+  }
+
+  const turnMatch = prompt.match(/\b(\d+)\s*(?:turn|tour)s?/i);
+  if (turnMatch) {
+    conditions.push({ type: "turnNumber", value: turnMatch[1], operator: "greaterOrEqual" });
+  }
+
+  return conditions;
+};
+
+const buildEffects = (prompt: string, category: string) => {
+  const actionByCategory: Record<string, string> = {
+    movement: "modifyMovement",
+    capture: "allowCapture",
+    special: "triggerEvent",
+    condition: "triggerEvent",
+    victory: "triggerEvent",
+    restriction: "restrictMovement",
+    defense: "addAbility",
+    behavior: "addAbility",
+  };
+
+  const action = actionByCategory[category] ?? "triggerEvent";
+
+  return [
+    {
+      action,
+      target: "specific",
+      parameters: {
+        count: 1,
+        property: "description",
+        value: prompt.slice(0, 120),
+        duration: "temporary",
+        range: 1,
+      },
+    },
+  ];
+};
+
+const buildTags = (prompt: string) => {
+  const cleaned = prompt
+    .toLowerCase()
+    .replace(/[^a-zàâçéèêëîïôûùüÿñæœ0-9\s]/g, " ");
+  const words = cleaned
+    .split(/\s+/)
+    .filter((word) => word.length >= 4 && !/\d+/.test(word));
+  const unique: string[] = [];
+  for (const word of words) {
+    if (!unique.includes(word)) {
+      unique.push(word);
+    }
+    if (unique.length >= 4) {
+      break;
+    }
+  }
+  if (unique.length === 0) {
+    return ["personnalisee"];
+  }
+  return unique.slice(0, 4);
+};
+
+const createRuleFromPrompt = (prompt: string) => {
+  const normalizedPrompt = prompt.trim();
+  const ruleName = extractRuleName(normalizedPrompt);
+  const category = detectCategory(normalizedPrompt);
+  const affectedPieces = detectAffectedPieces(normalizedPrompt);
+  const trigger = detectTrigger(normalizedPrompt);
+  const conditions = buildConditions(normalizedPrompt, affectedPieces);
+  const effects = buildEffects(normalizedPrompt, category);
+  const tags = buildTags(normalizedPrompt);
+
+  return {
+    ruleId: `rule_${Date.now()}_${crypto.randomUUID()}`,
+    ruleName,
+    description: normalizedPrompt,
+    category,
+    affectedPieces,
+    trigger,
+    conditions,
+    effects,
+    priority: 1,
+    isActive: true,
+    tags,
+    validationRules: {
+      allowedWith: [],
+      conflictsWith: [],
+      requiredState: {},
+    },
+    createdAt: new Date().toISOString(),
+  };
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -16,150 +192,13 @@ serve(async (req) => {
 
     const { prompt } = await req.json();
 
-    if (!prompt || !prompt.trim()) {
+    if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
       return jsonResponse(req, { error: "Prompt is required" }, { status: 400 }, corsOptions);
     }
 
-    const LOVABLE_API_KEY = getLovableApiKey();
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
+    const rule = createRuleFromPrompt(prompt);
 
-    const systemPrompt = `Tu es un expert en règles d'échecs et en génération de configurations JSON pour un moteur de jeu d'échecs personnalisable.
-
-Tu dois générer un objet JSON PARFAITEMENT structuré et exécutable. Voici la structure EXACTE :
-
-{
-  "ruleId": "rule_[timestamp_unique]",
-  "ruleName": "Nom Court et Descriptif",
-  "description": "Description détaillée de ce que fait la règle",
-  "category": "movement|capture|special|condition|victory|restriction|defense|behavior",
-  "affectedPieces": ["king"|"queen"|"rook"|"bishop"|"knight"|"pawn"|"all"],
-  "trigger": "always|onMove|onCapture|onCheck|onCheckmate|turnBased|conditional",
-  "conditions": [
-    {
-      "type": "pieceType|pieceColor|turnNumber|position|movesThisTurn|piecesOnBoard",
-      "value": "valeur",
-      "operator": "equals|notEquals|greaterThan|lessThan|greaterOrEqual|lessOrEqual|contains|in"
-    }
-  ],
-  "effects": [
-    {
-      "action": "allowExtraMove|modifyMovement|addAbility|restrictMovement|changeValue|triggerEvent|allowCapture|preventCapture",
-      "target": "self|opponent|all|specific",
-      "parameters": {
-        "count": 1,
-        "property": "nom",
-        "value": "valeur",
-        "duration": "permanent|temporary|turns",
-        "range": 1
-      }
-    }
-  ],
-  "priority": 1,
-  "isActive": true,
-  "tags": ["mot-cle-1", "mot-cle-2"],
-  "validationRules": {
-    "allowedWith": [],
-    "conflictsWith": [],
-    "requiredState": {}
-  }
-}
-
-RÈGLES IMPORTANTES :
-- Réponds UNIQUEMENT avec le JSON, rien d'autre
-- Pas de backticks, pas de markdown
-- Le JSON doit être parfaitement valide
-- Génère entre 2 et 4 tags courts en français pour décrire la règle
-- Sois créatif mais logique`;
-
-    const response = await fetch(LOVABLE_AI_CHAT_COMPLETIONS_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `DESCRIPTION DE LA RÈGLE : "${prompt}"` }
-        ],
-        temperature: 0.7,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
-
-      if (response.status === 429) {
-        return jsonResponse(
-          req,
-          { error: "Rate limit exceeded. Please try again later." },
-          { status: 429 },
-          corsOptions,
-        );
-      }
-
-      throw new Error(`AI Gateway error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const choices = Array.isArray(data?.choices) ? data.choices : [];
-
-    if (choices.length === 0 || !choices[0]?.message) {
-      throw new Error("Invalid response from AI gateway");
-    }
-
-    const message = choices[0].message;
-    let rawContent: unknown = message.content;
-
-    if (Array.isArray(rawContent)) {
-      rawContent = rawContent
-        .map((entry: unknown) => {
-          if (typeof entry === "string") return entry;
-          if (entry && typeof entry === "object" && "text" in entry) {
-            const text = (entry as { text?: unknown }).text;
-            return typeof text === "string" ? text : "";
-          }
-          return "";
-        })
-        .join("\n");
-    }
-
-    if (typeof rawContent !== "string" || !rawContent.trim()) {
-      throw new Error("Réponse inattendue du modèle IA");
-    }
-
-    let ruleJson = rawContent.trim();
-
-    // Nettoyage du JSON
-    ruleJson = ruleJson.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-
-    const firstBrace = ruleJson.indexOf("{");
-    const lastBrace = ruleJson.lastIndexOf("}");
-
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      throw new Error("Le modèle n'a pas renvoyé de JSON valide");
-    }
-
-    const cleanedJson = ruleJson.slice(firstBrace, lastBrace + 1);
-    const parsedRule = JSON.parse(cleanedJson);
-    
-    // Garantir un ID unique
-    parsedRule.ruleId = parsedRule.ruleId || `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    parsedRule.createdAt = new Date().toISOString();
-    parsedRule.tags = Array.isArray(parsedRule.tags)
-      ? parsedRule.tags
-          .map((tag: unknown) => typeof tag === "string" ? tag.toLowerCase() : String(tag))
-          .filter((tag: string) => tag.length > 0)
-      : [];
-    parsedRule.conditions = Array.isArray(parsedRule.conditions) ? parsedRule.conditions : [];
-    parsedRule.effects = Array.isArray(parsedRule.effects) ? parsedRule.effects : [];
-
-    return jsonResponse(req, { rule: parsedRule }, { status: 200 }, corsOptions);
-
+    return jsonResponse(req, { rule }, { status: 200 }, corsOptions);
   } catch (error) {
     console.error("Error in generate-chess-rule:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
