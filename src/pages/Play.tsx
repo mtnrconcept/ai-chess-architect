@@ -1570,7 +1570,7 @@ const Play = () => {
       </div>
 
       <div className="relative z-10">
-        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-10 sm:px-8 lg:px-12">
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 sm:px-8 sm:py-10 lg:px-12">
           {!isDesktop && (
             <div className="flex items-center justify-between gap-3">
               <Button
@@ -1649,15 +1649,20 @@ const Play = () => {
 
           <main
             className={cn(
-              'mt-6 flex-1',
+              'flex-1',
               isDesktop
                 ? 'mt-10 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]'
-                : 'flex flex-1 flex-col items-center gap-6'
+                : 'mt-4 flex flex-1 flex-col items-center gap-6'
             )}
           >
             {isDesktop && <aside>{leftSidebarContent}</aside>}
 
-            <section className="relative flex w-full flex-1 flex-col items-center justify-center gap-6">
+            <section
+              className={cn(
+                'relative flex w-full flex-1 flex-col items-center gap-6',
+                isDesktop ? 'justify-center' : 'justify-start'
+              )}
+            >
               <div className="relative w-full">
                 <div className="absolute -inset-6 rounded-[40px] border border-white/10 bg-gradient-to-r from-cyan-500/10 via-transparent to-fuchsia-500/10 opacity-70 blur-2xl sm:-inset-8" />
                 <div className="relative flex w-full flex-col gap-6 rounded-[30px] border border-white/20 bg-white/5/60 p-4 backdrop-blur-xl shadow-[0_45px_75px_-35px_rgba(59,130,246,0.65)] sm:p-6">
