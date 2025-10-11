@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
 import { useAuth } from '@/contexts/AuthContext';
+import { analyzeRuleLogic } from '@/lib/ruleValidation';
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ const Generator = () => {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedRule, setGeneratedRule] = useState<ChessRule | null>(null);
+  const [generatedIssues, setGeneratedIssues] = useState<string[]>([]);
 
   if (authLoading) {
     return (
@@ -61,6 +63,7 @@ const Generator = () => {
     }
 
     setLoading(true);
+    setGeneratedIssues([]);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-chess-rule', {
@@ -70,18 +73,23 @@ const Generator = () => {
       if (error) throw error;
 
       if (data.rule) {
+        const { rule, issues } = analyzeRuleLogic(data.rule);
         const normalizedRule: ChessRule = {
-          ...data.rule,
-          tags: Array.isArray(data.rule.tags)
-            ? data.rule.tags
-                .map((tag: unknown) => typeof tag === 'string' ? tag.toLowerCase() : String(tag))
-                .filter(tag => tag.length > 0)
+          ...rule,
+          tags: Array.isArray(rule.tags)
+            ? rule.tags.filter(tag => typeof tag === 'string' && tag.length > 0)
             : [],
         };
         setGeneratedRule(normalizedRule);
+        setGeneratedIssues(issues);
+
+        const adjustmentsSummary = issues.length > 0
+          ? `Ajustements appliqués : ${issues.slice(0, 2).join(' • ')}${issues.length > 2 ? '…' : ''}`
+          : 'Règle générée avec succès';
+
         toast({
-          title: "Succès !",
-          description: "Règle générée avec succès",
+          title: 'Succès !',
+          description: adjustmentsSummary,
         });
       }
     } catch (error: unknown) {
@@ -138,6 +146,7 @@ const Generator = () => {
 
       setPrompt('');
       setGeneratedRule(null);
+      setGeneratedIssues([]);
       navigate('/lobby');
     } catch (error: any) {
       console.error('Error saving rule:', error);
@@ -215,7 +224,7 @@ const Generator = () => {
               </Button>
             </div>
             
-            <RuleCard rule={generatedRule} showActions={false} />
+            <RuleCard rule={generatedRule} showActions={false} issues={generatedIssues} />
 
             {/* JSON Preview */}
             <Card className="bg-card/50">

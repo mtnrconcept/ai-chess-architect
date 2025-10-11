@@ -1,4 +1,8 @@
+import type { CSSProperties } from 'react';
 import { ChessPiece, Position, GameState } from '@/types/chess';
+import { cn } from '@/lib/utils';
+
+const sanitizeToken = (value: string): string => value.toLowerCase().replace(/[^a-z0-9-]/g, '');
 
 interface ChessBoardProps {
   gameState: GameState;
@@ -21,7 +25,7 @@ const pieceGradients: Record<ChessPiece['color'], string> = {
 };
 
 const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps) => {
-  const { board, selectedPiece, validMoves } = gameState;
+  const { board, selectedPiece, validMoves, specialAttacks, visualEffects } = gameState;
 
   const isValidMove = (row: number, col: number) => {
     return validMoves.some(move => move.row === row && move.col === col);
@@ -60,6 +64,13 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
                   }
                 };
 
+                const attacksHere = specialAttacks.filter(
+                  attack => attack.position.row === rowIndex && attack.position.col === colIndex
+                );
+                const effectsHere = visualEffects.filter(
+                  effect => effect.position.row === rowIndex && effect.position.col === colIndex
+                );
+
                 return (
                   <button
                     type="button"
@@ -83,6 +94,49 @@ const ChessBoard = ({ gameState, onSquareClick, onPieceClick }: ChessBoardProps)
                         <span className="pointer-events-none absolute h-5 w-5 rounded-full border border-cyan-300/80 animate-ripple" />
                       </>
                     )}
+                    {attacksHere.map(attack => {
+                      const scale = 1 + Math.max(0, attack.radius - 1) * 0.25;
+                      const baseMarkerClass = attack.ability === 'deployMine'
+                        ? 'special-attack-marker-mine'
+                        : 'special-attack-marker-bomb';
+                      const animationToken = sanitizeToken(attack.animation ?? '');
+                      const animationClass = animationToken
+                        ? `special-attack-animation-${animationToken}`
+                        : '';
+                      const countdownDisplay = attack.trigger === 'countdown'
+                        ? attack.remaining
+                        : '⚠';
+                      const style: CSSProperties = { transform: `scale(${scale})` };
+                      return (
+                        <span
+                          key={attack.id}
+                          className={cn('special-attack-marker', baseMarkerClass, animationClass)}
+                          style={style}
+                        >
+                          <span className={cn(
+                            'text-[0.7rem] font-semibold text-amber-100',
+                            attack.trigger === 'countdown' ? 'special-countdown' : ''
+                          )}>
+                            {countdownDisplay}
+                          </span>
+                        </span>
+                      );
+                    })}
+                    {effectsHere.map(effect => {
+                      const scale = 1 + Math.max(0, effect.radius - 1) * 0.3;
+                      const animationToken = sanitizeToken(effect.animation ?? '');
+                      const animationClass = animationToken
+                        ? `special-explosion-${animationToken}`
+                        : '';
+                      const style: CSSProperties = { transform: `scale(${scale})` };
+                      return (
+                        <span
+                          key={effect.id}
+                          className={cn('special-explosion', animationClass)}
+                          style={style}
+                        />
+                      );
+                    })}
                     {piece && !piece.isHidden && (
                       <span className="relative flex items-center justify-center">
                         <span
