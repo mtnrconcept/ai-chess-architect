@@ -1598,38 +1598,52 @@ const Play = () => {
       }
 
       const ability = pendingAbility;
-      const attackId = `${ability.ability}-${Date.now()}`;
+      const {
+        ability: abilityKey,
+        animation,
+        countdown,
+        damage,
+        label,
+        radius,
+        ruleName,
+        sound,
+        trigger,
+      } = ability;
+
+      const attackId = `${abilityKey}-${Date.now()}`;
       setGameState(prev => ({
         ...prev,
         specialAttacks: [
           ...prev.specialAttacks,
           {
             id: attackId,
-            ability: ability.ability,
+            ability: abilityKey,
             owner: prev.currentPlayer,
             position,
-            radius: ability.radius,
-            countdown: ability.countdown,
-            remaining: ability.countdown,
-            damage: ability.damage,
-            trigger: ability.trigger,
-            animation: ability.animation,
-            sound: ability.sound,
-            ruleName: ability.ruleName,
+            radius,
+            countdown,
+            remaining: countdown,
+            damage,
+            trigger,
+            animation,
+            sound,
+            ruleName,
           },
         ],
         selectedPiece: null,
         validMoves: [],
       }));
-      setPendingAbility(null);
 
-      const coordinate = `${FILES[position.col]}${8 - position.row}`;
+      const coordinateFile = FILES[position.col] ?? '?';
+      const coordinate = `${coordinateFile}${8 - position.row}`;
       toast({
-        title: `${ability.label} armée`,
-        description: ability.trigger === 'countdown'
-          ? `Détonation programmée dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
+        title: `${label} armée`,
+        description: trigger === 'countdown'
+          ? `Détonation programmée dans ${countdown} tour${countdown > 1 ? 's' : ''}.`
           : `Explosion au contact lorsqu'un adversaire atteint ${coordinate}.`,
       });
+
+      setPendingAbility(null);
       return;
     }
 
