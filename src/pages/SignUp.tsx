@@ -8,6 +8,38 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { z } from 'zod';
+
+type AuthFormErrors = Partial<Record<'email' | 'password' | 'confirmPassword', string>>;
+
+const passwordSchema = z
+  .string()
+  .min(8, 'Le mot de passe doit contenir au moins 8 caractères.')
+  .regex(/[A-Z]/, 'Incluez au moins une lettre majuscule dans votre mot de passe.')
+  .regex(/[a-z]/, 'Incluez au moins une lettre minuscule dans votre mot de passe.')
+  .regex(/\d/, 'Incluez au moins un chiffre dans votre mot de passe.')
+  .regex(/[^A-Za-z0-9]/, 'Incluez au moins un caractère spécial.');
+
+const signInSchema = z.object({
+  email: z.string().trim().email('Veuillez fournir une adresse e-mail valide.'),
+  password: passwordSchema,
+});
+
+const signUpSchema = signInSchema
+  .extend({
+    confirmPassword: z
+      .string()
+      .min(1, 'La confirmation du mot de passe est requise.'),
+  })
+  .superRefine((data, ctx) => {
+    if (data.password !== data.confirmPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['confirmPassword'],
+        message: 'Les mots de passe ne correspondent pas.',
+      });
+    }
+  });
 
 const SignUp = () => {
   const { user, loading: authLoading } = useAuth();
@@ -19,6 +51,7 @@ const SignUp = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchParams] = useSearchParams();
+  const [errors, setErrors] = useState<AuthFormErrors>({});
 
   useEffect(() => {
     const modeParam = searchParams.get('mode');
@@ -33,6 +66,7 @@ const SignUp = () => {
     setEmail('');
     setPassword('');
     setConfirmPassword('');
+    setErrors({});
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -40,22 +74,25 @@ const SignUp = () => {
 
     if (loading) return;
 
-    if (mode === 'signup' && password !== confirmPassword) {
-      toast({
-        title: 'Les mots de passe ne correspondent pas',
-        description: 'Veuillez vérifier votre mot de passe et sa confirmation.',
-        variant: 'destructive',
-      });
-      return;
-    }
+    if (mode === 'signup') {
+      const result = signUpSchema.safeParse({ email, password, confirmPassword });
+      if (!result.success) {
+        const fieldErrors = result.error.flatten().fieldErrors;
+        setErrors({
+          email: fieldErrors.email?.[0],
+          password: fieldErrors.password?.[0],
+          confirmPassword: fieldErrors.confirmPassword?.[0],
+        });
+        return;
+      }
+      setErrors({});
 
-    setLoading(true);
+      setLoading(true);
 
-    try {
-      if (mode === 'signup') {
+      try {
         const { error } = await supabase.auth.signUp({
-          email,
-          password,
+          email: result.data.email,
+          password: result.data.password,
         });
 
         if (error) throw error;
@@ -66,26 +103,54 @@ const SignUp = () => {
         });
         resetForm();
         navigate('/profile');
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (error) throw error;
-
+      } catch (error) {
+        console.error('Auth error:', error);
+        const message = error instanceof Error ? error.message : "Impossible de terminer l'opération.";
         toast({
-          title: 'Connexion réussie',
-          description: 'Bon retour parmi nous !',
+          title: 'Une erreur est survenue',
+          description: message,
+          variant: 'destructive',
         });
-        resetForm();
-        navigate('/generator');
+      } finally {
+        setLoading(false);
       }
-    } catch (error: any) {
+
+      return;
+    }
+
+    const result = signInSchema.safeParse({ email, password });
+    if (!result.success) {
+      const fieldErrors = result.error.flatten().fieldErrors;
+      setErrors({
+        email: fieldErrors.email?.[0],
+        password: fieldErrors.password?.[0],
+      });
+      return;
+    }
+    setErrors({});
+
+    setLoading(true);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: result.data.email,
+        password: result.data.password,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Connexion réussie',
+        description: 'Bon retour parmi nous !',
+      });
+      resetForm();
+      navigate('/generator');
+    } catch (error) {
       console.error('Auth error:', error);
+      const message = error instanceof Error ? error.message : "Impossible de terminer l'opération.";
       toast({
         title: 'Une erreur est survenue',
-        description: error.message || "Impossible de terminer l'opération.",
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -145,10 +210,22 @@ const SignUp = () => {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  if (errors.email) {
+                    setErrors(prev => ({ ...prev, email: undefined }));
+                  }
+                }}
                 placeholder="nom@example.com"
                 required
+                aria-invalid={errors.email ? 'true' : 'false'}
+                aria-describedby={errors.email ? 'email-error' : undefined}
               />
+              {errors.email && (
+                <p id="email-error" className="text-sm text-destructive">
+                  {errors.email}
+                </p>
+              )}
             </div>
             <div className="space-y-2 text-left">
               <Label htmlFor="password">Mot de passe</Label>
@@ -156,10 +233,22 @@ const SignUp = () => {
                 id="password"
                 type="password"
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  if (errors.password) {
+                    setErrors(prev => ({ ...prev, password: undefined }));
+                  }
+                }}
                 placeholder="••••••••"
                 required
+                aria-invalid={errors.password ? 'true' : 'false'}
+                aria-describedby={errors.password ? 'password-error' : undefined}
               />
+              {errors.password && (
+                <p id="password-error" className="text-sm text-destructive">
+                  {errors.password}
+                </p>
+              )}
             </div>
             {mode === 'signup' && (
               <div className="space-y-2 text-left">
@@ -168,10 +257,22 @@ const SignUp = () => {
                   id="confirmPassword"
                   type="password"
                   value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  onChange={(event) => {
+                    setConfirmPassword(event.target.value);
+                    if (errors.confirmPassword) {
+                      setErrors(prev => ({ ...prev, confirmPassword: undefined }));
+                    }
+                  }}
                   placeholder="••••••••"
                   required
+                  aria-invalid={errors.confirmPassword ? 'true' : 'false'}
+                  aria-describedby={errors.confirmPassword ? 'confirm-password-error' : undefined}
                 />
+                {errors.confirmPassword && (
+                  <p id="confirm-password-error" className="text-sm text-destructive">
+                    {errors.confirmPassword}
+                  </p>
+                )}
               </div>
             )}
           </CardContent>
@@ -198,7 +299,10 @@ const SignUp = () => {
               {mode === 'signup' ? (
                 <button
                   type="button"
-                  onClick={() => setMode('signin')}
+                  onClick={() => {
+                    setMode('signin');
+                    setErrors({});
+                  }}
                   className="underline underline-offset-2 hover:text-foreground"
                 >
                   Vous avez déjà un compte ? Connectez-vous
@@ -206,7 +310,10 @@ const SignUp = () => {
               ) : (
                 <button
                   type="button"
-                  onClick={() => setMode('signup')}
+                  onClick={() => {
+                    setMode('signup');
+                    setErrors({});
+                  }}
                   className="underline underline-offset-2 hover:text-foreground"
                 >
                   Nouveau sur Chess Rules Engine ? Créez un compte
