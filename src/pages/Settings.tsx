@@ -20,6 +20,12 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
+import { useSettingsEffects } from "@/hooks/useSettingsEffects";
+
+type ThemeId = "neon" | "luminous" | "stealth";
+type UiSize = "sm" | "md" | "lg";
+type ProfileAccent = "cyber" | "aurora" | "ember";
+type DigestFrequency = "daily" | "weekly" | "monthly";
 
 const sidebarSections = [
   { id: "profile", label: "Profil", icon: UserCircle },
@@ -34,16 +40,16 @@ const sidebarSections = [
 const Settings = () => {
   const { toast } = useToast();
   const [activeSection, setActiveSection] = useState("appearance");
-  const [theme, setTheme] = useState("neon");
+  const [theme, setTheme] = useState<ThemeId>("neon");
   const [neonIntensity, setNeonIntensity] = useState(80);
-  const [uiSize, setUiSize] = useState("md");
+  const [uiSize, setUiSize] = useState<UiSize>("md");
   const [spectralTrails, setSpectralTrails] = useState(false);
   const [boardReflections, setBoardReflections] = useState(true);
 
   const [displayName, setDisplayName] = useState("VoltusMaster");
   const [email, setEmail] = useState("player@voltus.gg");
   const [bio, setBio] = useState("Stratège quantique passionné par les variantes les plus audacieuses.");
-  const [profileAccent, setProfileAccent] = useState("cyber");
+  const [profileAccent, setProfileAccent] = useState<ProfileAccent>("cyber");
   const [avatarGlow, setAvatarGlow] = useState(true);
 
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -74,7 +80,7 @@ const Settings = () => {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [matchReminders, setMatchReminders] = useState(true);
-  const [digestFrequency, setDigestFrequency] = useState("weekly");
+  const [digestFrequency, setDigestFrequency] = useState<DigestFrequency>("weekly");
   const [clanInvites, setClanInvites] = useState(true);
   const [marketingOptIn, setMarketingOptIn] = useState(false);
 
@@ -82,6 +88,29 @@ const Settings = () => {
     () => Object.fromEntries(sidebarSections.map(section => [section.id, section.label.toLowerCase()])),
     [],
   );
+
+  useSettingsEffects({
+    theme,
+    neonIntensity,
+    uiSize,
+    spectralTrails,
+    boardReflections,
+    soundEnabled,
+    musicVolume,
+    effectsVolume,
+    voiceVolume,
+    vibration,
+    hapticsIntensity,
+    highContrast,
+    colorBlindMode,
+    reduceAnimations,
+    largeCoordinates,
+    language,
+    secondaryLanguage,
+    autoTranslate,
+    subtitles,
+    pronunciationGuide,
+  });
 
   const resetActiveSection = () => {
     switch (activeSection) {
@@ -257,14 +286,16 @@ const Settings = () => {
                     <ToggleGroup
                       type="single"
                       value={profileAccent}
-                      onValueChange={value => value && setProfileAccent(value)}
+                      onValueChange={value => value && setProfileAccent(value as ProfileAccent)}
                       className="flex gap-3"
                     >
-                      {[
-                        { id: "cyber", label: "Cyber" },
-                        { id: "aurora", label: "Aurora" },
-                        { id: "ember", label: "Ember" },
-                      ].map(option => (
+                      {(
+                        [
+                          { id: "cyber", label: "Cyber" },
+                          { id: "aurora", label: "Aurora" },
+                          { id: "ember", label: "Ember" },
+                        ] as const
+                      ).map(option => (
                         <ToggleGroupItem
                           key={option.id}
                           value={option.id}
@@ -299,11 +330,13 @@ const Settings = () => {
               <div className="space-y-4">
                 <Label className="text-sm uppercase tracking-[0.2em] text-cyan-200/80">Thème</Label>
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {[
-                    { id: "neon", label: "Néon" },
-                    { id: "luminous", label: "Lumineux" },
-                    { id: "stealth", label: "Sombre" },
-                  ].map(option => (
+                  {(
+                    [
+                      { id: "neon", label: "Néon" },
+                      { id: "luminous", label: "Lumineux" },
+                      { id: "stealth", label: "Sombre" },
+                    ] as const
+                  ).map(option => (
                     <button
                       key={option.id}
                       onClick={() => setTheme(option.id)}
@@ -349,14 +382,16 @@ const Settings = () => {
                   <ToggleGroup
                     type="single"
                     value={uiSize}
-                    onValueChange={value => value && setUiSize(value)}
+                    onValueChange={value => value && setUiSize(value as typeof uiSize)}
                     className="flex gap-3"
                   >
-                    {[
-                      { id: "sm", label: "SM" },
-                      { id: "md", label: "MD" },
-                      { id: "lg", label: "LG" },
-                    ].map(option => (
+                    {(
+                      [
+                        { id: "sm", label: "SM" },
+                        { id: "md", label: "MD" },
+                        { id: "lg", label: "LG" },
+                      ] as const
+                    ).map(option => (
                       <ToggleGroupItem
                         key={option.id}
                         value={option.id}
@@ -418,6 +453,16 @@ const Settings = () => {
                     <span className="font-semibold text-white">{uiSize.toUpperCase()}</span>
                   </div>
                 </div>
+                <div className="settings-board-preview">
+                  {["A4", "B4", "A3", "B3"].map(code => (
+                    <div key={code} className="settings-square">
+                      <span className="settings-coordinate">{code}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/60">
+                  Thème {theme} · Intensité {neonIntensity}%
+                </p>
                 <Button variant="outline" className="w-full rounded-xl border-cyan-400/40 text-cyan-100 hover:bg-cyan-500/10">
                   Lancer la simulation
                 </Button>
@@ -741,7 +786,7 @@ const Settings = () => {
                 <ToggleGroup
                   type="single"
                   value={digestFrequency}
-                  onValueChange={value => value && setDigestFrequency(value)}
+                  onValueChange={value => value && setDigestFrequency(value as DigestFrequency)}
                   className="grid gap-2 sm:grid-cols-3"
                 >
                   {[
