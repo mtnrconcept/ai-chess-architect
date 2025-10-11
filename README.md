@@ -68,13 +68,20 @@ Copy `env.example` to `.env` and provide the Supabase project credentials:
 cp env.example .env
 ```
 
-- `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` sont pré-remplis avec le projet `ucaqbhmyutlnitnedowk` (`https://ucaqbhmyutlnitnedowk.supabase.co`). Le build Vite échoue si ces variables manquent.
+- `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` correspondent respectivement à l'URL du projet et à la clé anonyme Supabase. **Le préfixe `VITE_` est obligatoire** : seules ces variables seront injectées dans le bundle navigateur.
 - `SUPABASE_URL` fait référence au même projet pour les scripts locaux. Renseignez `SUPABASE_SERVICE_ROLE_KEY` avant d'exécuter les Edge Functions.
-- `SUPABASE_DB_URL` pointe vers l'instance gérée `db.ucaqbhmyutlnitnedowk.supabase.co` et nécessite votre mot de passe `postgres`.
+- `SUPABASE_DB_URL` doit suivre le format pgbouncer `postgresql://postgres:<mot-de-passe>@db.<ref>.supabase.co:6543/postgres?pgbouncer=true&sslmode=require` pour appliquer les migrations.
+
+> ℹ️ Ne validez jamais de vraies clés dans le dépôt. Utilisez `env.example` comme gabarit vierge et ajoutez vos secrets uniquement dans l'environnement d'exécution (Lovable, CI, machine locale).
 
 Au démarrage du client (`npm run dev`), l'initialisation du SDK affiche `Supabase URL present` dans la console pour signaler que la configuration est détectée sans exposer la clé publique.
 
 Les Edge Functions n'utilisent plus de passerelle Lovable privée et n'ont besoin que des secrets Supabase standards (URL + clé Service Role) définis via `supabase secrets set`.
+
+## Vite & résolution de modules
+
+- Le client Supabase lit exclusivement `import.meta.env.VITE_SUPABASE_URL` et `import.meta.env.VITE_SUPABASE_ANON_KEY`. Toute variable sans préfixe `VITE_` est ignorée côté front.
+- Les imports relatifs de la forme `@/...` reposent sur l'alias déclaré dans `vite.config.ts`. Ne supprimez pas cet alias, sinon les builds échoueront avant même l'initialisation Supabase.
 
 ## Lovable Cloud Setup
 

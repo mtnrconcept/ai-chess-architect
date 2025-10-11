@@ -12,6 +12,7 @@ dist
 !supabase/functions/vendor/**
 dist-ssr
 *.local
+.env
 
 # Editor directories and files
 .vscode/*
