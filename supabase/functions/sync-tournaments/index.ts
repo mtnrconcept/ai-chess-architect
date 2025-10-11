@@ -2,7 +2,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// --- CORS minimal ---
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -12,48 +11,41 @@ const corsHeaders = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...corsHeaders } });
 
-const ok = (body: unknown) => json(body, 200);
-const bad = (body: unknown) => json(body, 400);
-const err = (body: unknown, status = 500) => json(body, status);
-
-// --- ENV & client ---
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error("[sync-tournaments] Missing Supabase env vars");
-}
+if (!SUPABASE_URL || !SERVICE_ROLE_KEY) console.error("[sync-tournaments] Missing Supabase env vars");
 
 const supabase = SUPABASE_URL && SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY) : null;
 
-// --- Types ---
-type VariantSource = {
+type VariantCandidate = { name: string; rules: unknown; source: "lobby" | "fallback"; lobbyId?: string | null };
+type VariantSource = { name: string; rules: string[]; source: "lobby" | "fallback"; lobbyId?: string | null };
+type PostgrestLikeError = { code?: string; message?: string; details?: string };
+type TournamentSummary = { id: string; start_time: string; variant_name: string };
+type LobbyRecord = { id: string; name: string | null; active_rules: unknown };
+type TournamentInsert = {
   name: string;
-  rules: string[];
-  source: "lobby" | "fallback";
-  lobbyId?: string | null;
+  description: string;
+  variant_name: string;
+  variant_rules: string[];
+  variant_source: VariantSource["source"];
+  variant_lobby_id: string | null;
+  start_time: string;
+  end_time: string;
+  status: "scheduled";
 };
 
-type PostgrestLikeError = { code?: string; message?: string; details?: string };
-
 class FeatureUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "FeatureUnavailableError";
-  }
+  constructor(message: string) { super(message); this.name = "FeatureUnavailableError"; }
 }
 
-// --- Helpers d’analyse d’erreurs ---
-const isTournamentSchemaMissing = (error: PostgrestLikeError | null) => {
-  if (!error) return false;
-  if (error.code === "42P01" || error.code === "PGRST205" || error.code === "PGRST302") return true;
-  const m = (error.message ?? "").toLowerCase();
-  const d = (error.details ?? "").toLowerCase();
+const isTournamentSchemaMissing = (e: PostgrestLikeError | null) => {
+  if (!e) return false;
+  if (e.code === "42P01" || e.code === "PGRST205" || e.code === "PGRST302") return true;
+  const m = (e.message ?? "").toLowerCase(), d = (e.details ?? "").toLowerCase();
   return (m + " " + d).includes("tournament") && ((m + " " + d).includes("not found") || (m + " " + d).includes("does not exist"));
 };
 
-// --- Variantes fallback (pour garantir la diversité) ---
-const fallbackVariants: VariantSource[] = [
+const fallbackVariants: VariantCandidate[] = [
   { name: "Voltus Hyper Knights", rules: ["preset_mov_01", "preset_mov_07"], source: "fallback" },
   { name: "Tempête Royale", rules: ["preset_mov_05", "preset_mov_06"], source: "fallback" },
   { name: "Arène des Pions", rules: ["preset_mov_04", "preset_mov_10"], source: "fallback" },
@@ -61,180 +53,132 @@ const fallbackVariants: VariantSource[] = [
   { name: "Forteresse Agile", rules: ["preset_mov_03", "preset_mov_08"], source: "fallback" },
 ];
 
-// --- Normalisation des variantes ---
-const normalizeVariant = (variant: VariantSource): VariantSource | null => {
-  const name =
-    typeof variant.name === "string" && variant.name.trim().length > 0 ? variant.name.trim() : "Variante Voltus";
-  const rules = Array.isArray(variant.rules)
-    ? variant.rules
-        .map((r) => (typeof r === "string" ? r.trim() : r == null ? "" : String(r).trim()))
-        .filter((r): r is string => r.length > 0)
+const normalizeVariant = (v: VariantCandidate): VariantSource | null => {
+  const name = typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Variante Voltus";
+  const rules = Array.isArray(v.rules)
+    ? v.rules.map(rule => (typeof rule === "string" ? rule.trim() : rule == null ? "" : String(rule).trim())).filter(rule => rule.length > 0)
     : [];
-  if (rules.length === 0) return null;
-  return { ...variant, name, rules, lobbyId: variant.lobbyId ?? null };
+  if (!rules.length) return null;
+  return { ...v, name, rules, lobbyId: v.lobbyId ?? null };
 };
 
-// --- Paramétrage du calage temporel ---
-const BLOCK_MS = 2 * 60 * 60 * 1000; // 2h
-const TOURNAMENTS_PER_BLOCK = 10; // un toutes les ~12 minutes
-
+const BLOCK_MS = 2 * 60 * 60 * 1000;
+const TOURNAMENTS_PER_BLOCK = 10;
 const computeBlockStart = (d: Date) => new Date(Math.floor(d.getTime() / BLOCK_MS) * BLOCK_MS);
 
-// --- Transitions d'état (scheduled -> running -> completed) ---
 const ensureStatusTransitions = async (nowIso: string) => {
   if (!supabase) return;
 
-  // scheduled -> running
-  {
-    const { error } = await supabase
-      .from("tournaments")
-      .update({ status: "running" })
-      .lte("start_time", nowIso)
-      .gt("end_time", nowIso)
-      .neq("status", "running");
-    if (error) {
-      if (isTournamentSchemaMissing(error)) {
-        throw new FeatureUnavailableError("Schéma tournois manquant. Exécute les migrations.");
-      }
-      throw error;
-    }
+  let r = await supabase.from("tournaments")
+    .update({ status: "running" })
+    .lte("start_time", nowIso).gt("end_time", nowIso).neq("status", "running");
+  if (r.error) {
+    if (isTournamentSchemaMissing(r.error)) throw new FeatureUnavailableError("Schéma tournois manquant. Exécute les migrations.");
+    throw r.error;
   }
 
-  // running -> completed
-  {
-    const { error } = await supabase.from("tournaments").update({ status: "completed" }).lte("end_time", nowIso).neq(
-      "status",
-      "completed",
-    );
-    if (error) {
-      if (isTournamentSchemaMissing(error)) {
-        throw new FeatureUnavailableError("Schéma tournois manquant. Exécute les migrations.");
-      }
-      throw error;
-    }
+  r = await supabase.from("tournaments")
+    .update({ status: "completed" })
+    .lte("end_time", nowIso).neq("status", "completed");
+  if (r.error) {
+    if (isTournamentSchemaMissing(r.error)) throw new FeatureUnavailableError("Schéma tournois manquant. Exécute les migrations.");
+    throw r.error;
   }
 };
 
-// --- Création idempotente des tournois d’un bloc ---
-const ensureBlockTournaments = async (blockStart: Date) => {
-  if (!supabase) return { created: 0, tournaments: [] as any[] };
+const ensureBlockTournaments = async (blockStart: Date): Promise<{ created: number; tournaments: TournamentSummary[] }> => {
+  if (!supabase) return { created: 0, tournaments: [] };
 
-  const blockStartIso = blockStart.toISOString();
-  const blockEndIso = new Date(blockStart.getTime() + BLOCK_MS).toISOString();
+  const startIso = blockStart.toISOString();
+  const endIso = new Date(blockStart.getTime() + BLOCK_MS).toISOString();
 
-  // Récup existants dans ce block
-  const { data: existing, error: existingError } = await supabase
-    .from("tournaments")
-    .select("id,start_time,variant_name")
-    .gte("start_time", blockStartIso)
-    .lt("start_time", blockEndIso)
+  const existing = await supabase.from("tournaments")
+    .select<TournamentSummary>("id,start_time,variant_name")
+    .gte("start_time", startIso).lt("start_time", endIso)
     .order("start_time", { ascending: true });
 
-  if (existingError) {
-    if (isTournamentSchemaMissing(existingError)) {
-      throw new FeatureUnavailableError("Table/vues tournois introuvables. Applique les migrations.");
-    }
-    throw existingError;
+  if (existing.error) {
+    if (isTournamentSchemaMissing(existing.error)) throw new FeatureUnavailableError("Tables/vues tournois introuvables.");
+    throw existing.error;
   }
 
-  const existingCount = existing?.length ?? 0;
-  if (existingCount >= TOURNAMENTS_PER_BLOCK) {
-    return { created: 0, tournaments: existing ?? [] };
-  }
+  const existingCount = existing.data?.length ?? 0;
+  if (existingCount >= TOURNAMENTS_PER_BLOCK) return { created: 0, tournaments: existing.data ?? [] };
 
-  // Source de variantes: lobbies + fallbacks
-  const { data: lobbyVariants, error: lobbyError } = await supabase
-    .from("lobbies")
-    .select("id,name,active_rules")
+  const lobbies = await supabase.from("lobbies")
+    .select<LobbyRecord>("id,name,active_rules")
     .not("active_rules", "is", null)
-    .order("updated_at", { ascending: false })
-    .limit(50);
+    .order("updated_at", { ascending: false }).limit(50);
 
-  if (lobbyError) console.warn("[sync-tournaments] lobbies fetch error:", lobbyError.message);
+  if (lobbies.error) console.warn("[sync-tournaments] lobbies fetch error:", lobbies.error.message);
 
   const pool: VariantSource[] = [];
-  (lobbyVariants ?? []).forEach((l) => {
-    if (Array.isArray((l as any).active_rules) && (l as any).active_rules.length > 0) {
-      const v = normalizeVariant({
-        name: (l as any).name ?? "Variante communautaire",
-        rules: (l as any).active_rules,
+  (lobbies.data ?? []).forEach((lobby) => {
+    if (Array.isArray(lobby.active_rules) && lobby.active_rules.length > 0) {
+      const variant = normalizeVariant({
+        name: lobby.name ?? "Variante communautaire",
+        rules: lobby.active_rules,
         source: "lobby",
-        lobbyId: (l as any).id,
+        lobbyId: lobby.id,
       });
-      if (v) pool.push(v);
+      if (variant) pool.push(variant);
     }
   });
+  const fallbacks = fallbackVariants.map(normalizeVariant).filter((v): v is VariantSource => v !== null);
+  pool.push(...fallbacks);
+  if (!pool.length) return { created: 0, tournaments: existing.data ?? [] };
 
-  const fall = fallbackVariants.map(normalizeVariant).filter((v): v is VariantSource => v !== null);
-  if (pool.length === 0) pool.push(...fall);
-  else pool.push(...fall); // mix de diversité
-
-  if (pool.length === 0) return { created: 0, tournaments: existing ?? [] };
-
-  // Planning intra-bloc
-  const spacingMs = Math.floor(BLOCK_MS / TOURNAMENTS_PER_BLOCK);
-  const creations = [];
-
+  const spacing = Math.floor(BLOCK_MS / TOURNAMENTS_PER_BLOCK);
+  const payloads: TournamentInsert[] = [];
   for (let i = 0; i < TOURNAMENTS_PER_BLOCK - existingCount; i++) {
-    const variant = pool[Math.floor(Math.random() * pool.length)];
-    const start = new Date(blockStart.getTime() + spacingMs * (existingCount + i));
-    const end = new Date(start.getTime() + BLOCK_MS);
+    const v = pool[Math.floor(Math.random() * pool.length)];
+    const s = new Date(blockStart.getTime() + spacing * (existingCount + i));
+    const e = new Date(s.getTime() + BLOCK_MS);
 
-    const payload = {
-      name: `${variant.name} #${start.getUTCHours().toString().padStart(2, "0")}${start.getUTCMinutes().toString().padStart(2, "0")}`,
-      description: variant.source === "lobby" ? `Variante issue du lobby « ${variant.name} »` : "Variante Voltus générée automatiquement",
-      variant_name: variant.name,
-      variant_rules: variant.rules, // jsonb côté DB
-      variant_source: variant.source, // 'lobby' | 'fallback'
-      variant_lobby_id: variant.lobbyId ?? null,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      status: "scheduled" as const,
-    };
-
-    creations.push(payload);
+    payloads.push({
+      name: `${v.name} #${s.getUTCHours().toString().padStart(2, "0")}${s.getUTCMinutes().toString().padStart(2, "0")}`,
+      description: v.source === "lobby" ? `Variante issue du lobby « ${v.name} »` : "Variante Voltus générée automatiquement",
+      variant_name: v.name,
+      variant_rules: v.rules,
+      variant_source: v.source,
+      variant_lobby_id: v.lobbyId ?? null,
+      start_time: s.toISOString(),
+      end_time: e.toISOString(),
+      status: "scheduled",
+    });
   }
 
-  if (creations.length === 0) return { created: 0, tournaments: existing ?? [] };
+  if (!payloads.length) return { created: 0, tournaments: existing.data ?? [] };
 
-  // Idempotence: upsert sur clé unique (start_time, variant_name)
-  const { data: upserted, error: upsertError } = await supabase
-    .from("tournaments")
-    .upsert(creations, { onConflict: "start_time,variant_name", ignoreDuplicates: false })
-    .select("id,start_time,variant_name");
-
-  if (upsertError) {
-    if (isTournamentSchemaMissing(upsertError)) {
-      throw new FeatureUnavailableError("Table 'tournaments' introuvable. Applique les migrations.");
-    }
-    throw upsertError;
+  const up = await supabase.from("tournaments")
+    .upsert(payloads, { onConflict: "start_time,variant_name", ignoreDuplicates: false })
+    .select<TournamentSummary>("id,start_time,variant_name");
+  if (up.error) {
+    if (isTournamentSchemaMissing(up.error)) throw new FeatureUnavailableError("Table 'tournaments' introuvable.");
+    throw up.error;
   }
-
-  return { created: (upserted?.length ?? 0) - (existing?.length ?? 0) < 0 ? 0 : (upserted?.length ?? 0), tournaments: upserted ?? [] };
+  return { created: up.data?.length ?? 0, tournaments: up.data ?? [] };
 };
 
-// --- Handler ---
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
-  if (req.method !== "POST") return bad({ error: "Method not allowed" });
-
-  if (!supabase) return err({ error: "Supabase client not configured" });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (!supabase) return json({ error: "Supabase client not configured" }, 500);
 
   try {
     const now = new Date();
-    const blockStart = computeBlockStart(now);
-    const nextBlockStart = new Date(blockStart.getTime() + BLOCK_MS);
+    const b0 = computeBlockStart(now);
+    const b1 = new Date(b0.getTime() + BLOCK_MS);
 
-    const r1 = await ensureBlockTournaments(blockStart);
-    const r2 = await ensureBlockTournaments(nextBlockStart);
-
+    const r0 = await ensureBlockTournaments(b0);
+    const r1 = await ensureBlockTournaments(b1);
     await ensureStatusTransitions(now.toISOString());
 
-    const created = (r1.created ?? 0) + (r2.created ?? 0);
-    return ok({ created, ensuredBlocks: 2 });
-  } catch (e: any) {
-    console.error("[sync-tournaments] error:", e?.message ?? e);
-    if (e instanceof FeatureUnavailableError) return err({ code: "feature_unavailable", error: e.message }, 503);
-    return err({ error: e?.message ?? "Unknown error" }, 500);
+    return json({ created: (r0.created ?? 0) + (r1.created ?? 0), ensuredBlocks: 2 }, 200);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[sync-tournaments] error:", message, error);
+    if (error instanceof FeatureUnavailableError) return json({ code: "feature_unavailable", error: error.message }, 503);
+    return json({ error: message }, 500);
   }
 });
