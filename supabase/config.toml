@@ -1,19 +1,7 @@
-project_id = "ucaqbhmyutlnitnedowk"
+project_id = "pfcaolibtgvynnwaxvol"
 
 [functions.chess-insights]
 verify_jwt = false
 
 [functions.generate-chess-rule]
 verify_jwt = false
-
-[functions.report-tournament-match]
-# Requires an authenticated player session because match results update protected tables.
-verify_jwt = true
-
-[functions.sync-tournaments]
-# Called from the web app (and scheduled jobs) with the current user token.
-verify_jwt = true
-
-[functions.tournament-matchmaking]
-# Relies on the caller's access token to join tournaments on their behalf.
-verify_jwt = true
