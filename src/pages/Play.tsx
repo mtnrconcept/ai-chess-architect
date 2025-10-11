@@ -359,18 +359,14 @@ const Play = () => {
         ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
         : 'Explosion au contact d\'un adversaire.';
 
-    const title = specialAbilityLabel ? `${specialAbilityLabel} déclenchée` : 'Attaque spéciale déclenchée';
-    const description = specialAbilityLabel
-      ? `La capacité « ${specialAbilityLabel} » issue de la règle ${specialAbility.ruleName} est activée.`
-      : `La règle ${specialAbility.ruleName} propose une action spéciale.`;
-      toast({
-        title: `${ability.label} prête`,
-        description: `${ability.description} ${countdownInfo}`,
-      });
+        toast({
+          title: `${ability.label} prête`,
+          description: `${ability.description} ${countdownInfo}`,
+        });
 
-      return ability;
-    });
-  }, [toast]);
+        return ability;
+      });
+    }, [toast]);
 
   useEffect(() => {
     if (pendingAbility && !specialAbilities.some(ability => ability.id === pendingAbility.id)) {
