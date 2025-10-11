@@ -1,23 +1,30 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+const RAW_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_URL =
+  !RAW_SUPABASE_URL || /example\.com/i.test(RAW_SUPABASE_URL)
+    ? SUPABASE_PROJECT_ID
+      ? `https://${SUPABASE_PROJECT_ID}.supabase.co`
+      : undefined
+    : RAW_SUPABASE_URL;
 const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 function invariantEnv() {
   const problems: string[] = [];
 
-  if (!SUPABASE_URL) {
-    problems.push('VITE_SUPABASE_URL manquante');
-  }
-
   if (!SUPABASE_ANON_KEY) {
     problems.push('VITE_SUPABASE_ANON_KEY manquante');
   }
 
-  if (SUPABASE_URL && /example\.com/i.test(SUPABASE_URL)) {
-    problems.push('VITE_SUPABASE_URL pointe vers example.com (placeholder)');
+  if (!SUPABASE_URL) {
+    if (!SUPABASE_PROJECT_ID) {
+      problems.push('VITE_SUPABASE_URL manquante et VITE_SUPABASE_PROJECT_ID manquante');
+    } else {
+      problems.push("Impossible de construire l'URL Supabase (VITE_SUPABASE_URL invalide)");
+    }
   }
 
   if (problems.length) {
