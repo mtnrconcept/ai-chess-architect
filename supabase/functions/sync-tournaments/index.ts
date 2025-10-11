@@ -22,6 +22,37 @@ type VariantSource = {
   lobbyId?: string;
 };
 
+class FeatureUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FeatureUnavailableError";
+  }
+}
+
+type PostgrestLikeError = {
+  code?: string;
+  message?: string;
+  details?: string;
+};
+
+const isTournamentSchemaMissing = (error: PostgrestLikeError | null) => {
+  if (!error) return false;
+
+  if (error.code === "42P01" || error.code === "PGRST205" || error.code === "PGRST302") {
+    return true;
+  }
+
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  const details = typeof error.details === "string" ? error.details.toLowerCase() : "";
+
+  if (!message && !details) {
+    return false;
+  }
+
+  const haystack = `${message} ${details}`;
+  return haystack.includes("tournament") && (haystack.includes("not found") || haystack.includes("does not exist"));
+};
+
 const fallbackVariants: VariantSource[] = [
   { name: "Voltus Hyper Knights", rules: ["preset_mov_01", "preset_mov_07"], source: "fallback" },
   { name: "Tempête Royale", rules: ["preset_mov_05", "preset_mov_06"], source: "fallback" },
@@ -68,18 +99,36 @@ const computeBlockStart = (date: Date) => {
 const ensureStatusTransitions = async (nowIso: string) => {
   if (!supabase) return;
 
-  await supabase
+  const { error: toRunningError } = await supabase
     .from("tournaments")
     .update({ status: "running" })
     .lte("start_time", nowIso)
     .gt("end_time", nowIso)
     .neq("status", "running");
 
-  await supabase
+  if (toRunningError) {
+    if (isTournamentSchemaMissing(toRunningError)) {
+      throw new FeatureUnavailableError(
+        "Les tables Supabase nécessaires aux tournois ne sont pas disponibles. Exécutez les migrations correspondantes.",
+      );
+    }
+    throw toRunningError;
+  }
+
+  const { error: toCompletedError } = await supabase
     .from("tournaments")
     .update({ status: "completed" })
     .lte("end_time", nowIso)
     .neq("status", "completed");
+
+  if (toCompletedError) {
+    if (isTournamentSchemaMissing(toCompletedError)) {
+      throw new FeatureUnavailableError(
+        "Les tables Supabase nécessaires aux tournois ne sont pas disponibles. Exécutez les migrations correspondantes.",
+      );
+    }
+    throw toCompletedError;
+  }
 };
 
 const ensureBlockTournaments = async (blockStart: Date) => {
@@ -97,6 +146,11 @@ const ensureBlockTournaments = async (blockStart: Date) => {
     .order("start_time", { ascending: true });
 
   if (existingError) {
+    if (isTournamentSchemaMissing(existingError)) {
+      throw new FeatureUnavailableError(
+        "La table Supabase 'tournaments' est introuvable. Exécutez les migrations SQL pour activer les tournois.",
+      );
+    }
     console.error("Unable to fetch tournaments for block", existingError.message);
     throw existingError;
   }
@@ -184,6 +238,11 @@ const ensureBlockTournaments = async (blockStart: Date) => {
     .select("*");
 
   if (insertError) {
+    if (isTournamentSchemaMissing(insertError)) {
+      throw new FeatureUnavailableError(
+        "La table Supabase 'tournaments' est introuvable. Exécutez les migrations SQL pour activer les tournois.",
+      );
+    }
     console.error("Unable to create tournaments", insertError.message);
     throw insertError;
   }
@@ -223,6 +282,17 @@ serve(async req => {
     return jsonResponse(req, { created, ensuredBlocks: 2 }, { status: 200 }, corsOptions);
   } catch (error) {
     console.error("sync-tournaments error", error);
+    if (error instanceof FeatureUnavailableError) {
+      return jsonResponse(
+        req,
+        {
+          error: error.message,
+          code: "feature_unavailable",
+        },
+        { status: 503 },
+        corsOptions,
+      );
+    }
     const message = error instanceof Error ? error.message : "Unknown error";
     return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
   }
