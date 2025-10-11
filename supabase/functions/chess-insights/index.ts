@@ -1,4 +1,5 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { LOVABLE_AI_CHAT_COMPLETIONS_URL, getLovableApiKey } from "../_shared/env.ts";
 
 type ChatHistoryEntry = {
   role: 'assistant' | 'user';
@@ -119,7 +120,7 @@ Deno.serve(async (req) => {
           .slice(-8)
       : [];
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const LOVABLE_API_KEY = getLovableApiKey();
 
     let assistantMessage: string | null = null;
     let lastError: string | null = null;
@@ -152,7 +153,7 @@ Deno.serve(async (req) => {
           { role: "user" as const, content: contextMessage },
         ];
 
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const response = await fetch(LOVABLE_AI_CHAT_COMPLETIONS_URL, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${LOVABLE_API_KEY}`,

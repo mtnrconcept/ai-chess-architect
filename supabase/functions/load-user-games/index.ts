@@ -1,5 +1,5 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { getSupabaseServiceRoleClient } from "../_shared/env.ts";
 
 type ErrorResponse = { error: string };
 
@@ -13,16 +13,7 @@ type LoadGamesPayload = {
 
 const corsOptions = { methods: ["POST"] };
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error("Missing Supabase configuration for load-user-games function");
-}
-
-const adminClient = SUPABASE_URL && SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-  : null;
+const adminClient = getSupabaseServiceRoleClient();
 
 Deno.serve(async req => {
   if (req.method === "OPTIONS") {
