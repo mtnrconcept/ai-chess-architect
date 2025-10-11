@@ -242,7 +242,7 @@ const Profile = () => {
         if (!date || Number.isNaN(date.getTime())) return null;
 
         return {
-          id: rule.id ?? rule.ruleId,
+          id: String(rule.id ?? rule.ruleId),
           title: rule.ruleName,
           action: hasUpdate ? "Règle optimisée" : "Nouvelle règle",
           tags: rule.tags,
@@ -250,7 +250,7 @@ const Profile = () => {
         };
       })
       .filter((item): item is {
-        id: string | number;
+        id: string;
         title: string;
         action: string;
         tags: string[];

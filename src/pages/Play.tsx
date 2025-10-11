@@ -308,7 +308,7 @@ const Play = () => {
   const inFlightRef = useRef<AbortController | null>(null);
   const initialAnalysisRef = useRef(false);
   const mountedRef = useRef(true);
-  const aiMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiMoveTimeoutRef = useRef<number | null>(null);
   const findBestAIMoveRef = useRef<AiMoveResolver | null>(null);
   const coachMessagesRef = useRef<CoachChatMessage[]>(coachMessages);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);

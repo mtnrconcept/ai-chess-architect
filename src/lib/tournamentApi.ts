@@ -200,8 +200,8 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
 
   return {
     overview: overviewData,
-    registrations: (registrations ?? []) as TournamentRegistrationWithMatch[],
-    matches: (matches ?? []) as TournamentMatch[],
+    registrations: (registrations ?? []) as unknown as TournamentRegistrationWithMatch[],
+    matches: (matches ?? []) as unknown as TournamentMatch[],
   };
 };
 
@@ -216,7 +216,7 @@ export const fetchUserTournamentRegistrations = async (userId: string): Promise<
     throw new Error(error.message);
   }
 
-  return (data ?? []) as TournamentRegistrationWithMatch[];
+  return (data ?? []) as unknown as TournamentRegistrationWithMatch[];
 };
 
 export const registerForTournament = async (

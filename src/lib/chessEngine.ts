@@ -1262,7 +1262,7 @@ export class ChessEngine {
     return newBoard;
   }
 
-  private static isSquareAttacked(
+  static isSquareAttacked(
     board: (ChessPiece | null)[][],
     position: Position,
     byColor: PieceColor,
