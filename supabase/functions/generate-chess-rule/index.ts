@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { LOVABLE_AI_CHAT_COMPLETIONS_URL, getLovableApiKey } from "../_shared/env.ts";
 
 const corsOptions = { methods: ["POST"] };
 
@@ -19,7 +20,7 @@ serve(async (req) => {
       return jsonResponse(req, { error: "Prompt is required" }, { status: 400 }, corsOptions);
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const LOVABLE_API_KEY = getLovableApiKey();
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
@@ -72,7 +73,7 @@ RÈGLES IMPORTANTES :
 - Génère entre 2 et 4 tags courts en français pour décrire la règle
 - Sois créatif mais logique`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(LOVABLE_AI_CHAT_COMPLETIONS_URL, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${LOVABLE_API_KEY}`,
