@@ -257,56 +257,214 @@
     transition-duration: 0.05s !important;
   }
 
-  body[data-large-coordinates="on"] {
-    --coordinate-scale: 1.35;
-  }
+body[data-large-coordinates="on"] {
+  --coordinate-scale: 1.35;
+}
 
-  body:not([data-large-coordinates="on"]) {
-    --coordinate-scale: 1;
-  }
+body:not([data-large-coordinates="on"]) {
+  --coordinate-scale: 1;
+}
 
-  @keyframes spectral-trails-flow {
-    0% {
-      transform: translate3d(-2%, -2%, 0) rotate(0deg);
-    }
-    50% {
-      transform: translate3d(2%, 2%, 0) rotate(180deg);
-    }
-    100% {
-      transform: translate3d(-2%, -2%, 0) rotate(360deg);
-    }
+@keyframes spectral-trails-flow {
+  0% {
+    transform: translate3d(-2%, -2%, 0) rotate(0deg);
   }
-
-  .settings-board-preview {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-    padding: 14px;
-    border-radius: 1.25rem;
-    background: hsl(var(--card) / 0.85);
-    box-shadow: 0 0 calc(40px * var(--neon-intensity)) hsl(183 97% 58% / 0.25);
-    position: relative;
-    overflow: hidden;
+  50% {
+    transform: translate3d(2%, 2%, 0) rotate(180deg);
   }
-
-  .settings-board-preview .settings-square {
-    position: relative;
-    aspect-ratio: 1 / 1;
-    border-radius: 0.85rem;
-    background: hsl(var(--chess-board-dark));
+  100% {
+    transform: translate3d(-2%, -2%, 0) rotate(360deg);
   }
+}
 
-  .settings-board-preview .settings-square:nth-child(even) {
-    background: hsl(var(--chess-board-light));
+.settings-board-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 14px;
+  border-radius: 1.25rem;
+  background: hsl(var(--card) / 0.85);
+  box-shadow: 0 0 calc(40px * var(--neon-intensity)) hsl(183 97% 58% / 0.25);
+  position: relative;
+  overflow: hidden;
+}
+
+.settings-board-preview .settings-square {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 0.85rem;
+  background: hsl(var(--chess-board-dark));
+}
+
+.settings-board-preview .settings-square:nth-child(even) {
+  background: hsl(var(--chess-board-light));
+}
+
+.settings-board-preview .settings-coordinate {
+  position: absolute;
+  inset: auto 10px 8px auto;
+  font-size: calc(0.65rem * var(--coordinate-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--foreground));
+}
+}
+
+@keyframes specialExplosion {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.6);
+    filter: blur(0px);
   }
+  60% {
+    opacity: 0.55;
+    transform: scale(1.6);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.1);
+    filter: blur(12px);
+  }
+}
 
-  .settings-board-preview .settings-coordinate {
+@keyframes specialCountdownPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes specialQuantumMarker {
+  0% {
+    box-shadow: 0 0 18px rgba(251, 191, 36, 0.45);
+    transform: scale(0.95);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(249, 115, 22, 0.55);
+    transform: scale(1.05);
+  }
+  100% {
+    box-shadow: 0 0 22px rgba(236, 72, 153, 0.5);
+    transform: scale(1);
+  }
+}
+
+@keyframes specialMineMarker {
+  0% {
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.45);
+    transform: scale(0.92);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(34, 197, 94, 0.55);
+    transform: scale(1.06);
+  }
+  100% {
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.5);
+    transform: scale(1);
+  }
+}
+
+@keyframes specialQuantumExplosion {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.5);
+    filter: blur(0px);
+  }
+  45% {
+    opacity: 0.7;
+    transform: scale(1.5);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+    filter: blur(18px);
+  }
+}
+
+@keyframes specialMineExplosion {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.6);
+    filter: blur(0px);
+  }
+  60% {
+    opacity: 0.6;
+    transform: scale(1.4);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.9);
+    filter: blur(12px);
+  }
+}
+
+@layer utilities {
+  .special-attack-marker {
+    pointer-events: none;
     position: absolute;
-    inset: auto 10px 8px auto;
-    font-size: calc(0.65rem * var(--coordinate-scale));
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: hsl(var(--foreground));
+    inset: 0.35rem;
+    border-radius: 9999px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2px);
+    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+    transform-origin: center;
+  }
+
+  .special-attack-marker-bomb {
+    background: radial-gradient(circle, rgba(251, 191, 36, 0.6), rgba(244, 63, 94, 0.45), rgba(15, 23, 42, 0.75));
+    box-shadow: 0 0 24px rgba(251, 191, 36, 0.45);
+  }
+
+  .special-attack-marker-mine {
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.5), rgba(59, 130, 246, 0.45), rgba(15, 23, 42, 0.75));
+    box-shadow: 0 0 22px rgba(34, 211, 238, 0.5);
+  }
+
+  .special-attack-animation-quantum-bomb {
+    border: 1px solid rgba(251, 191, 36, 0.55);
+    animation: specialQuantumMarker 1.2s ease-in-out infinite;
+  }
+
+  .special-attack-animation-mine-shockwave {
+    border: 1px solid rgba(34, 211, 238, 0.55);
+    animation: specialMineMarker 1.4s ease-in-out infinite;
+  }
+
+  .special-countdown {
+    animation: specialCountdownPulse 1s infinite;
+    text-shadow: 0 0 12px rgba(255, 255, 255, 0.85);
+  }
+
+  .special-explosion {
+    pointer-events: none;
+    position: absolute;
+    inset: 0.25rem;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgba(251, 191, 36, 0.7) 0%, rgba(244, 114, 182, 0.45) 45%, rgba(59, 130, 246, 0.25) 100%);
+    animation: specialExplosion 0.9s ease-out forwards;
+    mix-blend-mode: screen;
+    transform-origin: center;
+  }
+
+  .special-explosion-quantum-bomb {
+    background: radial-gradient(circle, rgba(251, 191, 36, 0.85) 0%, rgba(249, 115, 22, 0.55) 45%, rgba(244, 114, 182, 0.35) 70%, rgba(59, 130, 246, 0.2) 100%);
+    animation: specialQuantumExplosion 1s ease-out forwards;
+  }
+
+  .special-explosion-mine-shockwave {
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.8) 0%, rgba(59, 130, 246, 0.55) 40%, rgba(125, 211, 252, 0.35) 75%, rgba(15, 23, 42, 0.15) 100%);
+    animation: specialMineExplosion 0.85s ease-out forwards;
   }
 }

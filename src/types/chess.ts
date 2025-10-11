@@ -1,3 +1,6 @@
+import type { SoundEffect } from '@/hooks/useSoundEffects';
+import type { SpecialAbilityKey, SpecialAbilityTrigger } from '@/lib/specialAbilities';
+
 export type PieceType = 'king' | 'queen' | 'rook' | 'bishop' | 'knight' | 'pawn';
 export type PieceColor = 'white' | 'black';
 
@@ -52,6 +55,34 @@ export interface ChessMove {
   durationMs?: number | null;
   notation?: string;
   boardSnapshot?: SerializedBoardState;
+}
+
+export interface SpecialAttackInstance {
+  id: string;
+  ability: SpecialAbilityKey;
+  owner: PieceColor;
+  position: Position;
+  radius: number;
+  countdown: number;
+  remaining: number;
+  damage: number;
+  trigger: SpecialAbilityTrigger;
+  animation: string;
+  sound: string;
+  ruleName: string;
+}
+
+export interface VisualEffect {
+  id: string;
+  type: 'explosion';
+  position: Position;
+  radius: number;
+  animation: string;
+  durationMs: number;
+  startedAt: number;
+  ability?: SpecialAbilityKey;
+  ruleName?: string;
+  notify?: boolean;
 }
 
 export interface RuleCondition {
@@ -111,7 +142,7 @@ export interface GameState {
   modifiedMovement?: any;
   abilities?: any[];
   restrictions?: any[];
-  events?: string[];
+  events?: SoundEffect[];
   forcedMirrorResponse?: {
     color: PieceColor;
     file: number;
@@ -130,4 +161,6 @@ export interface GameState {
   vipTokens: Record<PieceColor, number>;
   secretSetupApplied?: boolean;
   blindOpeningRevealed: Record<PieceColor, boolean>;
+  specialAttacks: SpecialAttackInstance[];
+  visualEffects: VisualEffect[];
 }

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Trash2, Power, PowerOff, AlertTriangle } from 'lucide-react';
 import { categoryColors } from '@/lib/ruleCategories';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters } from '@/lib/specialAbilities';
 
 interface RuleCardProps {
   rule: ChessRule;
@@ -50,6 +51,36 @@ const RuleCard = ({
   const conditionsCount = Array.isArray(rule.conditions) ? rule.conditions.length : 0;
   const effectsCount = Array.isArray(rule.effects) ? rule.effects.length : 0;
   const tags = Array.isArray(rule.tags) ? rule.tags.filter(tag => typeof tag === 'string' && tag.length > 0) : [];
+  const abilitySummaries = Array.isArray(rule.effects)
+    ? rule.effects
+        .map(effect => {
+          if (effect.action !== 'addAbility' || typeof effect.parameters?.ability !== 'string') {
+            return null;
+          }
+          const normalized = normalizeSpecialAbilityParameters(
+            effect.parameters.ability,
+            effect.parameters as Record<string, unknown> | undefined,
+          );
+          const metadata = getSpecialAbilityMetadata(effect.parameters.ability);
+          if (!normalized || !metadata) {
+            return null;
+          }
+          return {
+            label: metadata.label,
+            trigger: normalized.trigger,
+            radius: normalized.radius,
+            countdown: normalized.countdown,
+            damage: normalized.damage,
+          };
+        })
+        .filter((summary): summary is {
+          label: string;
+          trigger: 'countdown' | 'contact';
+          radius: number;
+          countdown: number;
+          damage: number;
+        } => summary !== null)
+    : [];
 
   const cardClasses = [
     'bg-card/50 border-border backdrop-blur-sm hover:border-primary/50 transition-all',
@@ -174,6 +205,25 @@ const RuleCard = ({
               <Badge key={tag} variant="secondary" className="bg-muted/60 text-xs uppercase tracking-wide">
                 #{tag}
               </Badge>
+            ))}
+          </div>
+        )}
+        {abilitySummaries.length > 0 && (
+          <div className="mt-4 space-y-2 text-xs text-fuchsia-100/90">
+            {abilitySummaries.map((ability, index) => (
+              <div
+                key={`${ability.label}-${index}`}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/10 px-3 py-2"
+              >
+                <span className="font-semibold text-fuchsia-100">{ability.label}</span>
+                <span>Rayon {ability.radius}</span>
+                <span>Impact {ability.damage}</span>
+                <span>
+                  {ability.trigger === 'countdown'
+                    ? `Détonation ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`
+                    : 'Détonation au contact'}
+                </span>
+              </div>
             ))}
           </div>
         )}

@@ -1,4 +1,5 @@
 import { ChessRule, RuleCondition, RuleEffect } from '@/types/chess';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters } from '@/lib/specialAbilities';
 
 const generateAnonymousRuleId = (() => {
   let counter = 0;
@@ -248,7 +249,50 @@ export const analyzeRuleLogic = (rule: unknown): RuleAnalysisResult => {
   }
 
   const conditions = sanitizeConditions(getRecordValue<unknown>(rawRule, 'conditions'), issues);
-  const effects = sanitizeEffects(getRecordValue<unknown>(rawRule, 'effects'), issues);
+  let effects = sanitizeEffects(getRecordValue<unknown>(rawRule, 'effects'), issues);
+
+  effects = effects.map(effect => {
+    if (effect.action !== 'addAbility') {
+      return effect;
+    }
+
+    const abilityName = typeof effect.parameters?.ability === 'string' ? effect.parameters.ability : '';
+    const normalized = normalizeSpecialAbilityParameters(
+      abilityName,
+      effect.parameters as Record<string, unknown> | undefined,
+    );
+
+    if (!normalized) {
+      return effect;
+    }
+
+    const metadata = getSpecialAbilityMetadata(abilityName);
+    const originalParameters = (effect.parameters ?? {}) as Record<string, unknown>;
+    const updatedParameters = {
+      ...originalParameters,
+      ...normalized,
+    } as Record<string, unknown>;
+
+    if (metadata) {
+      if (originalParameters.radius !== undefined && updatedParameters.radius !== originalParameters.radius) {
+        issues.push(`Rayon invalide pour l'attaque spéciale ${metadata.label} normalisé.`);
+      }
+      if (originalParameters.countdown !== undefined && updatedParameters.countdown !== originalParameters.countdown) {
+        issues.push(`Compte à rebours invalide pour l'attaque spéciale ${metadata.label} ajusté.`);
+      }
+      if (originalParameters.damage !== undefined && updatedParameters.damage !== originalParameters.damage) {
+        issues.push(`Dégâts invalides pour l'attaque spéciale ${metadata.label} ajustés.`);
+      }
+      if (originalParameters.trigger !== undefined && updatedParameters.trigger !== originalParameters.trigger) {
+        issues.push(`Mode de déclenchement invalide pour l'attaque spéciale ${metadata.label} réinitialisé.`);
+      }
+    }
+
+    return {
+      ...effect,
+      parameters: updatedParameters,
+    } satisfies RuleEffect;
+  });
 
   const rawPriority = getRecordValue<unknown>(rawRule, 'priority');
   const numericPriority = typeof rawPriority === 'number'
