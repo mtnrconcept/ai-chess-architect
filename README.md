@@ -68,8 +68,9 @@ Copy `env.example` to `.env` and provide the Supabase project credentials:
 cp env.example .env
 ```
 
-- `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` sont requis côté client. Le build Vite échoue si ces variables manquent.
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` et `SUPABASE_DB_URL` sont optionnelles pour l'exécution des scripts et des Edge Functions depuis votre environnement local.
+- `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` sont pré-remplis avec le projet `ucaqbhmyutlnitnedowk` (`https://ucaqbhmyutlnitnedowk.supabase.co`). Le build Vite échoue si ces variables manquent.
+- `SUPABASE_URL` fait référence au même projet pour les scripts locaux. Renseignez `SUPABASE_SERVICE_ROLE_KEY` avant d'exécuter les Edge Functions.
+- `SUPABASE_DB_URL` pointe vers l'instance gérée `db.ucaqbhmyutlnitnedowk.supabase.co` et nécessite votre mot de passe `postgres`.
 
 Au démarrage du client (`npm run dev`), l'initialisation du SDK affiche `Supabase URL present` dans la console pour signaler que la configuration est détectée sans exposer la clé publique.
 
