@@ -21,5 +21,7 @@ The Edge Functions depend on the `LOVABLE_API_KEY` secret to call the Lovable AI
 1. Obtain a Supabase access token associated with the project `ucaqbhmyutlnitnedowk` and run `supabase login` (or export `SUPABASE_ACCESS_TOKEN`).
 2. Link the local project to the remote instance using `npx supabase link --project-ref ucaqbhmyutlnitnedowk`.
 3. Rerun `npx supabase db push` to apply migrations, followed by `npx supabase functions deploy generate-chess-rule chess-insights report-tournament-match sync-tournaments tournament-matchmaking`.
-4. Set the Lovable API key via `npx supabase secrets set LOVABLE_API_KEY=...` and re-deploy the functions so that they can authenticate against the Lovable AI gateway.
-5. After the secret is configured, send a test request to the deployed `generate-chess-rule` or `chess-insights` function to confirm the Lovable AI responses.
+4. Execute the health check script `supabase/scripts/postgrest_health_check.sql` from the SQL editor or `psql` to confirm that all required tables, views, and columns were created.
+5. After linking, confirm the Edge Function configuration with `supabase functions list`—the project should report the five functions above with JWT verification enabled (except for the two AI helpers configured in `supabase/config.toml`).
+6. Set the Lovable API key via `npx supabase secrets set LOVABLE_API_KEY=...` and re-deploy the functions so that they can authenticate against the Lovable AI gateway.
+7. After the secret is configured, send a test request to the deployed `generate-chess-rule` or `chess-insights` function to confirm the Lovable AI responses.
