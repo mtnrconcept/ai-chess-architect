@@ -957,7 +957,6 @@ const Play = () => {
     const move = ChessEngine.createMove(state.board, selectedPiece, destination, state);
     move.timestamp = new Date().toISOString();
     move.durationMs = typeof selectionDuration === 'number' ? selectionDuration : null;
-    const events: string[] = [];
     const events: SoundEffect[] = [];
     let updatedSpecialAttacks = state.specialAttacks.map(attack => ({ ...attack }));
     let updatedVisualEffects = [...state.visualEffects];
