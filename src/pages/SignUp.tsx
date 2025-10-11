@@ -58,7 +58,14 @@ const SignUp = () => {
           password,
         });
 
-        if (error) throw error;
+        if (error) {
+          toast({
+            title: 'Une erreur est survenue',
+            description: error.message,
+            variant: 'destructive',
+          });
+          return;
+        }
 
         toast({
           title: 'Compte créé !',
@@ -72,7 +79,14 @@ const SignUp = () => {
           password,
         });
 
-        if (error) throw error;
+        if (error) {
+          toast({
+            title: 'Une erreur est survenue',
+            description: error.message,
+            variant: 'destructive',
+          });
+          return;
+        }
 
         toast({
           title: 'Connexion réussie',
@@ -81,11 +95,19 @@ const SignUp = () => {
         resetForm();
         navigate('/generator');
       }
-    } catch (error: any) {
-      console.error('Auth error:', error);
+    } catch (error: unknown) {
+      console.error('Auth fatal:', error);
+
+      const envUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
+      const description = /example\.com/i.test(envUrl)
+        ? 'Mauvaise configuration Supabase (VITE_SUPABASE_URL = example.com). Corrige tes variables Lovable.'
+        : error instanceof Error
+        ? error.message
+        : "Impossible de terminer l'opération.";
+
       toast({
         title: 'Une erreur est survenue',
-        description: error.message || "Impossible de terminer l'opération.",
+        description,
         variant: 'destructive',
       });
     } finally {
