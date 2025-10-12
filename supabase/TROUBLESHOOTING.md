@@ -1,5 +1,55 @@
 # Supabase Troubleshooting Guide
 
+## Lovable ↔ Supabase integration checklist
+
+When wiring the Lovable preview/production builds to a brand-new Supabase project, resolve the following three blockers before
+testing the UI again:
+
+1. **Environment variables in Lovable** – Provide the exact project URL and anon key in both the preview and production
+   environments.
+   ```bash
+   VITE_SUPABASE_URL="https://<YOUR_PROJECT_REF>.supabase.co"
+   VITE_SUPABASE_ANON_KEY="<your anon key>"
+   ```
+   The anon key is safe to expose to the browser; grab it from **Project Settings → API** in Supabase (or regenerate it from the
+   JWT secret if you self-host).
+
+2. **Schema and views** – Apply the migrations in `supabase/migrations` (or run their SQL in the dashboard) so that the REST API
+   can resolve `/rest/v1/tournaments`, `/rest/v1/tournament_overview`, and related resources.
+   * Ensure the tables `public.tournaments`, `public.tournament_registrations`, `public.tournament_matches`, and `public.lobbies`
+     exist.
+   * Recreate the `public.tournament_overview` view after fixing any `WITHIN GROUP` errors in ordered-set aggregates.
+   * If Row Level Security is enabled, add at least a `SELECT` policy that allows anonymous reads while you test the
+     integration.
+
+3. **Edge function secrets and CORS** – For `functions/v1/sync-tournaments`, define `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY` in the function's secret store so the Deno runtime can authenticate. Keep the existing CORS
+   preflight handler and verify that `OPTIONS` replies with 204 and the headers:
+   `Access-Control-Allow-Origin: *`,
+   `Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type`,
+   `Access-Control-Allow-Methods: POST, OPTIONS`.
+
+### Quick validation commands
+
+* REST health check:
+  ```bash
+  curl "https://<YOUR_PROJECT_REF>.supabase.co/rest/v1/tournaments?select=*" \
+    -H "apikey: $VITE_SUPABASE_ANON_KEY" \
+    -H "Authorization: Bearer $VITE_SUPABASE_ANON_KEY"
+  ```
+  A `200 []` response confirms the table exists and RLS grants reads.
+* PostgREST schema cache refresh:
+  ```sql
+  select pg_notify('pgrst', 'reload schema');
+  ```
+* Edge function preflight:
+  ```bash
+  curl -i -X OPTIONS "https://<YOUR_PROJECT_REF>.functions.supabase.co/sync-tournaments"
+  ```
+
+Share this checklist with any automation agent (“Codex”) so it knows which secrets, SQL migrations, and validations to execute
+before handing the project back to Lovable.
+
 ## `supabase: command not found`
 
 Certains environnements de build ou de test ne fournissent pas le binaire Supabase CLI. Les commandes telles que `supabase db push` échouent alors immédiatement.
