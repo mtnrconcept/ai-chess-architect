@@ -89,6 +89,8 @@ Pour créer les tables manquantes et appliquer les migrations SQL présentes dan
 npm run db:migrate
 ```
 
+Ce script constitue une alternative directe à `supabase db push` lorsque le Supabase CLI n'est pas installé sur la machine (comme dans certains environnements CI ou conteneurs éphémères). Il tient à jour la table `public.__lovable_schema_migrations` pour enregistrer chaque fichier appliqué et ignore automatiquement les migrations déjà exécutées.
+
 Le script `scripts/run-supabase-migrations.mjs` applique chaque fichier `.sql` dans l'ordre en veillant à activer TLS (`sslmode=require`). Assure-toi simplement que la machine qui exécute ce script peut établir une connexion réseau vers l'hôte Supabase (IPv4 ou IPv6).
 
 Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
