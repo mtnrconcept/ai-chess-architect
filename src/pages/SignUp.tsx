@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { z, type ZodIssue } from 'zod';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, LogIn, UserPlus } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +9,53 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+
+const emailSchema = z
+  .string()
+  .trim()
+  .min(1, 'Une adresse e-mail est requise.')
+  .max(254, "L'adresse e-mail est trop longue.")
+  .email("Le format de l'adresse e-mail est invalide.")
+  .transform(value => value.toLowerCase());
+
+const strongPasswordSchema = z
+  .string()
+  .min(12, 'Le mot de passe doit contenir au moins 12 caractères.')
+  .max(128, 'Le mot de passe ne peut pas dépasser 128 caractères.')
+  .refine(value => /[A-Z]/.test(value), 'Incluez au moins une lettre majuscule.')
+  .refine(value => /[a-z]/.test(value), 'Incluez au moins une lettre minuscule.')
+  .refine(value => /\d/.test(value), 'Incluez au moins un chiffre.')
+  .refine(value => /[^A-Za-z0-9]/.test(value), 'Incluez au moins un caractère spécial.')
+  .refine(value => value.trim() === value, 'Le mot de passe ne doit pas commencer ou se terminer par un espace.');
+
+const confirmPasswordSchema = z
+  .string()
+  .min(1, 'La confirmation du mot de passe est requise.')
+  .max(128, 'La confirmation du mot de passe est trop longue.');
+
+const signUpSchema = z
+  .object({
+    email: emailSchema,
+    password: strongPasswordSchema,
+    confirmPassword: confirmPasswordSchema,
+  })
+  .superRefine((data, ctx) => {
+    if (data.password !== data.confirmPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Les mots de passe ne correspondent pas.',
+        path: ['confirmPassword'],
+      });
+    }
+  });
+
+const signInSchema = z.object({
+  email: emailSchema,
+  password: z
+    .string()
+    .min(1, 'Le mot de passe est requis.')
+    .max(128, 'Le mot de passe ne peut pas dépasser 128 caractères.'),
+});
 
 const SignUp = () => {
   const { user, loading: authLoading } = useAuth();
@@ -40,12 +88,37 @@ const SignUp = () => {
 
     if (loading) return;
 
-    if (mode === 'signup' && password !== confirmPassword) {
+    const presentValidationIssues = (issues: ZodIssue[]) => {
+      const primaryIssue = issues[0];
+      const description = primaryIssue?.message ?? 'Les informations fournies sont invalides.';
       toast({
-        title: 'Les mots de passe ne correspondent pas',
-        description: 'Veuillez vérifier votre mot de passe et sa confirmation.',
+        title: 'Validation requise',
+        description,
         variant: 'destructive',
       });
+    };
+
+    let credentials: { email: string; password: string } | null = null;
+
+    if (mode === 'signup') {
+      const parsed = signUpSchema.safeParse({ email, password, confirmPassword });
+      if (!parsed.success) {
+        presentValidationIssues(parsed.error.issues);
+        return;
+      }
+
+      credentials = { email: parsed.data.email, password: parsed.data.password };
+    } else {
+      const parsed = signInSchema.safeParse({ email, password });
+      if (!parsed.success) {
+        presentValidationIssues(parsed.error.issues);
+        return;
+      }
+
+      credentials = parsed.data;
+    }
+
+    if (!credentials) {
       return;
     }
 
@@ -54,8 +127,8 @@ const SignUp = () => {
     try {
       if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({
-          email,
-          password,
+          email: credentials.email,
+          password: credentials.password,
         });
 
         if (error) {
@@ -75,8 +148,8 @@ const SignUp = () => {
         navigate('/profile');
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
+          email: credentials.email,
+          password: credentials.password,
         });
 
         if (error) {

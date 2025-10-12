@@ -1,21 +1,33 @@
+import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { authenticateRequest } from "../_shared/auth.ts";
 
-type ChatHistoryEntry = {
-  role: 'assistant' | 'user';
-  content: string;
-};
+const historyEntrySchema = z.object({
+  role: z.enum(['assistant', 'user']),
+  content: z.string().trim().min(1).max(4000),
+});
 
-type RequestPayload = {
-  board: string;
-  moveHistory: string[];
-  currentPlayer: string;
-  turnNumber: number;
-  gameStatus: string;
-  activeRules: string[];
-  trigger: 'initial' | 'auto' | 'manual';
-  userMessage: string;
-  history?: ChatHistoryEntry[];
-};
+const requestSchema = z.object({
+  board: z.string().trim().min(1).max(256),
+  moveHistory: z
+    .array(z.string().trim().min(1).max(16))
+    .max(256)
+    .optional()
+    .default([]),
+  currentPlayer: z.enum(['white', 'black']),
+  turnNumber: z.coerce.number().int().min(0).max(1024),
+  gameStatus: z.string().trim().min(1).max(64),
+  activeRules: z
+    .array(z.string().trim().min(1).max(64))
+    .max(64)
+    .optional()
+    .default([]),
+  trigger: z.enum(['initial', 'auto', 'manual']),
+  userMessage: z.string().trim().max(1000).optional().default(''),
+  history: z.array(historyEntrySchema).max(12).optional(),
+});
+
+type RequestPayload = z.infer<typeof requestSchema>;
 
 const corsOptions = { methods: ["POST"] };
 
@@ -107,17 +119,29 @@ Deno.serve(async (req) => {
       return json(req, { error: "Method not allowed" }, { status: 405 });
     }
 
-    const payload = await req.json().catch(() => null) as RequestPayload | null;
-
-    if (!payload || !payload.board) {
-      return json(req, { error: "Game state is required" }, { status: 400 });
+    const authResult = await authenticateRequest(req);
+    if (!authResult.success) {
+      return json(req, { error: authResult.error }, { status: authResult.status });
     }
 
-    const history = Array.isArray(payload.history)
-      ? payload.history
-          .filter(entry => entry && typeof entry.content === 'string' && (entry.role === 'assistant' || entry.role === 'user'))
-          .slice(-8)
-      : [];
+    const rawBody = await req.json().catch(() => null);
+    const parsed = requestSchema.safeParse(rawBody);
+
+    if (!parsed.success) {
+      const details = parsed.error.issues.map(issue => ({
+        path: issue.path.join('.') || 'root',
+        message: issue.message,
+      }));
+      return json(req, { error: "Invalid request payload", details }, { status: 400 });
+    }
+
+    const payload = parsed.data;
+
+    if (payload.board.split('/').length !== 8) {
+      return json(req, { error: "Invalid board representation" }, { status: 400 });
+    }
+
+    const history = payload.history?.slice(-8) ?? [];
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 

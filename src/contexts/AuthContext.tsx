@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { User } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 import {
   supabase,
   isSupabaseConfigured,
@@ -9,6 +9,7 @@ import {
 
 type AuthContextValue = {
   user: User | null;
+  session: Session | null;
   loading: boolean;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const fallbackAuthContextValue: AuthContextValue = {
   user: null,
+  session: null,
   loading: false,
   signOut: async () => {
     throw new Error("Supabase n'est pas configuré : impossible de se déconnecter.");
@@ -74,29 +76,32 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
-  if (!isSupabaseConfigured || !supabase) {
-    return (
-      <AuthContext.Provider value={fallbackAuthContextValue}>
-        <MissingSupabaseConfig diagnostics={supabaseDiagnostics} />
-      </AuthContext.Provider>
-    );
-  }
-
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const shouldRenderFallback = !isSupabaseConfigured || !supabase;
+
   useEffect(() => {
+    if (shouldRenderFallback || !supabase) {
+      setLoading(false);
+      return;
+    }
+
     let isMounted = true;
 
     const loadUser = async () => {
       const {
-        data: { user: initialUser }
-      } = await supabase.auth.getUser();
+        data: { session: initialSession },
+      } = await supabase.auth.getSession();
 
-      if (isMounted) {
-        setUser(initialUser);
-        setLoading(false);
+      if (!isMounted) {
+        return;
       }
+
+      setSession(initialSession ?? null);
+      setUser(initialSession?.user ?? null);
+      setLoading(false);
     };
 
     loadUser();
@@ -104,6 +109,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session ?? null);
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -112,7 +118,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [shouldRenderFallback]);
+
+  if (shouldRenderFallback) {
+    return (
+      <AuthContext.Provider value={fallbackAuthContextValue}>
+        <MissingSupabaseConfig diagnostics={supabaseDiagnostics} />
+      </AuthContext.Provider>
+    );
+  }
 
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -124,14 +138,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const refreshUser = async () => {
     setLoading(true);
     const {
-      data: { user: refreshedUser }
-    } = await supabase.auth.getUser();
-    setUser(refreshedUser ?? null);
+      data: { session: refreshedSession }
+    } = await supabase.auth.getSession();
+    setSession(refreshedSession ?? null);
+    setUser(refreshedSession?.user ?? null);
     setLoading(false);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signOut: handleSignOut, refreshUser }}>
+    <AuthContext.Provider value={{ user, session, loading, signOut: handleSignOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
