@@ -59,7 +59,7 @@ serve(async req => {
 
     const { data: match, error: matchError } = await supabase
       .from("tournament_matches")
-      .select("id, tournament_id, player1_id, player2_id, status, result, winner_id, lobby_id")
+      .select("id, tournament_id, player1_id, player2_id, status, result, winner_id, lobby_id, is_ai_match, ai_opponent_label")
       .eq("id", matchId)
       .single();
 
@@ -72,11 +72,13 @@ serve(async req => {
       return jsonResponse(req, { error: "Le résultat a déjà été enregistré" }, { status: 409 }, corsOptions);
     }
 
-    if (!match.player2_id) {
+    const isAiMatch = match.is_ai_match === true;
+
+    if (!isAiMatch && !match.player2_id) {
       return jsonResponse(req, { error: "Le match n'a pas encore d'adversaire" }, { status: 409 }, corsOptions);
     }
 
-    if (user.id !== match.player1_id && user.id !== match.player2_id) {
+    if (user.id !== match.player1_id && (!isAiMatch && user.id !== match.player2_id)) {
       return jsonResponse(req, { error: "Vous ne participez pas à ce match" }, { status: 403 }, corsOptions);
     }
 
@@ -84,7 +86,9 @@ serve(async req => {
       ? null
       : result === "player1"
         ? match.player1_id
-        : match.player2_id;
+        : isAiMatch
+          ? null
+          : match.player2_id;
 
     const nowIso = new Date().toISOString();
 
@@ -112,24 +116,34 @@ serve(async req => {
         .eq("id", match.lobby_id);
     }
 
-    const { data: registrations, error: registrationsError } = await supabase
-      .from("tournament_registrations")
-      .select("user_id, wins, losses, draws, points")
-      .eq("tournament_id", match.tournament_id)
-      .in("user_id", [match.player1_id, match.player2_id]);
+    const participantIds = [match.player1_id, match.player2_id].filter((value): value is string => typeof value === "string");
+
+    let registrations: Array<{ user_id: string; wins: number | null; losses: number | null; draws: number | null; points: number | null }> = [];
+    let registrationsError: unknown = null;
+
+    if (participantIds.length > 0) {
+      const { data, error } = await supabase
+        .from("tournament_registrations")
+        .select("user_id, wins, losses, draws, points")
+        .eq("tournament_id", match.tournament_id)
+        .in("user_id", participantIds);
+
+      registrations = data ?? [];
+      registrationsError = error;
+    }
 
     if (registrationsError) {
-      console.error("Unable to fetch registrations", registrationsError.message);
+      console.error("Unable to fetch registrations", (registrationsError as { message?: string | null })?.message ?? registrationsError);
       return jsonResponse(req, { error: "Impossible de mettre à jour le classement" }, { status: 500 }, corsOptions);
     }
 
-    const registrationMap = new Map(registrations?.map(entry => [entry.user_id, entry] as const));
+    const registrationMap = new Map(registrations.map(entry => [entry.user_id, entry] as const));
 
     const playerOneDelta = computeStandingsDelta(result, true);
     const playerTwoDelta = computeStandingsDelta(result, false);
 
     const playerOneStats = registrationMap.get(match.player1_id);
-    const playerTwoStats = registrationMap.get(match.player2_id);
+    const playerTwoStats = match.player2_id ? registrationMap.get(match.player2_id) : null;
 
     const updates = [
       {
@@ -139,16 +153,26 @@ serve(async req => {
         draws: (playerOneStats?.draws ?? 0) + playerOneDelta.draws,
         points: (playerOneStats?.points ?? 0) + playerOneDelta.points,
       },
-      {
+    ] as Array<{
+      userId: string | null;
+      wins: number;
+      losses: number;
+      draws: number;
+      points: number;
+    }>;
+
+    if (!isAiMatch && match.player2_id) {
+      updates.push({
         userId: match.player2_id,
         wins: (playerTwoStats?.wins ?? 0) + playerTwoDelta.wins,
         losses: (playerTwoStats?.losses ?? 0) + playerTwoDelta.losses,
         draws: (playerTwoStats?.draws ?? 0) + playerTwoDelta.draws,
         points: (playerTwoStats?.points ?? 0) + playerTwoDelta.points,
-      },
-    ];
+      });
+    }
 
     for (const update of updates) {
+      if (!update.userId) continue;
       await supabase
         .from("tournament_registrations")
         .update({

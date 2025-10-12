@@ -12,11 +12,8 @@ const normaliseEnv = (value: string | null | undefined) => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const AI_EMAIL = normaliseEnv(Deno.env.get("TOURNAMENT_AI_EMAIL")) ?? "voltus-bot@voltus-chess.ai";
 const AI_DISPLAY_NAME = normaliseEnv(Deno.env.get("TOURNAMENT_AI_NAME")) ?? "Voltus AI";
-const AI_AVATAR_URL = normaliseEnv(Deno.env.get("TOURNAMENT_AI_AVATAR_URL"));
-
-const generateRandomSecret = () => crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().slice(0, 12);
+const AI_DIFFICULTY = normaliseEnv(Deno.env.get("TOURNAMENT_AI_DIFFICULTY")) ?? "standard";
 
 const inferDisplayName = (user: { email?: string | null; user_metadata?: Record<string, unknown> }, fallback?: string | null) => {
   const metadata = user.user_metadata ?? {};
@@ -43,7 +40,7 @@ const getMatchDetails = async (matchId: string) => {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("tournament_matches")
-    .select("id, tournament_id, lobby_id, table_number, player1_id, player2_id, status, result, started_at, completed_at, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
+    .select("id, tournament_id, lobby_id, table_number, player1_id, player2_id, status, result, started_at, completed_at, is_ai_match, ai_opponent_label, ai_opponent_difficulty, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
     .eq("id", matchId)
     .single();
 
@@ -54,69 +51,13 @@ const getMatchDetails = async (matchId: string) => {
   return data;
 };
 
-const fetchAiUser = async () => {
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase.auth.admin.getUserByEmail(AI_EMAIL);
-    if (error) {
-      if (error.message && !error.message.toLowerCase().includes("no user found")) {
-        console.warn("[tournament-matchmaking] Unable to fetch AI user:", error.message);
-      }
-      return null;
-    }
-    return data?.user ?? null;
-  } catch (error) {
-    console.error("[tournament-matchmaking] Failed to query AI user:", error instanceof Error ? error.message : error);
-    return null;
-  }
-};
-
-const createAiUser = async () => {
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase.auth.admin.createUser({
-      email: AI_EMAIL,
-      email_confirm: true,
-      password: generateRandomSecret(),
-      user_metadata: {
-        full_name: AI_DISPLAY_NAME,
-        is_ai_bot: true,
-      },
-    });
-
-    if (error) {
-      if (!error.message.toLowerCase().includes("already registered")) {
-        console.error("[tournament-matchmaking] Unable to create AI user:", error.message);
-      }
-      return null;
-    }
-
-    return data?.user ?? null;
-  } catch (error) {
-    console.error("[tournament-matchmaking] Failed to create AI user:", error instanceof Error ? error.message : error);
-    return null;
-  }
-};
-
-const ensureAiUser = async () => {
-  const existing = await fetchAiUser();
-  if (existing) return existing;
-  const created = await createAiUser();
-  if (created) return created;
-  return await fetchAiUser();
-};
-
-const countHumanRegistrations = async (tournamentId: string, aiUserId?: string) => {
+const countHumanRegistrations = async (tournamentId: string) => {
   if (!supabase) return 0;
 
   const query = supabase
     .from("tournament_registrations")
     .select("id", { count: "exact", head: true })
     .eq("tournament_id", tournamentId);
-
-  if (aiUserId) {
-    query.neq("user_id", aiUserId);
-  }
 
   const { count, error } = await query;
   if (error) {
@@ -143,71 +84,32 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
     return false;
   }
 
-  const aiUser = await ensureAiUser();
-  if (!aiUser) {
-    return false;
-  }
-
-  const confirmedHumanCount = await countHumanRegistrations(context.tournamentId, aiUser.id);
-  if (confirmedHumanCount > 1) {
-    return false;
-  }
-
-  const { error: upsertError } = await supabase
-    .from("tournament_registrations")
-    .upsert(
-      {
-        tournament_id: context.tournamentId,
-        user_id: aiUser.id,
-        display_name: AI_DISPLAY_NAME,
-        avatar_url: AI_AVATAR_URL,
-        current_match_id: context.matchId,
-        is_waiting: false,
-        last_active_at: context.nowIso,
-      },
-      { onConflict: "tournament_id,user_id" },
-    );
-
-  if (upsertError) {
-    console.error("[tournament-matchmaking] Unable to upsert AI registration:", upsertError.message);
-    return false;
-  }
-
   const { error: updateMatchError } = await supabase
     .from("tournament_matches")
     .update({
-      player2_id: aiUser.id,
       status: "in_progress",
       started_at: context.nowIso,
       updated_at: context.nowIso,
+      is_ai_match: true,
+      ai_opponent_label: AI_DISPLAY_NAME,
+      ai_opponent_difficulty: AI_DIFFICULTY,
     })
     .eq("id", context.matchId)
     .eq("tournament_id", context.tournamentId);
 
   if (updateMatchError) {
-    console.error("[tournament-matchmaking] Unable to attach AI to match:", updateMatchError.message);
+    console.error("[tournament-matchmaking] Unable to mark match as AI:", updateMatchError.message);
     return false;
   }
 
-  const humanUpdate = supabase
+  const { error: humanUpdateError } = await supabase
     .from("tournament_registrations")
     .update({ current_match_id: context.matchId, is_waiting: false, last_active_at: context.nowIso })
     .eq("id", context.humanRegistrationId);
 
-  const aiUpdate = supabase
-    .from("tournament_registrations")
-    .update({ current_match_id: context.matchId, is_waiting: false, last_active_at: context.nowIso })
-    .eq("tournament_id", context.tournamentId)
-    .eq("user_id", aiUser.id);
-
-  const updates = await Promise.allSettled([humanUpdate, aiUpdate]);
-  updates.forEach(result => {
-    if (result.status === "rejected") {
-      console.warn("[tournament-matchmaking] Failed to update registration state:", result.reason);
-    } else if (result.value.error) {
-      console.warn("[tournament-matchmaking] Registration update warning:", result.value.error.message);
-    }
-  });
+  if (humanUpdateError) {
+    console.warn("[tournament-matchmaking] Unable to update registration for AI match:", humanUpdateError.message);
+  }
 
   if (context.lobbyId) {
     const { error: lobbyError } = await supabase
@@ -215,7 +117,7 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
       .update({
         status: "matched",
         mode: "ai",
-        opponent_id: aiUser.id,
+        opponent_id: null,
         opponent_name: AI_DISPLAY_NAME,
         is_active: false,
       })

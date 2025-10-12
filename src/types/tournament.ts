@@ -4,6 +4,9 @@ export type TournamentOverview = Tables<"tournament_overview">;
 export type Tournament = Tables<"tournaments">;
 export type TournamentRegistration = Tables<"tournament_registrations">;
 export type TournamentMatch = Tables<"tournament_matches"> & {
+  is_ai_match?: boolean | null;
+  ai_opponent_label?: string | null;
+  ai_opponent_difficulty?: string | null;
   lobby?: {
     id: string;
     name: string;
