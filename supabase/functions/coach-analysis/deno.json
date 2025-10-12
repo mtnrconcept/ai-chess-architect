@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "pg": "https://deno.land/x/postgres@v0.17.2/mod.ts"
+  }
+}
