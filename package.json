@@ -8,7 +8,8 @@
     "build": "vite build --mode production",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview --mode preview"
+    "preview": "vite preview --mode preview",
+    "db:migrate": "node scripts/run-supabase-migrations.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -78,6 +79,7 @@
     "globals": "^15.15.0",
     "lovable-tagger": "^1.1.10",
     "postcss": "^8.5.6",
+    "postgres": "^3.4.7",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
