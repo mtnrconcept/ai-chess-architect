@@ -8,16 +8,41 @@ const normaliseEnv = (value) => {
 
 const env = process.env;
 
-const projectRef =
+const EXPECTED_PROJECT_ID = 'ucaqbhmyutlnitnedowk';
+const EXPECTED_PROJECT_NAME = 'Youaregood';
+
+const configuredProjectRef =
   normaliseEnv(env.SUPABASE_PROJECT_ID) ??
   normaliseEnv(env.SUPABASE_PROJECT_REF) ??
   normaliseEnv(env.SUPABASE_REFERENCE_ID) ??
   normaliseEnv(env.VITE_SUPABASE_PROJECT_ID) ??
   normaliseEnv(env.VITE_SUPABASE_PROJECT_REF) ??
   normaliseEnv(env.VITE_SUPABASE_REFERENCE_ID);
+const configuredProjectName =
+  normaliseEnv(env.SUPABASE_PROJECT_NAME) ??
+  normaliseEnv(env.VITE_SUPABASE_PROJECT_NAME);
+
+const projectRef = configuredProjectRef ?? EXPECTED_PROJECT_ID;
+const projectName = configuredProjectName ?? EXPECTED_PROJECT_NAME;
+
+if (configuredProjectRef && configuredProjectRef !== EXPECTED_PROJECT_ID) {
+  console.warn(
+    `[sync-tournaments] Identifiant Supabase inattendu (${configuredProjectRef}). Utilisation de ${EXPECTED_PROJECT_ID} pour ${EXPECTED_PROJECT_NAME}.`
+  );
+}
+
+if (!configuredProjectRef) {
+  console.log(
+    `[sync-tournaments] Aucun identifiant Supabase explicite fourni. Utilisation du projet ${EXPECTED_PROJECT_NAME} (${EXPECTED_PROJECT_ID}).`
+  );
+}
 
 const explicitSupabaseUrl = normaliseEnv(env.SUPABASE_URL) ?? normaliseEnv(env.VITE_SUPABASE_URL);
 const supabaseUrl = explicitSupabaseUrl ?? (projectRef ? `https://${projectRef}.supabase.co` : undefined);
+
+if (supabaseUrl) {
+  console.log(`[sync-tournaments] Projet Supabase ${projectName} (${projectRef}) ciblé via ${supabaseUrl}.`);
+}
 
 let functionsBase = normaliseEnv(env.SUPABASE_FUNCTIONS_URL);
 

@@ -1,3 +1,5 @@
+# Supabase project name used across environments
+# project = "Youaregood"
 project_id = "ucaqbhmyutlnitnedowk"
 
 [functions.chess-insights]
