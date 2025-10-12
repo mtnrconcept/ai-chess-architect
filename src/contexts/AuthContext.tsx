@@ -1,6 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import {
+  supabase,
+  isSupabaseConfigured,
+  supabaseDiagnostics,
+  type SupabaseDiagnostics,
+} from '@/integrations/supabase/client';
 
 type AuthContextValue = {
   user: User | null;
@@ -11,11 +16,69 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const fallbackAuthContextValue: AuthContextValue = {
+  user: null,
+  loading: false,
+  signOut: async () => {
+    throw new Error("Supabase n'est pas configuré : impossible de se déconnecter.");
+  },
+  refreshUser: async () => {
+    throw new Error("Supabase n'est pas configuré : impossible de rafraîchir l'utilisateur.");
+  },
+};
+
+type MissingSupabaseConfigProps = {
+  diagnostics: SupabaseDiagnostics;
+};
+
+const MissingSupabaseConfig = ({ diagnostics }: MissingSupabaseConfigProps) => (
+  <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 py-12 text-center">
+    <div className="max-w-xl space-y-4">
+      <h1 className="text-3xl font-semibold text-destructive">Configuration Supabase manquante</h1>
+      <p className="text-muted-foreground">
+        Aucune instance Supabase n'est configurée pour cet environnement. Renseigne les variables
+        <code className="mx-1 rounded bg-muted px-2 py-0.5">VITE_SUPABASE_URL</code>
+        et
+        <code className="mx-1 rounded bg-muted px-2 py-0.5">VITE_SUPABASE_ANON_KEY</code>
+        dans Lovable puis relance le déploiement.
+      </p>
+      {diagnostics.problems.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-left text-sm">
+          <p className="mb-2 font-medium text-destructive">Problèmes détectés :</p>
+          <ul className="list-disc space-y-1 pl-5 text-destructive">
+            {diagnostics.problems.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Projet détecté :{' '}
+        <code className="rounded bg-muted px-1 py-0.5">
+          {diagnostics.projectId ?? 'inconnu'}
+        </code>{' '}
+        • URL brute :{' '}
+        <code className="rounded bg-muted px-1 py-0.5">
+          {diagnostics.rawUrl ?? 'non fournie'}
+        </code>
+      </p>
+    </div>
+  </div>
+);
+
 interface AuthProviderProps {
   children: ReactNode;
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
+  if (!isSupabaseConfigured || !supabase) {
+    return (
+      <AuthContext.Provider value={fallbackAuthContextValue}>
+        <MissingSupabaseConfig diagnostics={supabaseDiagnostics} />
+      </AuthContext.Provider>
+    );
+  }
+
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
