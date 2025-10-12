@@ -32,21 +32,23 @@ const SUPABASE_ANON_KEY =
   normaliseEnvValue(import.meta.env.VITE_SUPABASE_PUBLIC_ANON_KEY) ??
   normaliseEnvValue(import.meta.env.VITE_ANON_KEY);
 
+type SupabaseDiagnostics = {
+  initialisedAt: string;
+  projectId?: string | null;
+  rawUrl?: string | null;
+  resolvedUrl?: string | null;
+  isPlaceholderUrl: boolean;
+  anonKeyPreview?: string | null;
+  problems: string[];
+};
+
 declare global {
   interface Window {
-    __SUPABASE_ENV_DIAG__?: {
-      initialisedAt: string;
-      projectId?: string | null;
-      rawUrl?: string | null;
-      resolvedUrl?: string | null;
-      isPlaceholderUrl: boolean;
-      anonKeyPreview?: string | null;
-      problems: string[];
-    };
+    __SUPABASE_ENV_DIAG__?: SupabaseDiagnostics;
   }
 
   // eslint-disable-next-line no-var
-  var __SUPABASE_CLIENT__: SupabaseClient<Database> | undefined;
+  var __SUPABASE_CLIENT__: SupabaseClient<Database> | null | undefined;
 }
 
 function buildEnvProblems() {
@@ -73,27 +75,27 @@ function buildEnvProblems() {
   return problems;
 }
 
-function throwIfEnvInvalid(problems: string[]) {
-  if (problems.length) {
-    throw new Error(
-      `Supabase env invalides: ${problems.join(' | ')}. Corrige tes variables Lovable (Preview/Prod) avant de déployer.`
-    );
-  }
-}
+type SupabaseInitialisation = {
+  client: SupabaseClient<Database> | null;
+  diagnostics: SupabaseDiagnostics;
+};
 
-function createSingletonClient() {
+function createSingletonClient(): SupabaseInitialisation {
   const globalScope = globalThis as typeof globalThis & {
-    __SUPABASE_CLIENT__?: SupabaseClient<Database>;
-    __SUPABASE_ENV_DIAG__?: Window['__SUPABASE_ENV_DIAG__'];
+    __SUPABASE_CLIENT__?: SupabaseClient<Database> | null;
+    __SUPABASE_ENV_DIAG__?: SupabaseDiagnostics;
   };
 
-  if (globalScope.__SUPABASE_CLIENT__) {
-    return globalScope.__SUPABASE_CLIENT__;
+  if (globalScope.__SUPABASE_CLIENT__ !== undefined && globalScope.__SUPABASE_ENV_DIAG__) {
+    return {
+      client: globalScope.__SUPABASE_CLIENT__,
+      diagnostics: globalScope.__SUPABASE_ENV_DIAG__,
+    } satisfies SupabaseInitialisation;
   }
 
   const problems = buildEnvProblems();
 
-  const diag = {
+  const diagnostics: SupabaseDiagnostics = {
     initialisedAt: new Date().toISOString(),
     projectId: NORMALISED_PROJECT_ID ?? null,
     rawUrl: RAW_SUPABASE_URL ?? null,
@@ -103,15 +105,22 @@ function createSingletonClient() {
       ? `${SUPABASE_ANON_KEY.slice(0, 6)}…${SUPABASE_ANON_KEY.slice(-4)}`
       : null,
     problems,
-  } as const;
+  };
 
   if (typeof window !== 'undefined') {
-    window.__SUPABASE_ENV_DIAG__ = diag;
+    window.__SUPABASE_ENV_DIAG__ = diagnostics;
   }
 
-  globalScope.__SUPABASE_ENV_DIAG__ = diag;
+  globalScope.__SUPABASE_ENV_DIAG__ = diagnostics;
 
-  throwIfEnvInvalid(problems);
+  if (problems.length > 0) {
+    console.error(
+      `Supabase env invalides: ${problems.join(' | ')}. Corrige tes variables Lovable (Preview/Prod) avant de déployer.`
+    );
+    globalScope.__SUPABASE_CLIENT__ = null;
+
+    return { client: null, diagnostics } satisfies SupabaseInitialisation;
+  }
 
   const client = createClient<Database>(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
     auth: {
@@ -123,7 +132,23 @@ function createSingletonClient() {
 
   globalScope.__SUPABASE_CLIENT__ = client;
 
-  return client;
+  return { client, diagnostics } satisfies SupabaseInitialisation;
 }
 
-export const supabase = createSingletonClient();
+const { client: supabase, diagnostics: supabaseDiagnostics } = createSingletonClient();
+
+export { supabase, supabaseDiagnostics };
+export type { SupabaseDiagnostics };
+
+export const isSupabaseConfigured = supabase !== null;
+export const supabaseEnvProblems = supabaseDiagnostics.problems;
+
+export function requireSupabaseClient(): SupabaseClient<Database> {
+  if (!supabase) {
+    throw new Error(
+      `Le client Supabase n'est pas initialisé. Vérifie ta configuration: ${supabaseEnvProblems.join(' | ')}`
+    );
+  }
+
+  return supabase;
+}
