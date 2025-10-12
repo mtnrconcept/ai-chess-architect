@@ -11,6 +11,7 @@ import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { analyzeRuleLogic } from '@/lib/ruleValidation';
+import type { Database } from '@/integrations/supabase/types';
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -121,7 +122,11 @@ const Generator = () => {
     }
 
     try {
-      const { error } = await supabase.from('custom_chess_rules').insert({ 
+      const sanitizedTags = Array.isArray(generatedRule.tags)
+        ? generatedRule.tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0)
+        : [];
+
+      const rulePayload: Database['public']['Tables']['custom_chess_rules']['Insert'] = {
         rule_id: generatedRule.ruleId,
         rule_name: generatedRule.ruleName,
         description: generatedRule.description,
@@ -130,18 +135,48 @@ const Generator = () => {
         trigger: generatedRule.trigger,
         conditions: generatedRule.conditions as any,
         effects: generatedRule.effects as any,
-        tags: generatedRule.tags,
         priority: generatedRule.priority,
         is_active: generatedRule.isActive,
         validation_rules: generatedRule.validationRules as any,
-        user_id: user.id
-      });
+        user_id: user.id,
+      };
 
-      if (error) throw error;
+      if (sanitizedTags.length > 0) {
+        rulePayload.tags = sanitizedTags;
+      }
+
+      const { error } = await supabase
+        .from('custom_chess_rules')
+        .insert(rulePayload);
+
+      let savedWithFallback = false;
+
+      if (error) {
+        const missingTagsColumn = typeof error.message === 'string'
+          && error.message.toLowerCase().includes("'tags' column");
+
+        if (missingTagsColumn && Array.isArray(rulePayload.tags) && rulePayload.tags.length > 0) {
+          console.warn('Tags column missing in schema, retrying without tags', error);
+          const { tags: _removedTags, ...payloadWithoutTags } = rulePayload;
+          const { error: retryError } = await supabase
+            .from('custom_chess_rules')
+            .insert(payloadWithoutTags as Database['public']['Tables']['custom_chess_rules']['Insert']);
+
+          if (retryError) {
+            throw retryError;
+          }
+
+          savedWithFallback = true;
+        } else {
+          throw error;
+        }
+      }
 
       toast({
         title: "Règle sauvegardée !",
-        description: "La règle a été ajoutée au lobby",
+        description: savedWithFallback
+          ? "La règle a été ajoutée au lobby, mais les tags n'ont pas pu être enregistrés car la base de données n'est pas à jour."
+          : "La règle a été ajoutée au lobby",
       });
 
       setPrompt('');
