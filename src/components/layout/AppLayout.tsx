@@ -11,6 +11,7 @@ const navigationLinks = [
   { label: "Lobby", to: "/lobby" },
   { label: "Jouer", to: "/play" },
   { label: "Variantes IA", to: "/generator" },
+  { label: "Abonnements", to: "/pricing" },
   { label: "Tournois", to: "/tournaments" },
   { label: "Classement", to: "/leaderboard" },
   { label: "Analyse", to: "/analysis" },

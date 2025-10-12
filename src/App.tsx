@@ -15,6 +15,7 @@ import Leaderboard from "./pages/Leaderboard";
 import Settings from "./pages/Settings";
 import MatchAnalysis from "./pages/MatchAnalysis";
 import Tournaments from "./pages/Tournaments";
+import Pricing from "./pages/Pricing";
 import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
@@ -38,6 +39,7 @@ const App = () => (
               <Route path="/settings" element={<Settings />} />
               <Route path="/analysis" element={<MatchAnalysis />} />
               <Route path="/tournaments" element={<Tournaments />} />
+              <Route path="/pricing" element={<Pricing />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
