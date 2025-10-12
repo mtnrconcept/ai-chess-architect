@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --mode production",
-    "build:dev": "vite build --mode development",
+    "sync:tournaments": "node scripts/sync-tournaments.mjs",
+    "build": "npm run sync:tournaments && vite build --mode production",
+    "build:dev": "npm run sync:tournaments && vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview --mode preview",
     "db:migrate": "node scripts/run-supabase-migrations.mjs"
