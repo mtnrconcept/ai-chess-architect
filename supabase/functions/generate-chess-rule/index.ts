@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { authenticateRequest } from "../_shared/auth.ts";
 
 const corsOptions = { methods: ["POST"] };
 
@@ -13,11 +15,29 @@ serve(async (req) => {
       return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);
     }
 
-    const { prompt } = await req.json();
-
-    if (!prompt || !prompt.trim()) {
-      return jsonResponse(req, { error: "Prompt is required" }, { status: 400 }, corsOptions);
+    const authResult = await authenticateRequest(req);
+    if (!authResult.success) {
+      return jsonResponse(req, { error: authResult.error }, { status: authResult.status }, corsOptions);
     }
+
+    const rawBody = await req.json().catch(() => null);
+    const schema = z.object({ prompt: z.string().trim().min(10).max(800) });
+    const parsed = schema.safeParse(rawBody);
+
+    if (!parsed.success) {
+      const details = parsed.error.issues.map(issue => ({
+        path: issue.path.join('.') || 'root',
+        message: issue.message,
+      }));
+      return jsonResponse(
+        req,
+        { error: "Invalid request payload", details },
+        { status: 400 },
+        corsOptions,
+      );
+    }
+
+    const prompt = parsed.data.prompt;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {

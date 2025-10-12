@@ -54,6 +54,10 @@ export const saveCompletedGame = async ({
   durationSeconds,
   metadata,
 }: SaveGamePayload) => {
+  if (!userId) {
+    throw new Error('Une authentification est requise pour enregistrer une partie.');
+  }
+
   const overview: AnalysisOverviewPayload = {
     evaluationByMove: analysis.evaluationByMove,
     moveTimeBuckets: analysis.moveTimeBuckets,
