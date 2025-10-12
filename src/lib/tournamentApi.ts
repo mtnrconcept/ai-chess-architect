@@ -144,7 +144,9 @@ const isFunctionUnavailable = (error: { message?: string | null; code?: string |
     message.includes("not found") ||
     message.includes("not exist") ||
     message.includes("schema cache") ||
-    message.includes("unavailable")
+    message.includes("unavailable") ||
+    message.includes("failed to send a request") ||
+    message.includes("edge function")
   );
 };
 
