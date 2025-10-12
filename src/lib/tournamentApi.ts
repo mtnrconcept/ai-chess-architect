@@ -18,12 +18,59 @@ export class TournamentFeatureUnavailableError extends Error {
   }
 }
 
+type ErrorWithStatus = {
+  status?: number | string | null;
+};
+
+const extractStatusCode = (error: ErrorWithStatus | null | undefined) => {
+  if (!error) {
+    return undefined;
+  }
+
+  const { status } = error;
+
+  if (typeof status === "number" && Number.isFinite(status)) {
+    return status;
+  }
+
+  if (typeof status === "string") {
+    const parsed = Number.parseInt(status, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+};
+
+const normaliseErrorCode = (code: unknown) => {
+  if (typeof code !== "string") {
+    return "";
+  }
+
+  return code.trim().toUpperCase();
+};
+
+const MISSING_RELATION_ERROR_CODES = new Set([
+  "42P01",
+  "PGRST205",
+  "PGRST302",
+  "PGRST404",
+  "404",
+]);
+
 const isOverviewViewMissing = (error: PostgrestError | null) => {
   if (!error) {
     return false;
   }
 
-  if (error.code === "42P01") {
+  const status = extractStatusCode(error as ErrorWithStatus);
+  if (status === 404) {
+    return true;
+  }
+
+  const code = normaliseErrorCode(error.code);
+  if (code && (code === "42P01" || code === "PGRST404" || code === "404")) {
     return true;
   }
 
@@ -36,7 +83,13 @@ const isRelationMissing = (error: PostgrestError | null) => {
     return false;
   }
 
-  if (error.code === "42P01" || error.code === "PGRST302" || error.code === "PGRST205") {
+  const status = extractStatusCode(error as ErrorWithStatus);
+  if (status === 404) {
+    return true;
+  }
+
+  const code = normaliseErrorCode(error.code);
+  if (code && MISSING_RELATION_ERROR_CODES.has(code)) {
     return true;
   }
 
@@ -53,6 +106,34 @@ const isRelationMissing = (error: PostgrestError | null) => {
     haystack.includes("not exist") ||
     haystack.includes("not found") ||
     haystack.includes("schema cache")
+  );
+};
+
+const isFunctionUnavailable = (error: { message?: string | null; code?: string | null } & ErrorWithStatus) => {
+  if (!error) {
+    return false;
+  }
+
+  const status = extractStatusCode(error);
+  if (status === 404 || status === 503) {
+    return true;
+  }
+
+  const code = normaliseErrorCode(error.code);
+  if (code && (code === "FEATURE_UNAVAILABLE" || MISSING_RELATION_ERROR_CODES.has(code))) {
+    return true;
+  }
+
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  if (!message) {
+    return false;
+  }
+
+  return (
+    message.includes("not found") ||
+    message.includes("not exist") ||
+    message.includes("schema cache") ||
+    message.includes("unavailable")
   );
 };
 
@@ -188,21 +269,13 @@ export const syncTournaments = async () => {
   try {
     const { error } = await supabase.functions.invoke("sync-tournaments", { body: {} });
     if (error) {
-      const message = typeof error.message === "string" ? error.message : "";
-      const code = typeof (error as { code?: unknown }).code === "string" ? (error as { code?: string }).code : "";
-      const haystack = message.toLowerCase();
-
-      if (
-        code === "feature_unavailable" ||
-        code === "PGRST205" ||
-        haystack.includes("not found") ||
-        haystack.includes("not exist") ||
-        haystack.includes("schema cache")
-      ) {
+      if (isFunctionUnavailable(error)) {
         throw new TournamentFeatureUnavailableError(
           "La synchronisation des tournois n'est pas disponible. Vérifiez le déploiement de l'edge function 'sync-tournaments' et appliquez les migrations Supabase associées.",
         );
       }
+
+      const message = typeof error.message === "string" ? error.message : "";
       throw new Error(message || "Impossible de synchroniser les tournois");
     }
   } catch (unknownError) {
@@ -342,8 +415,7 @@ export const requestTournamentMatch = async (
   );
 
   if (error) {
-    const message = error.message?.toLowerCase() ?? "";
-    if (message.includes("not found") || message.includes("not exist")) {
+    if (isFunctionUnavailable(error)) {
       throw new TournamentFeatureUnavailableError(
         "La fonction de matchmaking Supabase n'est pas disponible. Déployez 'tournament-matchmaking'.",
       );
@@ -364,8 +436,7 @@ export const reportTournamentMatch = async (
   }>("report-tournament-match", { body: { matchId, result } });
 
   if (error) {
-    const message = error.message?.toLowerCase() ?? "";
-    if (message.includes("not found") || message.includes("not exist")) {
+    if (isFunctionUnavailable(error)) {
       throw new TournamentFeatureUnavailableError(
         "La fonction de reporting Supabase n'est pas disponible. Déployez 'report-tournament-match'.",
       );
