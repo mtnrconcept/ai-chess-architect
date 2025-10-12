@@ -8,6 +8,7 @@ export type TournamentMatch = Tables<"tournament_matches"> & {
     id: string;
     name: string;
     status: string;
+    mode?: "ai" | "player" | null;
     opponent_name?: string | null;
     opponent_id?: string | null;
   } | null;

@@ -288,18 +288,21 @@ const TournamentPage = () => {
         const isPreset = presetRuleMap.has(ruleId);
         const lobby = match.lobby;
         const lobbyName = lobby.name ?? "Salle multijoueur";
+        const lobbyMode = lobby.mode === "ai" ? "ai" : "player";
         const role: "creator" | "opponent" = user && user.id === match.player1_id ? "creator" : "opponent";
         const playerName = resolveUserDisplayName(user ?? null);
         const opponentName =
-          role === "creator"
-            ? lobby.opponent_name ?? "Adversaire"
-            : lobby.name ?? lobby.opponent_name ?? "Adversaire";
+          lobbyMode === "ai"
+            ? lobby.opponent_name ?? "Voltus AI"
+            : role === "creator"
+              ? lobby.opponent_name ?? "Adversaire"
+              : lobby.name ?? lobby.opponent_name ?? "Adversaire";
 
         navigate("/play", {
           state: {
             customRules: isPreset ? [] : [preparedRule],
             presetRuleIds: isPreset ? [ruleId] : [],
-            opponentType: "player",
+            opponentType: lobbyMode,
             lobbyId: lobby.id,
             lobbyName,
             role,
@@ -717,7 +720,9 @@ const TournamentPage = () => {
                 <p className="text-sm text-emerald-100/80">
                   {ongoingMatchRegistration.current_match.status === "pending"
                     ? "Nous attendons qu'un adversaire rejoigne votre table."
-                    : "Votre adversaire est connecté, il est temps de lancer la partie !"}
+                    : ongoingMatchRegistration.current_match.lobby?.mode === "ai"
+                      ? "Voltus AI est prêt à vous défier."
+                      : "Votre adversaire est connecté, il est temps de lancer la partie !"}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs text-emerald-100/70">
                   <Badge variant="outline" className="border-emerald-300/40 bg-emerald-500/20 text-emerald-100">

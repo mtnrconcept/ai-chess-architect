@@ -353,7 +353,7 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
 
   const { data: registrations, error: registrationsError } = await supabaseClient
     .from("tournament_registrations")
-    .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, opponent_name, opponent_id))")
+    .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id))")
     .eq("tournament_id", tournamentId)
     .order("points", { ascending: false })
     .order("wins", { ascending: false })
@@ -368,7 +368,7 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
 
   const { data: matches, error: matchesError } = await supabaseClient
     .from("tournament_matches")
-    .select("*, lobby:lobbies(id, name, status, opponent_name, opponent_id)")
+    .select("*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
     .eq("tournament_id", tournamentId)
     .order("created_at", { ascending: false });
 
@@ -391,7 +391,7 @@ export const fetchUserTournamentRegistrations = async (userId: string): Promise<
 
   const { data, error } = await supabaseClient
     .from("tournament_registrations")
-    .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, opponent_name, opponent_id))")
+    .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id))")
     .eq("user_id", userId)
     .order("joined_at", { ascending: false });
 
