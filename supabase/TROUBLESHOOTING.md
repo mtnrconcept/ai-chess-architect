@@ -206,11 +206,22 @@ exist in the cached schema. Common culprits:
 ## REST `/rest/v1/...` endpoints return **404 Not Found** for tables such as `tournaments`
 
 `404` combined with Supabase logs that mention `PGRST205` indicates the table or view is missing or PostgREST never refreshed its
-cache. Create the underlying objects (or run the migration that defines them) and notify PostgREST to reload. If you are using a
-non-`public` schema, remember to either set the schema on the client (`supabase.schema('app')`) or create synonyms in `public`.
+cache. In practice this surfaces when the dashboard shows `/rest/v1/tournaments` or `/rest/v1/tournament_overview` returning `404`
+while Lovable still points to a freshly created project. Fix it with the following checklist:
+
+1. **Apply the migrations** – Run `supabase db push` (or execute the SQL files in `supabase/migrations`) so that the tables
+   `public.tournaments`, `public.tournament_matches`, `public.tournament_registrations` and the `public.tournament_overview`
+   view exist.
+2. **Reload PostgREST's schema cache** – After the objects are present, run
+   `select pg_notify('pgrst','reload schema');` to make `/rest/v1/*` aware of them. Skipping this step keeps the 404 in place.
+3. **(Optional) Grant explicit privileges** – If you work with custom roles, ensure they have `usage` on the schema and `select`
+   on the tables/views (for example `grant usage on schema public to anon; grant select on public.tournaments to anon;`).
+
+If you are using a non-`public` schema, remember to either set the schema on the client (`supabase.schema('app')`) or create
+synonyms in `public` so the REST API can expose them.
 
 For a quick bootstrap environment, reuse the minimal DDL from `supabase/migrations/20251215100000_create_tournament_system.sql`
-and `20260301120000_create_user_games.sql`. After creation, run `select pg_notify('pgrst','reload schema');` to expose them.
+and `20260301120000_create_user_games.sql`. After creation, rerun the `pg_notify` command above to expose them.
 
 ---
 

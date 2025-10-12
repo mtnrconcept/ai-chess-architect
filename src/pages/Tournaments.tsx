@@ -660,10 +660,31 @@ const TournamentPage = () => {
         {tournamentsUnavailable ? (
           <Alert className="border-rose-500/30 bg-rose-500/10 text-rose-100">
             <AlertTitle>Configuration requise</AlertTitle>
-            <AlertDescription>
-              Cette instance n'a pas encore provisionné les tables et fonctions Supabase liées aux tournois. Exécutez les
-              migrations SQL et déployez les edge functions `sync-tournaments`, `tournament-matchmaking` et
-              `report-tournament-match` pour activer la fonctionnalité.
+            <AlertDescription className="space-y-3 text-sm leading-relaxed">
+              <p>
+                Cette instance n'a pas encore provisionné les tables et fonctions Supabase liées aux tournois. Les appels REST
+                `/rest/v1/tournaments` retournent actuellement <code className="rounded bg-rose-500/30 px-1">404</code>, signe que
+                les migrations ou le cache PostgREST manquent.
+              </p>
+              <ol className="list-decimal list-inside space-y-1 text-rose-50/80">
+                <li>
+                  Lancez <code className="rounded bg-rose-500/30 px-1">supabase db push</code> (ou appliquez les migrations SQL
+                  fournies dans <code className="rounded bg-rose-500/30 px-1">supabase/migrations</code>).
+                </li>
+                <li>
+                  Rafraîchissez le cache PostgREST avec
+                  <code className="ml-1 rounded bg-rose-500/30 px-1">select pg_notify('pgrst','reload schema');</code>
+                  lorsque les tables sont créées.
+                </li>
+                <li>
+                  Déployez les edge functions <code className="rounded bg-rose-500/30 px-1">sync-tournaments</code>,
+                  <code className="ml-1 rounded bg-rose-500/30 px-1">tournament-matchmaking</code> et
+                  <code className="ml-1 rounded bg-rose-500/30 px-1">report-tournament-match</code>.
+                </li>
+              </ol>
+              <p>
+                Consultez <code className="rounded bg-rose-500/30 px-1">supabase/TROUBLESHOOTING.md</code> pour un guide détaillé.
+              </p>
             </AlertDescription>
           </Alert>
         ) : null}
