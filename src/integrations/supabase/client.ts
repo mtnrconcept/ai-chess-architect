@@ -3,19 +3,53 @@ import type { Database } from './types';
 
 const PLACEHOLDER_SUPABASE_URL = /example\.com/i;
 
-const normaliseEnvValue = (value: string | undefined) => {
+const normaliseEnvValue = (value: string | undefined | null) => {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const SUPABASE_PROJECT_ID =
-  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PROJECT_ID) ??
-  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PROJECT_REF) ??
-  normaliseEnvValue(import.meta.env.VITE_SUPABASE_REFERENCE_ID) ??
-  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PROJECT);
+type ImportMetaEnvRecord = Record<string, string | boolean | undefined>;
+type GlobalProcessEnv = typeof globalThis & {
+  process?: { env?: Record<string, string | undefined> };
+};
 
-const RAW_SUPABASE_URL = normaliseEnvValue(import.meta.env.VITE_SUPABASE_URL);
+const importMetaEnv = import.meta.env as ImportMetaEnvRecord;
+const globalProcessEnv =
+  typeof globalThis !== 'undefined' && typeof (globalThis as GlobalProcessEnv).process?.env === 'object'
+    ? ((globalThis as GlobalProcessEnv).process!.env as Record<string, string | undefined>)
+    : undefined;
+
+const readEnvValue = (...keys: string[]) => {
+  for (const key of keys) {
+    const fromImportMeta = importMetaEnv[key];
+    if (typeof fromImportMeta === 'string') {
+      const normalised = normaliseEnvValue(fromImportMeta);
+      if (normalised) return normalised;
+    }
+
+    const fromGlobal = globalProcessEnv?.[key];
+    if (typeof fromGlobal === 'string') {
+      const normalised = normaliseEnvValue(fromGlobal);
+      if (normalised) return normalised;
+    }
+  }
+
+  return undefined;
+};
+
+const SUPABASE_PROJECT_ID = readEnvValue(
+  'VITE_SUPABASE_PROJECT_ID',
+  'VITE_SUPABASE_PROJECT_REF',
+  'VITE_SUPABASE_REFERENCE_ID',
+  'VITE_SUPABASE_PROJECT',
+  'SUPABASE_PROJECT_ID',
+  'SUPABASE_PROJECT_REF',
+  'SUPABASE_REFERENCE_ID',
+  'SUPABASE_PROJECT'
+);
+
+const RAW_SUPABASE_URL = readEnvValue('VITE_SUPABASE_URL', 'SUPABASE_URL');
 const NORMALISED_PROJECT_ID = normaliseEnvValue(SUPABASE_PROJECT_ID);
 const IS_PLACEHOLDER_URL = RAW_SUPABASE_URL ? PLACEHOLDER_SUPABASE_URL.test(RAW_SUPABASE_URL) : false;
 
@@ -26,11 +60,16 @@ const SUPABASE_URL =
       : undefined
     : RAW_SUPABASE_URL;
 
-const SUPABASE_ANON_KEY =
-  normaliseEnvValue(import.meta.env.VITE_SUPABASE_ANON_KEY) ??
-  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) ??
-  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PUBLIC_ANON_KEY) ??
-  normaliseEnvValue(import.meta.env.VITE_ANON_KEY);
+const SUPABASE_ANON_KEY = readEnvValue(
+  'VITE_SUPABASE_ANON_KEY',
+  'VITE_SUPABASE_PUBLISHABLE_KEY',
+  'VITE_SUPABASE_PUBLIC_ANON_KEY',
+  'VITE_ANON_KEY',
+  'SUPABASE_ANON_KEY',
+  'SUPABASE_PUBLISHABLE_KEY',
+  'SUPABASE_PUBLIC_ANON_KEY',
+  'ANON_KEY'
+);
 
 type SupabaseDiagnostics = {
   initialisedAt: string;
@@ -55,20 +94,20 @@ function buildEnvProblems() {
   const problems: string[] = [];
 
   if (!SUPABASE_ANON_KEY) {
-    problems.push('VITE_SUPABASE_ANON_KEY manquante');
+    problems.push('Clé anonyme Supabase manquante (VITE_SUPABASE_ANON_KEY ou SUPABASE_ANON_KEY).');
   } else if (!/^[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+$/.test(SUPABASE_ANON_KEY)) {
-    problems.push("VITE_SUPABASE_ANON_KEY invalide (ne ressemble pas à un token JWT)");
+    problems.push("Clé anonyme Supabase invalide (ne ressemble pas à un token JWT)");
   }
 
   if (!SUPABASE_URL) {
     if (IS_PLACEHOLDER_URL && !NORMALISED_PROJECT_ID) {
-      problems.push('VITE_SUPABASE_URL pointe vers example.com (placeholder)');
+      problems.push("L'URL Supabase pointe vers example.com (placeholder)");
     }
 
     if (!NORMALISED_PROJECT_ID) {
-      problems.push('VITE_SUPABASE_URL manquante et VITE_SUPABASE_PROJECT_ID manquante');
+      problems.push("URL Supabase manquante (VITE_SUPABASE_URL ou SUPABASE_URL) et identifiant de projet absent");
     } else {
-      problems.push("Impossible de construire l'URL Supabase (VITE_SUPABASE_URL invalide)");
+      problems.push("Impossible de construire l'URL Supabase (valeur invalide pour VITE_SUPABASE_URL/SUPABASE_URL)");
     }
   }
 

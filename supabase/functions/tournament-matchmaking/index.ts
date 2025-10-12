@@ -4,16 +4,26 @@ import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 
 const corsOptions = { methods: ["POST"] };
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const normaliseEnv = (value: string | undefined | null) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const SUPABASE_URL =
+  normaliseEnv(Deno.env.get("SUPABASE_URL")) ?? normaliseEnv(Deno.env.get("VITE_SUPABASE_URL"));
+const SERVICE_ROLE_KEY =
+  normaliseEnv(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) ??
+  normaliseEnv(Deno.env.get("SUPABASE_SERVICE_ROLE")) ??
+  normaliseEnv(Deno.env.get("SERVICE_ROLE_KEY"));
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error("Missing Supabase configuration for tournament matchmaking function");
+  console.error(
+    "Missing Supabase configuration for tournament matchmaking function (SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE)"
+  );
 }
 
-const supabase = SUPABASE_URL && SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-  : null;
+const supabase = SUPABASE_URL && SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY) : null;
 
 const inferDisplayName = (user: { email?: string | null; user_metadata?: Record<string, unknown> }, fallback?: string | null) => {
   const metadata = user.user_metadata ?? {};

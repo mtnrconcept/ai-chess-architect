@@ -38,8 +38,9 @@ const MissingSupabaseConfig = ({ diagnostics }: MissingSupabaseConfigProps) => (
       <p className="text-muted-foreground">
         Aucune instance Supabase n'est configurée pour cet environnement. Renseigne les variables
         <code className="mx-1 rounded bg-muted px-2 py-0.5">VITE_SUPABASE_URL</code>
-        et
+        (ou <code className="mx-1 rounded bg-muted px-2 py-0.5">SUPABASE_URL</code>) et
         <code className="mx-1 rounded bg-muted px-2 py-0.5">VITE_SUPABASE_ANON_KEY</code>
+        (ou <code className="mx-1 rounded bg-muted px-2 py-0.5">SUPABASE_ANON_KEY</code>)
         dans Lovable puis relance le déploiement.
       </p>
       {diagnostics.problems.length > 0 && (

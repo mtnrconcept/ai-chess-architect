@@ -17,11 +17,23 @@ const bad = (body: unknown) => json(body, 400);
 const err = (body: unknown, status = 500) => json(body, status);
 
 // --- ENV & client ---
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const normaliseEnv = (value: string | undefined | null) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const SUPABASE_URL =
+  normaliseEnv(Deno.env.get("SUPABASE_URL")) ?? normaliseEnv(Deno.env.get("VITE_SUPABASE_URL"));
+const SERVICE_ROLE_KEY =
+  normaliseEnv(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) ??
+  normaliseEnv(Deno.env.get("SUPABASE_SERVICE_ROLE")) ??
+  normaliseEnv(Deno.env.get("SERVICE_ROLE_KEY"));
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error("[sync-tournaments] Missing Supabase env vars");
+  console.error(
+    "[sync-tournaments] Missing Supabase env vars (SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE)"
+  );
 }
 
 const supabase = SUPABASE_URL && SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY) : null;
