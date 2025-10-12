@@ -38,7 +38,10 @@ const readEnvValue = (...keys: string[]) => {
   return undefined;
 };
 
-const SUPABASE_PROJECT_ID = readEnvValue(
+const EXPECTED_PROJECT_ID = 'ucaqbhmyutlnitnedowk';
+const EXPECTED_PROJECT_NAME = 'Youaregood';
+
+const RAW_SUPABASE_PROJECT_ID = readEnvValue(
   'VITE_SUPABASE_PROJECT_ID',
   'VITE_SUPABASE_PROJECT_REF',
   'VITE_SUPABASE_REFERENCE_ID',
@@ -50,13 +53,17 @@ const SUPABASE_PROJECT_ID = readEnvValue(
 );
 
 const RAW_SUPABASE_URL = readEnvValue('VITE_SUPABASE_URL', 'SUPABASE_URL');
-const NORMALISED_PROJECT_ID = normaliseEnvValue(SUPABASE_PROJECT_ID);
+const NORMALISED_PROJECT_ID = normaliseEnvValue(RAW_SUPABASE_PROJECT_ID);
+const EFFECTIVE_PROJECT_ID = NORMALISED_PROJECT_ID ?? EXPECTED_PROJECT_ID;
+const RAW_PROJECT_NAME = readEnvValue('VITE_SUPABASE_PROJECT_NAME', 'SUPABASE_PROJECT_NAME');
+const NORMALISED_PROJECT_NAME = normaliseEnvValue(RAW_PROJECT_NAME);
+const EFFECTIVE_PROJECT_NAME = NORMALISED_PROJECT_NAME ?? EXPECTED_PROJECT_NAME;
 const IS_PLACEHOLDER_URL = RAW_SUPABASE_URL ? PLACEHOLDER_SUPABASE_URL.test(RAW_SUPABASE_URL) : false;
 
 const SUPABASE_URL =
   !RAW_SUPABASE_URL || IS_PLACEHOLDER_URL
-    ? NORMALISED_PROJECT_ID
-      ? `https://${NORMALISED_PROJECT_ID}.supabase.co`
+    ? EFFECTIVE_PROJECT_ID
+      ? `https://${EFFECTIVE_PROJECT_ID}.supabase.co`
       : undefined
     : RAW_SUPABASE_URL;
 
@@ -80,6 +87,12 @@ const isValidSupabaseKey = (value: string) => JWT_KEY_PATTERN.test(value) || SB_
 
 type SupabaseDiagnostics = {
   initialisedAt: string;
+  expectedProjectId: string;
+  expectedProjectName: string;
+  configuredProjectId?: string | null;
+  configuredProjectName?: string | null;
+  resolvedProjectId: string;
+  resolvedProjectName: string;
   projectId?: string | null;
   rawUrl?: string | null;
   resolvedUrl?: string | null;
@@ -93,7 +106,6 @@ declare global {
     __SUPABASE_ENV_DIAG__?: SupabaseDiagnostics;
   }
 
-  // eslint-disable-next-line no-var
   var __SUPABASE_CLIENT__: SupabaseClient<Database> | null | undefined;
 }
 
@@ -120,6 +132,18 @@ function buildEnvProblems() {
     }
   }
 
+  if (NORMALISED_PROJECT_ID && NORMALISED_PROJECT_ID !== EXPECTED_PROJECT_ID) {
+    problems.push(
+      `Identifiant de projet Supabase inattendu: ${NORMALISED_PROJECT_ID} (attendu ${EXPECTED_PROJECT_ID} pour ${EXPECTED_PROJECT_NAME}).`
+    );
+  }
+
+  if (NORMALISED_PROJECT_NAME && NORMALISED_PROJECT_NAME !== EXPECTED_PROJECT_NAME) {
+    problems.push(
+      `Nom de projet Supabase inattendu: ${NORMALISED_PROJECT_NAME} (attendu ${EXPECTED_PROJECT_NAME}).`
+    );
+  }
+
   return problems;
 }
 
@@ -132,6 +156,7 @@ function createSingletonClient(): SupabaseInitialisation {
   const globalScope = globalThis as typeof globalThis & {
     __SUPABASE_CLIENT__?: SupabaseClient<Database> | null;
     __SUPABASE_ENV_DIAG__?: SupabaseDiagnostics;
+    __YOUAREGOOD_SUPABASE_LOGGED__?: boolean;
   };
 
   if (globalScope.__SUPABASE_CLIENT__ !== undefined && globalScope.__SUPABASE_ENV_DIAG__) {
@@ -143,9 +168,45 @@ function createSingletonClient(): SupabaseInitialisation {
 
   const problems = buildEnvProblems();
 
+  if (!globalScope.__YOUAREGOOD_SUPABASE_LOGGED__) {
+    const messages: string[] = [];
+
+    if (!NORMALISED_PROJECT_ID) {
+      messages.push(
+        `Aucun identifiant de projet explicite détecté. Utilisation du projet ${EXPECTED_PROJECT_NAME} (${EXPECTED_PROJECT_ID}).`
+      );
+    }
+
+    if (NORMALISED_PROJECT_ID && NORMALISED_PROJECT_ID !== EXPECTED_PROJECT_ID) {
+      messages.push(
+        `Identifiant de projet Supabase inattendu: ${NORMALISED_PROJECT_ID}. Attendu ${EXPECTED_PROJECT_ID} pour ${EXPECTED_PROJECT_NAME}.`
+      );
+    }
+
+    if (NORMALISED_PROJECT_NAME && NORMALISED_PROJECT_NAME !== EXPECTED_PROJECT_NAME) {
+      messages.push(
+        `Nom de projet Supabase inattendu: ${NORMALISED_PROJECT_NAME}. Utilisation de ${EXPECTED_PROJECT_NAME}.`
+      );
+    }
+
+    if (messages.length > 0) {
+      console.warn(`[Youaregood] ${messages.join(' ')}`);
+    } else {
+      console.log(`[Youaregood] Client configuré pour ${EXPECTED_PROJECT_NAME} (${EFFECTIVE_PROJECT_ID}).`);
+    }
+
+    globalScope.__YOUAREGOOD_SUPABASE_LOGGED__ = true;
+  }
+
   const diagnostics: SupabaseDiagnostics = {
     initialisedAt: new Date().toISOString(),
-    projectId: NORMALISED_PROJECT_ID ?? null,
+    expectedProjectId: EXPECTED_PROJECT_ID,
+    expectedProjectName: EXPECTED_PROJECT_NAME,
+    configuredProjectId: NORMALISED_PROJECT_ID ?? null,
+    configuredProjectName: NORMALISED_PROJECT_NAME ?? null,
+    resolvedProjectId: EFFECTIVE_PROJECT_ID,
+    resolvedProjectName: EFFECTIVE_PROJECT_NAME,
+    projectId: EFFECTIVE_PROJECT_ID,
     rawUrl: RAW_SUPABASE_URL ?? null,
     resolvedUrl: SUPABASE_URL ?? null,
     isPlaceholderUrl: IS_PLACEHOLDER_URL,

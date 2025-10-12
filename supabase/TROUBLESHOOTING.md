@@ -8,7 +8,8 @@ testing the UI again:
 1. **Environment variables in Lovable** – Provide the exact project URL and anon key in both the preview and production
    environments.
    ```bash
-   VITE_SUPABASE_URL="https://<YOUR_PROJECT_REF>.supabase.co"
+   VITE_SUPABASE_URL="https://ucaqbhmyutlnitnedowk.supabase.co"
+   VITE_SUPABASE_PROJECT_NAME="Youaregood"
    VITE_SUPABASE_ANON_KEY="<your anon key>"
    ```
    The anon key is safe to expose to the browser; grab it from **Project Settings → API** in Supabase (or regenerate it from the
@@ -33,7 +34,7 @@ testing the UI again:
 
 * REST health check:
   ```bash
-  curl "https://<YOUR_PROJECT_REF>.supabase.co/rest/v1/tournaments?select=*" \
+  curl "https://ucaqbhmyutlnitnedowk.supabase.co/rest/v1/tournaments?select=*" \
     -H "apikey: $VITE_SUPABASE_ANON_KEY" \
     -H "Authorization: Bearer $VITE_SUPABASE_ANON_KEY"
   ```
@@ -44,7 +45,7 @@ testing the UI again:
   ```
 * Edge function preflight:
   ```bash
-  curl -i -X OPTIONS "https://<YOUR_PROJECT_REF>.functions.supabase.co/sync-tournaments"
+  curl -i -X OPTIONS "https://ucaqbhmyutlnitnedowk.functions.supabase.co/sync-tournaments"
   ```
 
 Share this checklist with any automation agent (“Codex”) so it knows which secrets, SQL migrations, and validations to execute

@@ -1,29 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { getSupabaseServiceRoleClient } from "../_shared/auth.ts";
 
 const corsOptions = { methods: ["POST"] };
 
-const normaliseEnv = (value: string | undefined | null) => {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-};
-
-const SUPABASE_URL =
-  normaliseEnv(Deno.env.get("SUPABASE_URL")) ?? normaliseEnv(Deno.env.get("VITE_SUPABASE_URL"));
-const SERVICE_ROLE_KEY =
-  normaliseEnv(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) ??
-  normaliseEnv(Deno.env.get("SUPABASE_SERVICE_ROLE")) ??
-  normaliseEnv(Deno.env.get("SERVICE_ROLE_KEY"));
-
-if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error(
-    "Missing Supabase configuration for report-tournament-match function (SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE)"
-  );
-}
-
-const supabase = SUPABASE_URL && SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY) : null;
+const supabase = getSupabaseServiceRoleClient();
 
 type MatchResult = "player1" | "player2" | "draw";
 
