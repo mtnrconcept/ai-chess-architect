@@ -65,7 +65,7 @@ const normalizeVariant = (variant: VariantSource): VariantSource | null => {
 
 // --- Paramétrage du calage temporel ---
 const BLOCK_MS = 2 * 60 * 60 * 1000; // 2h
-const TOURNAMENTS_PER_BLOCK = 10; // un toutes les ~12 minutes
+const TOURNAMENTS_PER_BLOCK = 10; // 10 tournois simultanés par bloc
 
 const computeBlockStart = (d: Date) => new Date(Math.floor(d.getTime() / BLOCK_MS) * BLOCK_MS);
 
@@ -160,25 +160,52 @@ const ensureBlockTournaments = async (blockStart: Date) => {
 
   if (pool.length === 0) return { created: 0, tournaments: existing ?? [] };
 
-  // Planning intra-bloc
-  const spacingMs = Math.floor(BLOCK_MS / TOURNAMENTS_PER_BLOCK);
+  const existingVariantNames = new Set(
+    (existing ?? [])
+      .map((t) => (t.variant_name ?? '').trim())
+      .filter((name) => name.length > 0),
+  );
+  const variantUsage = new Map<string, number>();
   const creations = [];
+
+  const start = new Date(blockStart);
+  const end = new Date(blockStart.getTime() + BLOCK_MS);
+
+  const ensureUniqueVariantName = (rawName: string) => {
+    const baseName = rawName.trim().length > 0 ? rawName.trim() : 'Variante Voltus';
+    let suffix = variantUsage.get(baseName) ?? 0;
+    let candidate = suffix === 0 ? baseName : `${baseName} #${suffix}`;
+
+    while (existingVariantNames.has(candidate)) {
+      suffix += 1;
+      candidate = `${baseName} #${suffix}`;
+    }
+
+    variantUsage.set(baseName, suffix);
+    return candidate;
+  };
 
   for (let i = 0; i < TOURNAMENTS_PER_BLOCK - existingCount; i++) {
     const variant = pool[Math.floor(Math.random() * pool.length)];
-    const start = new Date(blockStart.getTime() + spacingMs * (existingCount + i));
-    const end = new Date(start.getTime() + BLOCK_MS);
+    const uniqueVariantName = ensureUniqueVariantName(variant.name);
+    existingVariantNames.add(uniqueVariantName);
+
+    const blockLabel = `${start.getUTCHours().toString().padStart(2, '0')}${start.getUTCMinutes().toString().padStart(2, '0')}`;
+    const sequenceNumber = (existingCount + i + 1).toString().padStart(2, '0');
 
     const payload = {
-      name: `${variant.name} #${start.getUTCHours().toString().padStart(2, "0")}${start.getUTCMinutes().toString().padStart(2, "0")}`,
-      description: variant.source === "lobby" ? `Variante issue du lobby « ${variant.name} »` : "Variante Voltus générée automatiquement",
-      variant_name: variant.name,
-      variant_rules: variant.rules, // jsonb côté DB
-      variant_source: variant.source, // 'lobby' | 'fallback'
+      name: `${uniqueVariantName} - ${blockLabel} - ${sequenceNumber}`,
+      description:
+        variant.source === 'lobby'
+          ? `Variante issue du lobby "${variant.name}"`
+          : 'Variante Voltus generee automatiquement',
+      variant_name: uniqueVariantName,
+      variant_rules: variant.rules,
+      variant_source: variant.source,
       variant_lobby_id: variant.lobbyId ?? null,
       start_time: start.toISOString(),
       end_time: end.toISOString(),
-      status: "scheduled" as const,
+      status: 'scheduled' as const,
     };
 
     creations.push(payload);
@@ -199,7 +226,7 @@ const ensureBlockTournaments = async (blockStart: Date) => {
     throw upsertError;
   }
 
-  return { created: (upserted?.length ?? 0) - (existing?.length ?? 0) < 0 ? 0 : (upserted?.length ?? 0), tournaments: upserted ?? [] };
+  return { created: creations.length, tournaments: upserted ?? [] };
 };
 
 // --- Handler ---
