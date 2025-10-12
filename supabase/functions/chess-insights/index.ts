@@ -1,6 +1,7 @@
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { authenticateRequest } from "../_shared/auth.ts";
+import { invokeChatCompletion, type ChatMessage } from "../_shared/ai-providers.ts";
 
 const historyEntrySchema = z.object({
   role: z.enum(['assistant', 'user']),
@@ -143,76 +144,53 @@ Deno.serve(async (req) => {
 
     const history = payload.history?.slice(-8) ?? [];
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-
     let assistantMessage: string | null = null;
     let lastError: string | null = null;
+    try {
+      const systemPrompt = `Tu es Coach CyberIA, un assistant d'échecs conversationnel francophone.\n`
+        + `Tu discutes avec un joueur en direct. Pour chaque réponse :\n`
+        + `- Analyse la position actuelle et décris en une phrase le dernier coup ou la séquence récente.\n`
+        + `- Donne 2 à 3 idées de coups ou plans pertinents pour le camp au trait.\n`
+        + `- Identifie le nom de l'ouverture ou de la structure si possible, sinon indique qu'elle est atypique.\n`
+        + `- Réponds en français, avec un ton positif et motivant.\n`
+        + `- Termine par une question ou une invitation à poursuivre la conversation.`;
 
-    if (LOVABLE_API_KEY) {
-      try {
-        const systemPrompt = `Tu es Coach CyberIA, un assistant d'échecs conversationnel francophone alimenté par Lovable.\n` +
-          `Tu discutes avec un joueur en direct. Pour chaque réponse :\n` +
-          `- Analyse la position actuelle et décris en une phrase le dernier coup ou la séquence récente.\n` +
-          `- Donne 2 à 3 idées de coups ou plans pertinents pour le camp au trait.\n` +
-          `- Identifie le nom de l'ouverture ou de la structure si possible, sinon indique qu'elle est atypique.\n` +
-          `- Réponds en français, avec un ton positif et motivant.\n` +
-          `- Termine par une question ou une invitation à poursuivre la conversation.`;
+      const contextMessage = [
+        `Représentation du plateau (du 8e rang vers le 1er) : ${payload.board}`,
+        `Coups joués : ${payload.moveHistory.length ? payload.moveHistory.join(', ') : 'aucun coup pour le moment'}`,
+        `Dernier coup : ${payload.moveHistory[payload.moveHistory.length - 1] ?? '—'}`,
+        `Camp au trait : ${payload.currentPlayer}`,
+        `Tour numéro : ${payload.turnNumber}`,
+        `Statut de la partie : ${payload.gameStatus}`,
+        `Règles spéciales actives : ${payload.activeRules.length ? payload.activeRules.join(' | ') : 'aucune'}`,
+        `Type de mise à jour : ${payload.trigger}`,
+        `Message du joueur : ${payload.userMessage || 'analyse générale demandée'}`,
+      ].join('\n');
 
-        const contextMessage = [
-          `Représentation du plateau (du 8e rang vers le 1er) : ${payload.board}`,
-          `Coups joués : ${payload.moveHistory.length ? payload.moveHistory.join(', ') : 'aucun coup pour le moment'}`,
-          `Dernier coup : ${payload.moveHistory[payload.moveHistory.length - 1] ?? '—'}`,
-          `Camp au trait : ${payload.currentPlayer}`,
-          `Tour numéro : ${payload.turnNumber}`,
-          `Statut de la partie : ${payload.gameStatus}`,
-          `Règles spéciales actives : ${payload.activeRules.length ? payload.activeRules.join(' | ') : 'aucune'}`,
-          `Type de mise à jour : ${payload.trigger}`,
-          `Message du joueur : ${payload.userMessage || 'analyse générale demandée'}`,
-        ].join('\n');
+      const historyMessages: ChatMessage[] = history.map(entry => ({
+        role: entry.role,
+        content: entry.content.slice(0, 4000),
+      }));
 
-        const messages = [
-          { role: "system" as const, content: systemPrompt },
-          ...history.map(entry => ({ role: entry.role, content: entry.content.slice(0, 4000) })),
-          { role: "user" as const, content: contextMessage },
-        ];
+      const { content } = await invokeChatCompletion({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...historyMessages,
+          { role: 'user', content: contextMessage },
+        ],
+        temperature: 0.6,
+      });
 
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages,
-            temperature: 0.6,
-          }),
-        });
+      const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("AI Gateway error:", response.status, errorText);
-          if (response.status === 429) {
-            return json(req, { error: "Rate limit exceeded. Please try again later." }, { status: 429 });
-          }
-          throw new Error(`AI Gateway error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        let content = (data?.choices?.[0]?.message?.content ?? '').trim();
-        content = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-
-        if (content.length > 0) {
-          assistantMessage = content;
-        } else {
-          throw new Error("Empty response from AI");
-        }
-      } catch (error) {
-        console.error("Error while fetching remote chat response:", error);
-        lastError = error instanceof Error ? error.message : String(error);
+      if (cleaned.length > 0) {
+        assistantMessage = cleaned;
+      } else {
+        throw new Error('Empty response from AI');
       }
-    } else {
-      lastError = "LOVABLE_API_KEY missing";
+    } catch (error) {
+      console.error("Error while fetching remote chat response:", error);
+      lastError = error instanceof Error ? error.message : String(error);
     }
 
     if (!assistantMessage) {

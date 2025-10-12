@@ -26,22 +26,22 @@ export const getSupabaseFunctionErrorMessage = (
     return fallbackMessage;
   }
 
-  // Lovable AI rate limit (429)
+  // Rate limit (429)
   if (rawMessage.includes('429') || rawMessage.includes('Rate limit') || rawMessage.includes('Too Many Requests')) {
-    return "Limite de requêtes Lovable AI atteinte. Veuillez patienter quelques instants avant de réessayer.";
+    return "Limite de requêtes du fournisseur IA atteinte. Veuillez patienter quelques instants avant de réessayer.";
   }
 
-  // Lovable AI credits exhausted (402)
+  // Credits exhausted (402)
   if (rawMessage.includes('402') || rawMessage.includes('Payment Required') || rawMessage.includes('credits')) {
-    return "Crédits Lovable AI épuisés. Veuillez recharger vos crédits pour continuer à utiliser l'IA.";
+    return "Crédits du fournisseur IA épuisés. Veuillez recharger ou changer de fournisseur pour continuer.";
   }
 
   if (rawMessage.includes(EDGE_FUNCTION_ERROR_SIGNATURE)) {
     return "Impossible de contacter la fonction. Vérifiez votre connexion internet.";
   }
 
-  if (rawMessage.includes('LOVABLE_API_KEY is not configured')) {
-    return "La clé API Lovable n'est pas configurée. Contactez le support.";
+  if (rawMessage.includes("Aucun fournisseur IA n'est configuré")) {
+    return "Aucun fournisseur IA n'est configuré. Ajoutez une clé API Groq, Lovable, OpenAI ou Gemini dans Supabase.";
   }
 
   if (NETWORK_ERROR_PATTERNS.some(pattern => rawMessage.includes(pattern))) {
