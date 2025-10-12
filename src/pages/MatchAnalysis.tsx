@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Bolt,
+  Brain,
+  Award,
   ChartBar,
   ChartLine,
   Clock,
   Compass,
   Crosshair,
+  Gamepad2,
   Flame,
   MessageSquareText,
+  PlayCircle,
   Target,
   ChevronLeft,
   ChevronRight,
+  AlertTriangle,
+  Stars,
 } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -80,6 +86,7 @@ const MatchAnalysis = () => {
   const [coachCommentary, setCoachCommentary] = useState<string | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
+  const [visualReplayActive, setVisualReplayActive] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -167,14 +174,301 @@ const MatchAnalysis = () => {
     phase: item.phase,
     value: item.value,
   })) ?? [];
-  const statsData = selectedGame?.analysis_overview.pieceStats ?? [];
-  const keyMoments = selectedGame?.analysis_overview.keyMoments ?? [];
-  const mistakeHistogram = selectedGame?.analysis_overview.mistakeHistogram ?? {
-    blunders: 0,
-    mistakes: 0,
-    inaccuracies: 0,
-    best: 0,
+  const statsData = useMemo(() => selectedGame?.analysis_overview.pieceStats ?? [], [selectedGame]);
+  const keyMoments = useMemo(() => selectedGame?.analysis_overview.keyMoments ?? [], [selectedGame]);
+  const mistakeHistogram = useMemo(
+    () =>
+      selectedGame?.analysis_overview.mistakeHistogram ?? {
+        blunders: 0,
+        mistakes: 0,
+        inaccuracies: 0,
+        best: 0,
+      },
+    [selectedGame],
+  );
+  const recommendations = useMemo(() => selectedGame?.analysis_overview.recommendations ?? [], [selectedGame]);
+  const summary = selectedGame?.analysis_overview.summary ?? '';
+
+  const playerColor = selectedGame?.player_color ?? 'white';
+  const playerColorLabel = playerColor === 'white' ? 'Blancs' : 'Noirs';
+  const opponentColorLabel = playerColor === 'white' ? 'Noirs' : 'Blancs';
+  const finalEvaluation = evaluationData.length > 0 ? evaluationData[evaluationData.length - 1]?.score ?? 0 : 0;
+
+  const materialInsights = useMemo(() => {
+    if (statsData.length === 0) {
+      return {
+        advantageLabel: 'Matériel équilibré',
+        advantageColor: 'neutral' as const,
+        advantageValue: 0,
+        summaryText: "Aucun avantage matériel significatif n’a été détecté.",
+        breakdownText: '—',
+        gaugePercent: 50,
+      };
+    }
+
+    const weightMap: Record<string, number> = {
+      Pions: 100,
+      'Pièces légères': 320,
+      'Pièces lourdes': 500,
+      Rois: 0,
+    };
+
+    const materialScore = statsData.reduce((score, item) => {
+      const weight = weightMap[item.label] ?? 100;
+      return score + (item.white - item.black) * weight;
+    }, 0);
+
+    const advantageValue = Math.round(materialScore / 100);
+    const advantageColor = advantageValue > 0 ? 'white' : advantageValue < 0 ? 'black' : 'neutral';
+    const advantageLabel =
+      advantageColor === 'white' ? 'Avantage Blancs' : advantageColor === 'black' ? 'Avantage Noirs' : 'Matériel équilibré';
+
+    const sideLabel =
+      advantageColor === 'white' ? 'Les Blancs' : advantageColor === 'black' ? 'Les Noirs' : 'Les deux camps';
+
+    const summaryText =
+      advantageColor === 'neutral'
+        ? "Le matériel est équilibré, concentre-toi sur l’activité des pièces."
+        : `${sideLabel} possèdent un avantage matériel ${Math.abs(advantageValue) >= 5 ? 'net' : 'léger'}.`;
+
+    const breakdownText = statsData
+      .filter(item => item.label !== 'Rois')
+      .map(item => {
+        const diff = item.white - item.black;
+        const symbol = diff === 0 ? '±0' : diff > 0 ? `+${diff}` : `${diff}`;
+        return `${item.label} : ${symbol}`;
+      })
+      .join(' | ');
+
+    const gaugePercent = Math.max(5, Math.min(95, 50 + Math.max(-40, Math.min(40, advantageValue * 4))));
+
+    return { advantageLabel, advantageColor, advantageValue, summaryText, breakdownText, gaugePercent };
+  }, [statsData]);
+
+  const worstSwing = useMemo(() => {
+    if (!selectedGame) return null;
+    return selectedGame.move_history.reduce<AnalyzedMove | null>((worst, move) =>
+      !worst || move.delta < worst.delta ? move : worst,
+    null);
+  }, [selectedGame]);
+
+  const bestSwing = useMemo(() => {
+    if (!selectedGame) return null;
+    return selectedGame.move_history.reduce<AnalyzedMove | null>((best, move) =>
+      !best || move.delta > best.delta ? move : best,
+    null);
+  }, [selectedGame]);
+
+  const evaluationNarrative = useMemo(() => {
+    if (!selectedGame || selectedGame.move_history.length === 0) {
+      return "Charge une partie pour obtenir une histoire complète de l’évaluation.";
+    }
+
+    const lowest = selectedGame.move_history.reduce<AnalyzedMove | null>((min, move) =>
+      !min || move.materialBalance < min.materialBalance ? move : min,
+    null);
+    const highest = selectedGame.move_history.reduce<AnalyzedMove | null>((max, move) =>
+      !max || move.materialBalance > max.materialBalance ? move : max,
+    null);
+
+    if (!lowest || !highest) {
+      return "Évaluation stable tout au long de la partie.";
+    }
+
+    const comebackMoment = selectedGame.move_history.find(move =>
+      (lowest.materialBalance < 0 && move.materialBalance > 0) ||
+      (lowest.materialBalance > 0 && move.materialBalance < 0),
+    );
+
+    if (lowest.materialBalance < 0 && highest.materialBalance > 0 && comebackMoment) {
+      return `${opponentColorLabel} dominaient au ${lowest.moveNumber}e coup, mais ${playerColorLabel} ont repris l’avantage au ${comebackMoment.moveNumber}e avec ${comebackMoment.notation}.`;
+    }
+
+    if (highest.materialBalance > 0) {
+      return `${playerColorLabel} ont progressivement pris l’avantage jusqu’au ${highest.moveNumber}e coup (${highest.notation}).`;
+    }
+
+    if (lowest.materialBalance < 0) {
+      return `${opponentColorLabel} ont conservé la pression jusqu’au ${lowest.moveNumber}e coup (${lowest.notation}).`;
+    }
+
+    return "Partie très équilibrée, aucun camp n’a créé d’écart décisif.";
+  }, [opponentColorLabel, playerColorLabel, selectedGame]);
+
+  const evaluationHighlights = useMemo(() => {
+    if (!selectedGame) return [] as Array<{ moveNumber: number; message: string }>;
+    const highlights: Array<{ moveNumber: number; message: string }> = [];
+    if (worstSwing) {
+      highlights.push({
+        moveNumber: worstSwing.moveNumber,
+        message: `${worstSwing.notation} — perte de ${Math.abs(Math.round(worstSwing.delta / 100))} pts matériels`,
+      });
+    }
+    if (bestSwing) {
+      highlights.push({
+        moveNumber: bestSwing.moveNumber,
+        message: `${bestSwing.notation} — gain de ${Math.abs(Math.round(bestSwing.delta / 100))} pts`,
+      });
+    }
+    return highlights.sort((a, b) => a.moveNumber - b.moveNumber);
+  }, [bestSwing, selectedGame, worstSwing]);
+
+  const materialNarrative = useMemo(() => {
+    if (!selectedGame) {
+      return "Le déséquilibre matériel sera affiché après l’analyse d’une partie.";
+    }
+
+    if (worstSwing && bestSwing && worstSwing.moveNumber < bestSwing.moveNumber && worstSwing.delta < 0 && bestSwing.delta > 0) {
+      return `${opponentColorLabel} dominaient au ${worstSwing.moveNumber}e coup (${worstSwing.notation}), mais ${playerColorLabel} ont renversé la tendance au ${bestSwing.moveNumber}e grâce à ${bestSwing.notation}.`;
+    }
+
+    if (materialInsights.advantageColor === 'neutral') {
+      return 'Les échanges sont restés équilibrés : aucun camp n’a pris l’ascendant matériel durablement.';
+    }
+
+    const dominantSide = materialInsights.advantageColor === 'white' ? 'Les Blancs' : 'Les Noirs';
+    const anchorMove = bestSwing && bestSwing.delta > 0 ? bestSwing : worstSwing;
+    const anchorSuffix = anchorMove ? ` autour du coup ${anchorMove.moveNumber} (${anchorMove.notation})` : '';
+
+    return `${dominantSide} ont façonné l’avantage matériel${anchorSuffix}.`;
+  }, [bestSwing, materialInsights.advantageColor, opponentColorLabel, playerColorLabel, selectedGame, worstSwing]);
+
+  const mistakeDetails = useMemo(
+    () => [
+      {
+        label: 'Grosse erreur',
+        value: mistakeHistogram.blunders,
+        explanation: 'Tu as perdu une pièce sans compensation.',
+      },
+      {
+        label: 'Erreur',
+        value: mistakeHistogram.mistakes,
+        explanation: 'Tu as raté un meilleur coup évident.',
+      },
+      {
+        label: 'Inexactitude',
+        value: mistakeHistogram.inaccuracies,
+        explanation: 'Petites imprécisions sans gravité.',
+      },
+      {
+        label: 'Coups solides',
+        value: mistakeHistogram.best,
+        explanation: 'Excellente stabilité de ton jeu.',
+      },
+    ],
+    [mistakeHistogram],
+  );
+
+  const computeScore = (value: number, min: number, max: number) => {
+    const clamped = Math.max(min, Math.min(max, value));
+    return Math.round(clamped * 10) / 10;
   };
+
+  const accuracy = selectedGame?.accuracy ?? 0;
+  const precisionScore = computeScore(accuracy / 10, 4, 10);
+  const tacticPenalty = mistakeHistogram.blunders * 2 + mistakeHistogram.mistakes * 1.2 + mistakeHistogram.inaccuracies * 0.5;
+  const tacticScore = computeScore(10 - tacticPenalty, 3, 10);
+  const strategyScore = computeScore(7 + Math.sign(finalEvaluation) * 1.5 + (materialInsights.advantageValue / 4), 3, 10);
+  const slowMoves = moveTimeData.find(bucket => bucket.phase === '30s+')?.value ?? 0;
+  const timeScore = computeScore(9 - slowMoves * 0.4, 2, 10);
+  const overallScore = Math.max(40, Math.min(100, Math.round((strategyScore + tacticScore + precisionScore + timeScore) * 2)));
+
+  const scoreBreakdown = useMemo(
+    () => [
+      { label: 'Stratégie', value: strategyScore },
+      { label: 'Tactique', value: tacticScore },
+      { label: 'Précision', value: precisionScore },
+      { label: 'Gestion du temps', value: timeScore },
+    ],
+    [precisionScore, strategyScore, tacticScore, timeScore],
+  );
+
+  const strengths = useMemo(() => {
+    const topStrength =
+      overallScore > 85
+        ? 'Conversion clinique de l’avantage.'
+        : materialInsights.advantageValue > 0
+          ? 'Bonne gestion du matériel en finale.'
+          : 'Solide résistance sous pression.';
+
+    const weakness =
+      mistakeHistogram.blunders > 0
+        ? 'Surveille la sécurité de tes pièces majeures.'
+        : slowMoves > 3
+          ? 'Accélère ta prise de décision en zeitnot.'
+          : 'Cherche des plans plus actifs dès l’ouverture.';
+
+    const aiTip = recommendations[0] ?? 'Continue de varier les plans pour surprendre tes adversaires.';
+
+    return { topStrength, weakness, aiTip };
+  }, [materialInsights.advantageValue, overallScore, recommendations, slowMoves, mistakeHistogram.blunders]);
+
+  const summaryNarrative = useMemo(() => {
+    if (!selectedGame) {
+      return "Sélectionne une partie pour découvrir ton récit personnalisé.";
+    }
+    const base = summary ||
+      `${playerColorLabel} ont disputé ${selectedGame.total_moves} coups avec une précision de ${accuracy.toFixed(1)} %.`;
+    return `${base}\n${evaluationNarrative}`;
+  }, [accuracy, evaluationNarrative, playerColorLabel, selectedGame, summary]);
+
+  const progressData = useMemo(() => {
+    if (games.length === 0) return [] as Array<{ label: string; value: number }>;
+    const ordered = [...games].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    return ordered.map((game, index) => ({
+      label: `Partie ${index + 1}`,
+      value: game.accuracy ?? 0,
+    }));
+  }, [games]);
+
+  const latestImprovement = useMemo(() => {
+    if (progressData.length < 2) return 0;
+    const last = progressData[progressData.length - 1];
+    const previous = progressData[progressData.length - 2];
+    return Math.round((last.value - previous.value) * 10) / 10;
+  }, [progressData]);
+
+  useEffect(() => {
+    if (!visualReplayActive || !selectedGame) {
+      return;
+    }
+
+    const orderedMoments = [...keyMoments].sort((a, b) => a.moveNumber - b.moveNumber);
+    const indices = orderedMoments
+      .map(moment => {
+        const exactIndex = selectedGame.move_history.findIndex(
+          move => move.moveNumber === moment.moveNumber && move.notation === moment.notation,
+        );
+        if (exactIndex >= 0) {
+          return exactIndex + 1;
+        }
+        const approximateIndex = selectedGame.move_history.findIndex(move => move.moveNumber === moment.moveNumber);
+        return approximateIndex >= 0 ? approximateIndex + 1 : null;
+      })
+      .filter((value): value is number => typeof value === 'number');
+
+    if (indices.length === 0) {
+      setVisualReplayActive(false);
+      return;
+    }
+
+    let pointer = 0;
+    setCurrentMoveIndex(indices[pointer]);
+    const interval = setInterval(() => {
+      pointer += 1;
+      if (pointer >= indices.length) {
+        clearInterval(interval);
+        setVisualReplayActive(false);
+        return;
+      }
+      setCurrentMoveIndex(indices[pointer]);
+    }, 2000);
+
+    return () => {
+      clearInterval(interval);
+      setVisualReplayActive(false);
+    };
+  }, [keyMoments, selectedGame, setCurrentMoveIndex, visualReplayActive]);
 
   const blunderData = [
     { phase: 'Grosses erreurs', value: mistakeHistogram.blunders },
@@ -187,7 +481,6 @@ const MatchAnalysis = () => {
   ];
 
   const totalMoves = selectedGame?.move_history.length ?? 0;
-  const accuracy = selectedGame?.accuracy ?? 0;
 
   const handleSliderChange = (value: number[]) => {
     if (!selectedGame) return;
@@ -299,6 +592,48 @@ const MatchAnalysis = () => {
               )}
             </div>
           </div>
+          <Card className="rounded-2xl border border-cyan-400/30 bg-black/60 p-6 shadow-inner shadow-cyan-500/25">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex flex-1 flex-col gap-3">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-500/10 text-cyan-100">
+                    <Brain className="h-6 w-6" />
+                  </span>
+                  <div className="space-y-2">
+                    <h2 className="text-lg font-semibold text-white">Résumé de ta partie</h2>
+                    <div className="space-y-1 text-sm leading-relaxed text-cyan-100/80">
+                      {summaryNarrative.split('\n').map((line, index) => (
+                        <p key={index}>{line}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <Badge variant="outline" className="flex items-center gap-2 rounded-full border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-cyan-100">
+                    🥇 Point fort · {strengths.topStrength}
+                  </Badge>
+                  <Badge variant="outline" className="flex items-center gap-2 rounded-full border-amber-400/40 bg-amber-500/10 px-3 py-1 text-amber-100">
+                    ⚠️ Point faible · {strengths.weakness}
+                  </Badge>
+                  <Badge variant="outline" className="flex items-center gap-2 rounded-full border-fuchsia-400/40 bg-fuchsia-500/10 px-3 py-1 text-fuchsia-100">
+                    💡 Conseil IA · {strengths.aiTip}
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 rounded-2xl border border-cyan-400/20 bg-black/70 p-4 text-xs text-cyan-100/70">
+                <div className="flex items-center gap-2 font-semibold text-cyan-100">
+                  <Stars className="h-4 w-4 text-amber-300" />
+                  Légende pédagogique
+                </div>
+                <ul className="space-y-1">
+                  <li className="flex items-center gap-2"><span className="text-base">♟️</span> Pion : petit avantage</li>
+                  <li className="flex items-center gap-2"><span className="text-base">🧱</span> Tour : avantage matériel</li>
+                  <li className="flex items-center gap-2"><span className="text-base">⚡</span> Coup critique</li>
+                  <li className="flex items-center gap-2"><span className="text-base">🧠</span> Recommandation IA</li>
+                </ul>
+              </div>
+            </div>
+          </Card>
           <div className="grid gap-6 md:grid-cols-[minmax(0,240px)_1fr]">
             <Card className="relative overflow-hidden rounded-2xl border border-cyan-400/30 bg-cyan-500/10 shadow-inner shadow-cyan-500/20">
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),transparent_70%)]" />
@@ -388,6 +723,15 @@ const MatchAnalysis = () => {
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <Button
+                variant="outline"
+                onClick={() => setVisualReplayActive(true)}
+                disabled={!selectedGame || keyMoments.length === 0 || visualReplayActive}
+                className="flex items-center gap-2 rounded-full border-amber-400/40 bg-amber-500/10 px-5 text-amber-100 hover:bg-amber-500/20"
+              >
+                {visualReplayActive ? 'Lecture en cours…' : 'Rejouer les moments clés'}
+                <PlayCircle className="h-4 w-4" />
+              </Button>
+              <Button
                 onClick={handleRequestCoachCommentary}
                 disabled={!selectedGame || coachLoading}
                 className="flex items-center gap-2 rounded-full bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-amber-400 px-5 text-black shadow-[0_0_25px_rgba(34,211,238,0.35)]"
@@ -414,6 +758,12 @@ const MatchAnalysis = () => {
                   </div>
                 )}
               </div>
+              {visualReplayActive && (
+                <div className="flex items-center gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  <PlayCircle className="h-4 w-4" />
+                  Relecture automatique des moments clés en cours…
+                </div>
+              )}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs uppercase tracking-[0.3em] text-cyan-200/60">
                   <span>{currentMoveIndex === 0 ? 'Position initiale' : `Après ${currentMoveIndex} coups`}</span>
@@ -492,7 +842,8 @@ const MatchAnalysis = () => {
               <CardTitle className="text-lg font-semibold text-white">Évaluation</CardTitle>
               <ChartLine className="h-5 w-5 text-cyan-300" />
             </CardHeader>
-            <CardContent className="p-6 pt-0">
+            <CardContent className="space-y-4 p-6 pt-0">
+              <p className="text-sm leading-relaxed text-cyan-100/80">{evaluationNarrative}</p>
               <ChartContainer config={{ score: { label: 'Évaluation', color: 'hsl(183 97% 58%)' } }} className="h-48">
                 <LineChart data={evaluationData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(34,211,238,0.2)" />
@@ -501,6 +852,42 @@ const MatchAnalysis = () => {
                   <ChartTooltip cursor={{ stroke: 'rgba(34,211,238,0.4)', strokeWidth: 1 }} content={<ChartTooltipContent />} />
                 </LineChart>
               </ChartContainer>
+              <div className="flex flex-wrap gap-2">
+                {evaluationHighlights.map(highlight => (
+                  <button
+                    key={highlight.moveNumber}
+                    type="button"
+                    onClick={() => {
+                      const targetIndex = selectedGame?.move_history.findIndex(
+                        move => move.moveNumber === highlight.moveNumber,
+                      );
+                      if (targetIndex !== undefined && targetIndex >= 0) {
+                        setCurrentMoveIndex(targetIndex + 1);
+                      }
+                    }}
+                    className="group flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-300 transition group-hover:scale-110" />
+                    Coup {highlight.moveNumber} · {highlight.message}
+                  </button>
+                ))}
+                {evaluationHighlights.length === 0 && (
+                  <span className="text-xs text-cyan-100/60">Aucun basculement majeur détecté.</span>
+                )}
+              </div>
+              <div className="flex flex-col gap-2 rounded-2xl border border-cyan-400/20 bg-black/60 p-4">
+                <div className="flex items-center justify-between text-sm text-cyan-100">
+                  <span className="font-semibold uppercase tracking-[0.2em] text-cyan-100/80">Évaluation finale</span>
+                  <span className="text-lg font-bold text-white">
+                    {finalEvaluation > 0 ? `+${finalEvaluation.toFixed(1)}` : finalEvaluation.toFixed(1)} ({
+                      finalEvaluation > 0 ? `${playerColorLabel}` : finalEvaluation < 0 ? `${opponentColorLabel}` : 'Équilibre'
+                    })
+                  </span>
+                </div>
+                <p className="text-xs text-cyan-100/70">
+                  {recommendations[1] ?? 'Tu aurais pu conclure plus vite en activant tes pièces lourdes.'}
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -526,7 +913,8 @@ const MatchAnalysis = () => {
               <CardTitle className="text-lg font-semibold text-white">Déséquilibre matériel</CardTitle>
               <ChartBar className="h-5 w-5 text-amber-300" />
             </CardHeader>
-            <CardContent className="p-6 pt-0">
+            <CardContent className="space-y-4 p-6 pt-0">
+              <p className="text-sm leading-relaxed text-amber-100/80">{materialNarrative}</p>
               <ChartContainer config={{ value: { label: 'Avantage', color: 'hsl(49 100% 64%)' } }} className="h-48">
                 <AreaChart data={imbalanceData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(250,204,21,0.2)" />
@@ -535,6 +923,27 @@ const MatchAnalysis = () => {
                   <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
                 </AreaChart>
               </ChartContainer>
+              <div className="flex flex-wrap gap-2">
+                {keyMoments.slice(0, 3).map(moment => (
+                  <button
+                    key={moment.id}
+                    type="button"
+                    onClick={() => {
+                      const index = selectedGame?.move_history.findIndex(
+                        move => move.moveNumber === moment.moveNumber && move.notation === moment.notation,
+                      );
+                      if (index !== undefined && index >= 0) {
+                        setCurrentMoveIndex(index + 1);
+                      }
+                    }}
+                    className="group flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 text-xs text-amber-100 transition hover:bg-amber-500/20"
+                  >
+                    <Flame className="h-3.5 w-3.5 text-orange-300 transition group-hover:rotate-6" />
+                    {moment.moveNumber}e coup · {moment.description}
+                  </button>
+                ))}
+                {keyMoments.length === 0 && <span className="text-xs text-amber-100/60">Aucun basculement détecté.</span>}
+              </div>
             </CardContent>
           </Card>
         </section>
@@ -545,28 +954,57 @@ const MatchAnalysis = () => {
               <CardTitle className="text-lg font-semibold text-white">Erreurs critiques</CardTitle>
               <Flame className="h-5 w-5 text-orange-300" />
             </CardHeader>
-            <CardContent className="grid gap-6 p-6 pt-0 md:grid-cols-2">
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-100/70">Grosses erreurs</h3>
-                <ChartContainer config={{ value: { label: 'Blunders', color: 'hsl(7 88% 55%)' } }} className="h-44">
-                  <BarChart data={blunderData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(248,113,113,0.2)" vertical={false} />
-                    <XAxis dataKey="phase" stroke="rgba(148,163,184,0.7)" tickLine={false} axisLine={false} />
-                    <Bar dataKey="value" radius={10} fill="var(--color-value)" />
-                    <ChartTooltip content={<ChartTooltipContent />} cursor={{ fill: 'rgba(248,113,113,0.12)' }} />
-                  </BarChart>
-                </ChartContainer>
+            <CardContent className="space-y-5 p-6 pt-0">
+              <div className="overflow-hidden rounded-2xl border border-orange-400/30 bg-black/60">
+                <table className="w-full text-sm text-orange-100/80">
+                  <thead className="bg-orange-500/10 text-xs uppercase tracking-[0.2em] text-orange-100/70">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Catégorie</th>
+                      <th className="px-4 py-3 text-left">Nombre</th>
+                      <th className="px-4 py-3 text-left">Explication rapide</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mistakeDetails.map(detail => (
+                      <tr key={detail.label} className="border-t border-white/5">
+                        <td className="px-4 py-3 font-semibold text-white">{detail.label}</td>
+                        <td className="px-4 py-3">{detail.value}</td>
+                        <td className="px-4 py-3 text-xs text-orange-100/70">{detail.explanation}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-100/70">Inexactitudes</h3>
-                <ChartContainer config={{ value: { label: 'Mistakes', color: 'hsl(276 92% 65%)' } }} className="h-44">
-                  <BarChart data={mistakeData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,252,0.2)" vertical={false} />
-                    <XAxis dataKey="phase" stroke="rgba(148,163,184,0.7)" tickLine={false} axisLine={false} />
-                    <Bar dataKey="value" radius={10} fill="var(--color-value)" />
-                    <ChartTooltip content={<ChartTooltipContent />} cursor={{ fill: 'rgba(192,132,252,0.12)' }} />
-                  </BarChart>
-                </ChartContainer>
+              {worstSwing && (
+                <div className="flex items-center gap-3 rounded-2xl border border-orange-400/40 bg-orange-500/10 p-4 text-sm text-orange-100">
+                  <span className="text-xl animate-pulse">🔥</span>
+                  Coup clé : {worstSwing.moveNumber} ({worstSwing.notation}) —
+                  l’évaluation a chuté de {Math.abs(Math.round(worstSwing.delta / 100))} points.
+                </div>
+              )}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-100/70">Grosses erreurs</h3>
+                  <ChartContainer config={{ value: { label: 'Blunders', color: 'hsl(7 88% 55%)' } }} className="h-40">
+                    <BarChart data={blunderData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(248,113,113,0.2)" vertical={false} />
+                      <XAxis dataKey="phase" stroke="rgba(148,163,184,0.7)" tickLine={false} axisLine={false} />
+                      <Bar dataKey="value" radius={10} fill="var(--color-value)" />
+                      <ChartTooltip content={<ChartTooltipContent />} cursor={{ fill: 'rgba(248,113,113,0.12)' }} />
+                    </BarChart>
+                  </ChartContainer>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-100/70">Inexactitudes</h3>
+                  <ChartContainer config={{ value: { label: 'Mistakes', color: 'hsl(276 92% 65%)' } }} className="h-40">
+                    <BarChart data={mistakeData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,252,0.2)" vertical={false} />
+                      <XAxis dataKey="phase" stroke="rgba(148,163,184,0.7)" tickLine={false} axisLine={false} />
+                      <Bar dataKey="value" radius={10} fill="var(--color-value)" />
+                      <ChartTooltip content={<ChartTooltipContent />} cursor={{ fill: 'rgba(192,132,252,0.12)' }} />
+                    </BarChart>
+                  </ChartContainer>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -576,20 +1014,101 @@ const MatchAnalysis = () => {
               <CardTitle className="text-lg font-semibold text-white">Statistiques matériaux</CardTitle>
               <Target className="h-5 w-5 text-cyan-300" />
             </CardHeader>
-            <CardContent className="grid gap-4 p-6 pt-0">
-              {statsData.map(item => (
-                <div key={item.label} className="flex items-center justify-between rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-4">
-                  <span className="text-sm font-semibold text-white">{item.label}</span>
-                  <div className="flex items-center gap-3 text-xs text-cyan-100/70">
-                    <span className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-cyan-300" /> Blancs : {item.white}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-fuchsia-400" /> Noirs : {item.black}
-                    </span>
+            <CardContent className="space-y-4 p-6 pt-0">
+              <div className="space-y-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-4 text-sm text-cyan-100/80">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-white">{materialInsights.summaryText}</p>
+                    <p className="text-xs text-cyan-100/70">{materialInsights.breakdownText}</p>
                   </div>
+                  <Badge variant="outline" className="rounded-full border-cyan-400/40 bg-black/60 px-3 py-1 text-xs text-cyan-100">
+                    {materialInsights.advantageLabel} ({materialInsights.advantageValue >= 0 ? `+${materialInsights.advantageValue}` : materialInsights.advantageValue} pts)
+                  </Badge>
                 </div>
-              ))}
+                <div className="h-3 w-full overflow-hidden rounded-full bg-black/50">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-amber-400"
+                    style={{ width: `${materialInsights.gaugePercent}%` }}
+                  />
+                </div>
+                <p className="text-xs text-cyan-100/60">{playerColorLabel} à gauche · {opponentColorLabel} à droite</p>
+              </div>
+              <div className="grid gap-3">
+                {statsData.map(item => (
+                  <div key={item.label} className="flex items-center justify-between rounded-xl border border-cyan-400/20 bg-black/50 p-4">
+                    <span className="text-sm font-semibold text-white">{item.label}</span>
+                    <div className="flex items-center gap-3 text-xs text-cyan-100/70">
+                      <span className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-cyan-300" /> Blancs : {item.white}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-fuchsia-400" /> Noirs : {item.black}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <Card className="rounded-2xl border border-cyan-400/30 bg-black/50 shadow-[0_0_35px_rgba(59,130,246,0.25)]">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
+              <CardTitle className="text-lg font-semibold text-white">Score global</CardTitle>
+              <Gamepad2 className="h-5 w-5 text-cyan-300" />
+            </CardHeader>
+            <CardContent className="space-y-4 p-6 pt-0">
+              <div className="flex items-end justify-between rounded-2xl border border-cyan-400/20 bg-black/60 p-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-100/70">Note de la partie</p>
+                  <p className="text-sm text-cyan-100/80">Synthèse des quatre axes de progression.</p>
+                </div>
+                <span className="text-4xl font-bold text-white">{overallScore} / 100</span>
+              </div>
+              <div className="grid gap-3">
+                {scoreBreakdown.map(score => (
+                  <div key={score.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs text-cyan-100/70">
+                      <span>{score.label}</span>
+                      <span>{score.value.toFixed(1)} / 10</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-amber-400"
+                        style={{ width: `${Math.min(100, (score.value / 10) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-cyan-100/60">Garde ce score en mémoire et tente de battre ton record à la prochaine partie.</p>
+            </CardContent>
+          </Card>
+          <Card className="rounded-2xl border border-cyan-400/30 bg-black/50 shadow-[0_0_35px_rgba(147,51,234,0.25)]">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
+              <CardTitle className="text-lg font-semibold text-white">Progression récente</CardTitle>
+              <Award className="h-5 w-5 text-fuchsia-300" />
+            </CardHeader>
+            <CardContent className="space-y-3 p-6 pt-0">
+              {progressData.length > 0 ? (
+                <>
+                  <p className="text-sm text-fuchsia-100/80">
+                    Tu gagnes en précision à chaque analyse :
+                    {latestImprovement >= 0 ? ` +${latestImprovement}%` : ` ${latestImprovement}%`} depuis la dernière partie.
+                  </p>
+                  <ChartContainer config={{ value: { label: 'Précision', color: 'hsl(276 92% 65%)' } }} className="h-48">
+                    <AreaChart data={progressData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,252,0.2)" />
+                      <XAxis dataKey="label" stroke="rgba(148,163,184,0.7)" tickLine={false} axisLine={false} />
+                      <Area type="monotone" dataKey="value" stroke="var(--color-value)" fill="rgba(192,132,252,0.25)" strokeWidth={3} />
+                      <ChartTooltip content={<ChartTooltipContent />} cursor={{ stroke: 'rgba(192,132,252,0.35)', strokeWidth: 1 }} />
+                    </AreaChart>
+                  </ChartContainer>
+                </>
+              ) : (
+                <p className="text-sm text-fuchsia-100/70">Joue quelques parties pour débloquer la courbe de progression.</p>
+              )}
             </CardContent>
           </Card>
         </section>

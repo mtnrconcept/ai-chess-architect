@@ -33,6 +33,19 @@ const SERVICE_ROLE_KEY =
   normalizeEnv(Deno.env.get("SUPABASE_SERVICE_ROLE")) ??
   normalizeEnv(Deno.env.get("SERVICE_ROLE_KEY"));
 
+const PUBLIC_PUBLISHABLE_KEYS = [
+  Deno.env.get("SUPABASE_ANON_KEY"),
+  Deno.env.get("SUPABASE_PUBLISHABLE_KEY"),
+  Deno.env.get("SUPABASE_PUBLISHABLE_DEFAULT_KEY"),
+  Deno.env.get("VITE_SUPABASE_ANON_KEY"),
+  Deno.env.get("VITE_SUPABASE_PUBLISHABLE_KEY"),
+  Deno.env.get("VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY"),
+  Deno.env.get("VITE_ANON_KEY"),
+].map(normalizeEnv)
+  .filter((value): value is string => typeof value === "string" && value.length > 0);
+
+const PUBLIC_KEY_SET = new Set(PUBLIC_PUBLISHABLE_KEYS);
+
 type SupabaseProjectDiagnostics = {
   expectedProjectId: string;
   expectedProjectName: string;
@@ -120,7 +133,8 @@ const supabase = SUPABASE_URL && SERVICE_ROLE_KEY
 
 type AuthSuccess = {
   success: true;
-  user: User;
+  user: User | null;
+  isGuest: boolean;
 };
 
 type AuthFailure = {
@@ -135,16 +149,13 @@ export const supabaseProjectDiagnostics = () =>
   globalScope.__YOUAREGOOD_SUPABASE_DIAGNOSTICS__ ?? diagnostics;
 
 export const authenticateRequest = async (req: Request): Promise<AuthResult> => {
-  if (!supabase) {
-    return {
-      success: false,
-      status: 500,
-      error: "Supabase client misconfigured",
-    };
-  }
-
   const authHeader = req.headers.get("Authorization");
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+    if (PUBLIC_KEY_SET.size > 0) {
+      // Autorise les requêtes publiques lorsqu'aucun token utilisateur n'est fourni.
+      return { success: true, user: null, isGuest: true };
+    }
+
     return {
       success: false,
       status: 401,
@@ -161,6 +172,20 @@ export const authenticateRequest = async (req: Request): Promise<AuthResult> => 
     };
   }
 
+  if (PUBLIC_KEY_SET.has(token)) {
+    // Les clés publishable/anon ne correspondent pas à un utilisateur mais doivent pouvoir accéder aux fonctions
+    // pour le mode preview ou les visiteurs non connectés.
+    return { success: true, user: null, isGuest: true };
+  }
+
+  if (!supabase) {
+    return {
+      success: false,
+      status: 500,
+      error: "Supabase client misconfigured",
+    };
+  }
+
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data?.user) {
     return {
@@ -173,6 +198,7 @@ export const authenticateRequest = async (req: Request): Promise<AuthResult> => 
   return {
     success: true,
     user: data.user,
+    isGuest: false,
   };
 };
 
