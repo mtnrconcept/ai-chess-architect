@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, supabaseEnvProblems } from "@/integrations/supabase/client";
 import type { PostgrestError } from "@supabase/supabase-js";
 import type {
   MatchmakingResponse,
@@ -17,6 +17,17 @@ export class TournamentFeatureUnavailableError extends Error {
     this.name = "TournamentFeatureUnavailableError";
   }
 }
+
+const requireTournamentSupabase = () => {
+  if (!supabase) {
+    const details = supabaseEnvProblems.length > 0 ? ` Détails : ${supabaseEnvProblems.join(" | ")}.` : "";
+    throw new TournamentFeatureUnavailableError(
+      `Supabase n'est pas configuré pour les tournois.${details || " Configurez vos variables d'environnement Supabase."}`,
+    );
+  }
+
+  return supabase;
+};
 
 type ErrorWithStatus = {
   status?: number | string | null;
@@ -138,7 +149,9 @@ const isFunctionUnavailable = (error: { message?: string | null; code?: string |
 };
 
 const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
-  const tournamentsQuery = supabase.from("tournaments").select("*").order("start_time", { ascending: true });
+  const supabaseClient = requireTournamentSupabase();
+
+  const tournamentsQuery = supabaseClient.from("tournaments").select("*").order("start_time", { ascending: true });
 
   if (tournamentId) {
     tournamentsQuery.eq("id", tournamentId);
@@ -169,7 +182,7 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
   const matchCounts = new Map<string, { active: number; completed: number }>();
 
   if (tournamentIds.length > 0) {
-    const { data: registrations, error: registrationsError } = await supabase
+    const { data: registrations, error: registrationsError } = await supabaseClient
       .from("tournament_registrations")
       .select("tournament_id")
       .in("tournament_id", tournamentIds);
@@ -189,7 +202,7 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
       registrationCounts.set(id, (registrationCounts.get(id) ?? 0) + 1);
     });
 
-    const { data: matches, error: matchesError } = await supabase
+    const { data: matches, error: matchesError } = await supabaseClient
       .from("tournament_matches")
       .select("tournament_id, status")
       .in("tournament_id", tournamentIds);
@@ -225,8 +238,10 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
 };
 
 const fetchSingleTournamentOverview = async (tournamentId: string): Promise<TournamentOverview> => {
+  const supabaseClient = requireTournamentSupabase();
+
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("tournament_overview")
       .select("*")
       .eq("id", tournamentId)
@@ -266,8 +281,10 @@ const fetchSingleTournamentOverview = async (tournamentId: string): Promise<Tour
 };
 
 export const syncTournaments = async () => {
+  const supabaseClient = requireTournamentSupabase();
+
   try {
-    const { error } = await supabase.functions.invoke("sync-tournaments", { body: {} });
+    const { error } = await supabaseClient.functions.invoke("sync-tournaments", { body: {} });
     if (error) {
       if (isFunctionUnavailable(error)) {
         throw new TournamentFeatureUnavailableError(
@@ -298,8 +315,10 @@ export const syncTournaments = async () => {
 };
 
 export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> => {
+  const supabaseClient = requireTournamentSupabase();
+
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("tournament_overview")
       .select("*")
       .order("start_time", { ascending: true });
@@ -327,9 +346,10 @@ export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> =
 };
 
 export const fetchTournamentDetails = async (tournamentId: string): Promise<TournamentDetails> => {
+  const supabaseClient = requireTournamentSupabase();
   const overviewData = await fetchSingleTournamentOverview(tournamentId);
 
-  const { data: registrations, error: registrationsError } = await supabase
+  const { data: registrations, error: registrationsError } = await supabaseClient
     .from("tournament_registrations")
     .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, opponent_name, opponent_id))")
     .eq("tournament_id", tournamentId)
@@ -344,7 +364,7 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
     throw new Error(registrationsError.message);
   }
 
-  const { data: matches, error: matchesError } = await supabase
+  const { data: matches, error: matchesError } = await supabaseClient
     .from("tournament_matches")
     .select("*, lobby:lobbies(id, name, status, opponent_name, opponent_id)")
     .eq("tournament_id", tournamentId)
@@ -365,7 +385,9 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
 };
 
 export const fetchUserTournamentRegistrations = async (userId: string): Promise<TournamentRegistrationWithMatch[]> => {
-  const { data, error } = await supabase
+  const supabaseClient = requireTournamentSupabase();
+
+  const { data, error } = await supabaseClient
     .from("tournament_registrations")
     .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, opponent_name, opponent_id))")
     .eq("user_id", userId)
@@ -387,6 +409,7 @@ export const registerForTournament = async (
   displayName: string,
   avatarUrl: string | null,
 ) => {
+  const supabaseClient = requireTournamentSupabase();
   const payload = {
     tournament_id: tournamentId,
     user_id: userId,
@@ -395,7 +418,7 @@ export const registerForTournament = async (
     last_active_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from("tournament_registrations")
     .upsert(payload, { onConflict: "tournament_id,user_id" });
 
@@ -411,7 +434,9 @@ export const requestTournamentMatch = async (
   tournamentId: string,
   displayName?: string,
 ): Promise<MatchmakingResponse> => {
-  const { data, error } = await supabase.functions.invoke<MatchmakingResponse>(
+  const supabaseClient = requireTournamentSupabase();
+
+  const { data, error } = await supabaseClient.functions.invoke<MatchmakingResponse>(
     "tournament-matchmaking",
     { body: { tournamentId, displayName } },
   );
@@ -432,7 +457,9 @@ export const reportTournamentMatch = async (
   matchId: string,
   result: "player1" | "player2" | "draw",
 ) => {
-  const { data, error } = await supabase.functions.invoke<{
+  const supabaseClient = requireTournamentSupabase();
+
+  const { data, error } = await supabaseClient.functions.invoke<{
     match: TournamentMatch;
     leaderboard: TournamentLeaderboardEntry[];
   }>("report-tournament-match", { body: { matchId, result } });
@@ -452,7 +479,9 @@ export const reportTournamentMatch = async (
 export const fetchTournamentLeaderboard = async (
   tournamentId: string,
 ): Promise<TournamentLeaderboardEntry[]> => {
-  const { data, error } = await supabase
+  const supabaseClient = requireTournamentSupabase();
+
+  const { data, error } = await supabaseClient
     .from("tournament_registrations")
     .select("user_id, display_name, wins, losses, draws, points")
     .eq("tournament_id", tournamentId)
