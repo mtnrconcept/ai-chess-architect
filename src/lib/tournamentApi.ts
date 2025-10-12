@@ -279,8 +279,10 @@ export const syncTournaments = async () => {
       throw new Error(message || "Impossible de synchroniser les tournois");
     }
   } catch (unknownError) {
-    if (unknownError instanceof TypeError && unknownError.message.includes("fetch")) {
-      throw new Error("Impossible de synchroniser les tournois : accès au service Supabase indisponible.");
+    if (unknownError instanceof TypeError && unknownError.message.toLowerCase().includes("fetch")) {
+      throw new TournamentFeatureUnavailableError(
+        "La fonction 'sync-tournaments' n'est pas accessible (CORS/404). Déployez l'edge function correspondante sur Supabase.",
+      );
     }
 
     if (unknownError instanceof TournamentFeatureUnavailableError) {
