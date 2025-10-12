@@ -535,9 +535,20 @@ const TournamentPage = () => {
   };
 
   const summaryMetrics = useMemo(() => {
-    const totalParticipants = tournaments.reduce((acc, tournament) => acc + tournament.player_count, 0);
-    const completedMatches = tournaments.reduce((acc, tournament) => acc + tournament.completed_match_count, 0);
-    const activeMatches = tournaments.reduce((acc, tournament) => acc + tournament.active_match_count, 0);
+    const toNumber = (value: unknown) => {
+      if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+      if (typeof value === "string") {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      if (value === null) return 0;
+      if (typeof value === "bigint") return Number(value);
+      return 0;
+    };
+
+    const totalParticipants = tournaments.reduce((acc, tournament) => acc + toNumber(tournament.player_count), 0);
+    const completedMatches = tournaments.reduce((acc, tournament) => acc + toNumber(tournament.completed_match_count), 0);
+    const activeMatches = tournaments.reduce((acc, tournament) => acc + toNumber(tournament.active_match_count), 0);
 
     return [
       {

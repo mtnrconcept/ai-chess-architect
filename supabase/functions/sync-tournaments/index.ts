@@ -1,20 +1,16 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getSupabaseServiceRoleClient } from "../_shared/auth.ts";
+import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 
-// --- CORS minimal ---
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const corsOptions = { methods: ["POST"] };
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...corsHeaders } });
+const respond = (req: Request, body: unknown, status = 200) =>
+  jsonResponse(req, body, { status }, corsOptions);
 
-const ok = (body: unknown) => json(body, 200);
-const bad = (body: unknown) => json(body, 400);
-const err = (body: unknown, status = 500) => json(body, status);
+const ok = (req: Request, body: unknown) => respond(req, body, 200);
+const bad = (req: Request, body: unknown) => respond(req, body, 400);
+const err = (req: Request, body: unknown, status = 500) => respond(req, body, status);
 
 // --- ENV & client ---
 const supabase = getSupabaseServiceRoleClient();
@@ -208,10 +204,10 @@ const ensureBlockTournaments = async (blockStart: Date) => {
 
 // --- Handler ---
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
-  if (req.method !== "POST") return bad({ error: "Method not allowed" });
+  if (req.method === "OPTIONS") return handleOptions(req, corsOptions);
+  if (req.method !== "POST") return bad(req, { error: "Method not allowed" });
 
-  if (!supabase) return err({ error: "Supabase client not configured" });
+  if (!supabase) return err(req, { error: "Supabase client not configured" });
 
   try {
     const now = new Date();
@@ -224,10 +220,10 @@ serve(async (req) => {
     await ensureStatusTransitions(now.toISOString());
 
     const created = (r1.created ?? 0) + (r2.created ?? 0);
-    return ok({ created, ensuredBlocks: 2 });
+    return ok(req, { created, ensuredBlocks: 2 });
   } catch (e: any) {
     console.error("[sync-tournaments] error:", e?.message ?? e);
-    if (e instanceof FeatureUnavailableError) return err({ code: "feature_unavailable", error: e.message }, 503);
-    return err({ error: e?.message ?? "Unknown error" }, 500);
+    if (e instanceof FeatureUnavailableError) return err(req, { code: "feature_unavailable", error: e.message }, 503);
+    return err(req, { error: e?.message ?? "Unknown error" }, 500);
   }
 });
