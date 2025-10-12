@@ -15,6 +15,24 @@ const normaliseEnv = (value: string | null | undefined) => {
 const AI_DISPLAY_NAME = normaliseEnv(Deno.env.get("TOURNAMENT_AI_NAME")) ?? "Voltus AI";
 const AI_DIFFICULTY = normaliseEnv(Deno.env.get("TOURNAMENT_AI_DIFFICULTY")) ?? "standard";
 
+const logFunctionError = async (stage: string, details: Record<string, unknown>) => {
+  if (!supabase) return;
+  try {
+    await supabase
+      .from("tournament_function_logs")
+      .insert({
+        function_name: "tournament-matchmaking",
+        payload: {
+          stage,
+          ...details,
+          recorded_at: new Date().toISOString(),
+        },
+      });
+  } catch (loggingError) {
+    console.error("[tournament-matchmaking] Unable to write diagnostic log:", loggingError);
+  }
+};
+
 const inferDisplayName = (user: { email?: string | null; user_metadata?: Record<string, unknown> }, fallback?: string | null) => {
   const metadata = user.user_metadata ?? {};
   const candidates = ["full_name", "name", "username"].map(key => {
@@ -62,6 +80,11 @@ const countHumanRegistrations = async (tournamentId: string) => {
   const { count, error } = await query;
   if (error) {
     console.error("[tournament-matchmaking] Unable to count registrations:", error.message);
+    await logFunctionError("count_human_registrations", {
+      tournamentId,
+      error: error.message,
+      code: error.code,
+    });
     return 0;
   }
 
@@ -99,6 +122,12 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
 
   if (updateMatchError) {
     console.error("[tournament-matchmaking] Unable to mark match as AI:", updateMatchError.message);
+    await logFunctionError("ai_attach_update_match_failed", {
+      matchId: context.matchId,
+      tournamentId: context.tournamentId,
+      error: updateMatchError.message,
+      code: updateMatchError.code,
+    });
     return false;
   }
 
@@ -109,6 +138,13 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
 
   if (humanUpdateError) {
     console.warn("[tournament-matchmaking] Unable to update registration for AI match:", humanUpdateError.message);
+    await logFunctionError("ai_attach_update_registration_failed", {
+      registrationId: context.humanRegistrationId,
+      matchId: context.matchId,
+      tournamentId: context.tournamentId,
+      error: humanUpdateError.message,
+      code: humanUpdateError.code,
+    });
   }
 
   if (context.lobbyId) {
@@ -125,6 +161,13 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
 
     if (lobbyError) {
       console.warn("[tournament-matchmaking] Unable to update lobby for AI opponent:", lobbyError.message);
+      await logFunctionError("ai_attach_update_lobby_failed", {
+        lobbyId: context.lobbyId,
+        matchId: context.matchId,
+        tournamentId: context.tournamentId,
+        error: lobbyError.message,
+        code: lobbyError.code,
+      });
     }
   }
 
@@ -160,7 +203,15 @@ serve(async req => {
   const user = authData.user;
 
   try {
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      await logFunctionError("invalid_request_body", {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+      });
+      return jsonResponse(req, { error: "Corps de requête invalide" }, { status: 400 }, corsOptions);
+    }
     const tournamentId = typeof body?.tournamentId === "string" ? body.tournamentId : null;
     const requestedName = typeof body?.displayName === "string" ? body.displayName : null;
 
@@ -176,6 +227,11 @@ serve(async req => {
 
     if (tournamentError || !tournament) {
       const message = tournamentError?.message ?? "Tournament not found";
+      await logFunctionError("tournament_lookup_failed", {
+        tournamentId,
+        error: tournamentError?.message,
+        code: tournamentError?.code,
+      });
       return jsonResponse(req, { error: message }, { status: 404 }, corsOptions);
     }
 
@@ -210,6 +266,12 @@ serve(async req => {
 
     if (registrationError || !registration) {
       const message = registrationError?.message ?? "Impossible d'enregistrer la participation";
+      await logFunctionError("registration_upsert_failed", {
+        tournamentId,
+        userId: user.id,
+        error: registrationError?.message,
+        code: registrationError?.code,
+      });
       return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
     }
 
@@ -306,6 +368,12 @@ serve(async req => {
 
       if (lobbyError || !lobby) {
         const message = lobbyError?.message ?? "Impossible de créer la salle du tournoi";
+        await logFunctionError("lobby_insert_failed", {
+          tournamentId,
+          userId: user.id,
+          error: lobbyError?.message,
+          code: lobbyError?.code,
+        });
         return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
       }
 
@@ -324,6 +392,13 @@ serve(async req => {
 
       if (matchError || !createdMatch) {
         const message = matchError?.message ?? "Impossible de créer le match";
+        await logFunctionError("match_insert_failed", {
+          tournamentId,
+          userId: user.id,
+          lobbyId: lobby.id,
+          error: matchError?.message,
+          code: matchError?.code,
+        });
         return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
       }
 
@@ -378,6 +453,11 @@ serve(async req => {
     );
   } catch (error) {
     console.error("tournament-matchmaking error", error);
+    await logFunctionError("unhandled_exception", {
+      userId: user.id,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : null,
+    });
     const message = error instanceof Error ? error.message : "Unknown error";
     return jsonResponse(req, { error: message }, { status: 500 }, corsOptions);
   }
