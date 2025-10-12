@@ -63,13 +63,20 @@ const SUPABASE_URL =
 const SUPABASE_ANON_KEY = readEnvValue(
   'VITE_SUPABASE_ANON_KEY',
   'VITE_SUPABASE_PUBLISHABLE_KEY',
+  'VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY',
   'VITE_SUPABASE_PUBLIC_ANON_KEY',
   'VITE_ANON_KEY',
   'SUPABASE_ANON_KEY',
   'SUPABASE_PUBLISHABLE_KEY',
+  'SUPABASE_PUBLISHABLE_DEFAULT_KEY',
   'SUPABASE_PUBLIC_ANON_KEY',
   'ANON_KEY'
 );
+
+const JWT_KEY_PATTERN = /^[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+$/;
+const SB_PREFIX_KEY_PATTERN = /^sb_[a-z]+_[A-Za-z0-9\-_=.]+$/;
+
+const isValidSupabaseKey = (value: string) => JWT_KEY_PATTERN.test(value) || SB_PREFIX_KEY_PATTERN.test(value);
 
 type SupabaseDiagnostics = {
   initialisedAt: string;
@@ -94,9 +101,11 @@ function buildEnvProblems() {
   const problems: string[] = [];
 
   if (!SUPABASE_ANON_KEY) {
-    problems.push('Clé anonyme Supabase manquante (VITE_SUPABASE_ANON_KEY ou SUPABASE_ANON_KEY).');
-  } else if (!/^[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+$/.test(SUPABASE_ANON_KEY)) {
-    problems.push("Clé anonyme Supabase invalide (ne ressemble pas à un token JWT)");
+    problems.push(
+      'Clé Supabase (anon/publishable) manquante (VITE_SUPABASE_ANON_KEY, VITE_SUPABASE_PUBLISHABLE_KEY ou VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY).'
+    );
+  } else if (!isValidSupabaseKey(SUPABASE_ANON_KEY)) {
+    problems.push("Clé Supabase invalide (attendu un jeton JWT ou une clé sb_ publishable/service)");
   }
 
   if (!SUPABASE_URL) {
