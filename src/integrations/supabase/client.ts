@@ -3,14 +3,20 @@ import type { Database } from './types';
 
 const PLACEHOLDER_SUPABASE_URL = /example\.com/i;
 
-const SUPABASE_PROJECT_ID =
-  import.meta.env.VITE_SUPABASE_PROJECT_ID ??
-  import.meta.env.VITE_SUPABASE_PROJECT_REF ??
-  import.meta.env.VITE_SUPABASE_REFERENCE_ID ??
-  import.meta.env.VITE_SUPABASE_PROJECT;
+const normaliseEnvValue = (value: string | undefined) => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
 
-const RAW_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim();
-const NORMALISED_PROJECT_ID = SUPABASE_PROJECT_ID?.trim();
+const SUPABASE_PROJECT_ID =
+  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PROJECT_ID) ??
+  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PROJECT_REF) ??
+  normaliseEnvValue(import.meta.env.VITE_SUPABASE_REFERENCE_ID) ??
+  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PROJECT);
+
+const RAW_SUPABASE_URL = normaliseEnvValue(import.meta.env.VITE_SUPABASE_URL);
+const NORMALISED_PROJECT_ID = normaliseEnvValue(SUPABASE_PROJECT_ID);
 const IS_PLACEHOLDER_URL = RAW_SUPABASE_URL ? PLACEHOLDER_SUPABASE_URL.test(RAW_SUPABASE_URL) : false;
 
 const SUPABASE_URL =
@@ -21,10 +27,10 @@ const SUPABASE_URL =
     : RAW_SUPABASE_URL;
 
 const SUPABASE_ANON_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ??
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
-  import.meta.env.VITE_SUPABASE_PUBLIC_ANON_KEY ??
-  import.meta.env.VITE_ANON_KEY;
+  normaliseEnvValue(import.meta.env.VITE_SUPABASE_ANON_KEY) ??
+  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) ??
+  normaliseEnvValue(import.meta.env.VITE_SUPABASE_PUBLIC_ANON_KEY) ??
+  normaliseEnvValue(import.meta.env.VITE_ANON_KEY);
 
 declare global {
   interface Window {
@@ -48,6 +54,8 @@ function buildEnvProblems() {
 
   if (!SUPABASE_ANON_KEY) {
     problems.push('VITE_SUPABASE_ANON_KEY manquante');
+  } else if (!/^[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+\.[-A-Za-z0-9_=]+$/.test(SUPABASE_ANON_KEY)) {
+    problems.push("VITE_SUPABASE_ANON_KEY invalide (ne ressemble pas à un token JWT)");
   }
 
   if (!SUPABASE_URL) {
