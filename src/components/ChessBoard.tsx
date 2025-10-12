@@ -26,8 +26,20 @@ const pieceGradients: Record<ChessPiece['color'], string> = {
   black: 'from-amber-200 via-rose-400 to-purple-500'
 };
 
-const ChessBoard = ({ gameState, onSquareClick, onPieceClick, readOnly = false, highlightSquares = [] }: ChessBoardProps) => {
-  const { board, selectedPiece, validMoves, specialAttacks, visualEffects } = gameState;
+const ChessBoard = ({
+  gameState,
+  onSquareClick,
+  onPieceClick,
+  readOnly = false,
+  highlightSquares = [],
+}: ChessBoardProps) => {
+  const {
+    board,
+    selectedPiece,
+    validMoves = [],
+    specialAttacks = [],
+    visualEffects = [],
+  } = gameState;
 
   const isValidMove = (row: number, col: number) => {
     return validMoves.some(move => move.row === row && move.col === col);
