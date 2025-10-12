@@ -79,6 +79,18 @@ functions live under the `supabase/` directory and are wired to the same Lovable
 By keeping the same Supabase folder and Lovable API configuration, the chatbot and tournament features stay connected to the
 shared Lovable AI services without additional setup.
 
+#### Base de données & migrations
+
+Le fichier `.env` (ainsi que ses variantes `preview` et `production`) inclut maintenant la variable `SUPABASE_DB_URL` qui pointe vers la base de données Supabase fournie (`postgresql://postgres:[1BUllSHit12345$$]@db.ucaqbhmyutlnitnedowk.supabase.co:5432/postgres`).
+
+Pour créer les tables manquantes et appliquer les migrations SQL présentes dans `supabase/migrations`, lance la commande suivante :
+
+```bash
+npm run db:migrate
+```
+
+Le script `scripts/run-supabase-migrations.mjs` applique chaque fichier `.sql` dans l'ordre en veillant à activer TLS (`sslmode=require`). Assure-toi simplement que la machine qui exécute ce script peut établir une connexion réseau vers l'hôte Supabase (IPv4 ou IPv6).
+
 Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
 
 ```sh
