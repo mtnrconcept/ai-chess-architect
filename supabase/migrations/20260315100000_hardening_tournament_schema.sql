@@ -56,6 +56,7 @@ create table if not exists public.tournament_registrations (
 );
 
 -- VUE D’APERÇU
+drop view if exists public.tournament_overview;
 create or replace view public.tournament_overview as
 select
   t.id,
@@ -84,16 +85,43 @@ alter table public.tournament_registrations enable row level security;
 -- Policies simples (à affiner)
 do $$
 begin
-  if not exists (select 1 from pg_policies where polname = 'lobbies_read_all') then
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'lobbies'
+      and policyname = 'lobbies_read_all'
+  ) then
     create policy "lobbies_read_all" on public.lobbies for select using (true);
   end if;
-  if not exists (select 1 from pg_policies where polname = 'tournaments_read_all') then
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'tournaments'
+      and policyname = 'tournaments_read_all'
+  ) then
     create policy "tournaments_read_all" on public.tournaments for select using (true);
   end if;
-  if not exists (select 1 from pg_policies where polname = 'matches_read_all') then
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'tournament_matches'
+      and policyname = 'matches_read_all'
+  ) then
     create policy "matches_read_all" on public.tournament_matches for select using (true);
   end if;
-  if not exists (select 1 from pg_policies where polname = 'regs_read_owner') then
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'tournament_registrations'
+      and policyname = 'regs_read_owner'
+  ) then
     create policy "regs_read_owner" on public.tournament_registrations
       for select using (auth.uid() = user_id);
   end if;

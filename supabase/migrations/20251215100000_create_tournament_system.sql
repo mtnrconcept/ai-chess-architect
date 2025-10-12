@@ -14,12 +14,139 @@ create table if not exists public.tournaments (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+-- Legacy schema alignment: rename old columns if the table predates this migration
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournaments'
+      and column_name = 'title'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournaments'
+      and column_name = 'name'
+  ) then
+    execute 'alter table public.tournaments rename column title to name';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournaments'
+      and column_name = 'starts_at'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournaments'
+      and column_name = 'start_time'
+  ) then
+    execute 'alter table public.tournaments rename column starts_at to start_time';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournaments'
+      and column_name = 'ends_at'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournaments'
+      and column_name = 'end_time'
+  ) then
+    execute 'alter table public.tournaments rename column ends_at to end_time';
+  end if;
+end;
+$$;
+
+-- Ensure all expected columns exist with correct defaults
+alter table public.tournaments
+  add column if not exists name text;
+
+alter table public.tournaments
+  add column if not exists description text;
+
+alter table public.tournaments
+  add column if not exists variant_name text;
+
+alter table public.tournaments
+  add column if not exists variant_source text;
+
+alter table public.tournaments
+  add column if not exists variant_rules text[] default array[]::text[];
+
+alter table public.tournaments
+  add column if not exists variant_lobby_id uuid references public.lobbies(id);
+
+alter table public.tournaments
+  add column if not exists start_time timestamptz;
+
+alter table public.tournaments
+  add column if not exists end_time timestamptz;
+
+alter table public.tournaments
+  add column if not exists status text default 'scheduled';
+
+alter table public.tournaments
+  add column if not exists created_at timestamptz default timezone('utc', now());
+
+alter table public.tournaments
+  add column if not exists updated_at timestamptz default timezone('utc', now());
+
+update public.tournaments
+set variant_name = coalesce(variant_name, 'Standard'),
+    variant_rules = coalesce(variant_rules, array[]::text[]),
+    status = coalesce(status, 'scheduled'),
+    start_time = coalesce(start_time, timezone('utc', now())),
+    end_time = coalesce(end_time, timezone('utc', now()) + interval '1 hour'),
+    created_at = coalesce(created_at, timezone('utc', now())),
+    updated_at = coalesce(updated_at, timezone('utc', now()));
+
+alter table public.tournaments
+  alter column name set not null;
+
+alter table public.tournaments
+  alter column variant_name set not null;
+
+alter table public.tournaments
+  alter column variant_rules set not null;
+
+alter table public.tournaments
+  alter column variant_rules set default array[]::text[];
+
+alter table public.tournaments
+  alter column start_time set not null;
+
+alter table public.tournaments
+  alter column end_time set not null;
+
+alter table public.tournaments
+  alter column status set not null;
+
+alter table public.tournaments
+  alter column status set default 'scheduled';
+
+alter table public.tournaments
+  alter column created_at set not null;
+
+alter table public.tournaments
+  alter column updated_at set not null;
+
 create index if not exists idx_tournaments_start_time on public.tournaments(start_time);
 create index if not exists idx_tournaments_status on public.tournaments(status);
 
 alter table public.tournaments enable row level security;
 
-create policy if not exists "Tournaments are visible" on public.tournaments
+drop policy if exists "Tournaments are visible" on public.tournaments;
+create policy "Tournaments are visible" on public.tournaments
   for select using (true);
 
 -- Ensure we can update timestamps automatically
@@ -54,15 +181,132 @@ create table if not exists public.tournament_matches (
   variant_rules text[]
 );
 
+-- Legacy schema alignment for tournament_matches
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_matches'
+      and column_name = 'player_a'
+  ) then
+    execute 'alter table public.tournament_matches rename column player_a to player1_id';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_matches'
+      and column_name = 'player_b'
+  ) then
+    execute 'alter table public.tournament_matches rename column player_b to player2_id';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_matches'
+      and column_name = 'scheduled_at'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_matches'
+      and column_name = 'started_at'
+  ) then
+    execute 'alter table public.tournament_matches rename column scheduled_at to started_at';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_matches'
+      and column_name = 'result'
+      and data_type = 'jsonb'
+  ) then
+    execute 'alter table public.tournament_matches drop column result';
+  end if;
+end;
+$$;
+
+alter table public.tournament_matches
+  add column if not exists lobby_id uuid references public.lobbies(id);
+
+alter table public.tournament_matches
+  add column if not exists table_number integer;
+
+alter table public.tournament_matches
+  add column if not exists player1_id uuid references auth.users(id);
+
+alter table public.tournament_matches
+  add column if not exists player2_id uuid references auth.users(id);
+
+alter table public.tournament_matches
+  add column if not exists status text default 'pending';
+
+alter table public.tournament_matches
+  add column if not exists result text check (result in ('player1','player2','draw'));
+
+alter table public.tournament_matches
+  add column if not exists winner_id uuid references auth.users(id);
+
+alter table public.tournament_matches
+  add column if not exists started_at timestamptz;
+
+alter table public.tournament_matches
+  add column if not exists completed_at timestamptz;
+
+alter table public.tournament_matches
+  add column if not exists created_at timestamptz default timezone('utc', now());
+
+alter table public.tournament_matches
+  add column if not exists updated_at timestamptz default timezone('utc', now());
+
+alter table public.tournament_matches
+  add column if not exists reported_by uuid references auth.users(id);
+
+alter table public.tournament_matches
+  add column if not exists variant_rules text[];
+
+update public.tournament_matches
+set status = coalesce(status, 'pending'),
+    created_at = coalesce(created_at, timezone('utc', now())),
+    updated_at = coalesce(updated_at, timezone('utc', now())),
+    variant_rules = coalesce(variant_rules, array[]::text[]);
+
+alter table public.tournament_matches
+  alter column status set default 'pending';
+
+alter table public.tournament_matches
+  alter column variant_rules set default array[]::text[];
+
+alter table public.tournament_matches
+  alter column tournament_id set not null;
+
+alter table public.tournament_matches
+  alter column status set not null;
+
+alter table public.tournament_matches
+  alter column created_at set not null;
+
+alter table public.tournament_matches
+  alter column updated_at set not null;
+
 create index if not exists idx_tournament_matches_tournament on public.tournament_matches(tournament_id);
 create index if not exists idx_tournament_matches_status on public.tournament_matches(status);
 
 alter table public.tournament_matches enable row level security;
 
-create policy if not exists "Tournament matches readable" on public.tournament_matches
+drop policy if exists "Tournament matches readable" on public.tournament_matches;
+create policy "Tournament matches readable" on public.tournament_matches
   for select using (true);
 
-create policy if not exists "Tournament matches managed by service role" on public.tournament_matches
+drop policy if exists "Tournament matches managed by service role" on public.tournament_matches;
+create policy "Tournament matches managed by service role" on public.tournament_matches
   for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
 
 create trigger set_timestamp_tournament_matches
@@ -86,6 +330,127 @@ create table if not exists public.tournament_registrations (
   is_waiting boolean not null default false
 );
 
+-- Legacy schema alignment for tournament_registrations
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_registrations'
+      and column_name = 'registered_at'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_registrations'
+      and column_name = 'joined_at'
+  ) then
+    execute 'alter table public.tournament_registrations rename column registered_at to joined_at';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tournament_registrations'
+      and column_name = 'metadata'
+  ) then
+    execute 'alter table public.tournament_registrations drop column metadata';
+  end if;
+end;
+$$;
+
+alter table public.tournament_registrations
+  add column if not exists user_id uuid references auth.users(id);
+
+alter table public.tournament_registrations
+  add column if not exists display_name text;
+
+alter table public.tournament_registrations
+  add column if not exists avatar_url text;
+
+alter table public.tournament_registrations
+  add column if not exists joined_at timestamptz default timezone('utc', now());
+
+alter table public.tournament_registrations
+  add column if not exists last_active_at timestamptz default timezone('utc', now());
+
+alter table public.tournament_registrations
+  add column if not exists wins integer default 0;
+
+alter table public.tournament_registrations
+  add column if not exists losses integer default 0;
+
+alter table public.tournament_registrations
+  add column if not exists draws integer default 0;
+
+alter table public.tournament_registrations
+  add column if not exists points numeric(5,2) default 0;
+
+alter table public.tournament_registrations
+  add column if not exists current_match_id uuid;
+
+alter table public.tournament_registrations
+  add column if not exists is_waiting boolean default false;
+
+update public.tournament_registrations
+set joined_at = coalesce(joined_at, timezone('utc', now())),
+    last_active_at = coalesce(last_active_at, timezone('utc', now())),
+    wins = coalesce(wins, 0),
+    losses = coalesce(losses, 0),
+    draws = coalesce(draws, 0),
+    points = coalesce(points, 0),
+    is_waiting = coalesce(is_waiting, false);
+
+alter table public.tournament_registrations
+  alter column joined_at set default timezone('utc', now());
+
+alter table public.tournament_registrations
+  alter column last_active_at set default timezone('utc', now());
+
+alter table public.tournament_registrations
+  alter column wins set default 0;
+
+alter table public.tournament_registrations
+  alter column losses set default 0;
+
+alter table public.tournament_registrations
+  alter column draws set default 0;
+
+alter table public.tournament_registrations
+  alter column points set default 0;
+
+alter table public.tournament_registrations
+  alter column is_waiting set default false;
+
+alter table public.tournament_registrations
+  alter column tournament_id set not null;
+
+alter table public.tournament_registrations
+  alter column user_id set not null;
+
+alter table public.tournament_registrations
+  alter column joined_at set not null;
+
+alter table public.tournament_registrations
+  alter column last_active_at set not null;
+
+alter table public.tournament_registrations
+  alter column wins set not null;
+
+alter table public.tournament_registrations
+  alter column losses set not null;
+
+alter table public.tournament_registrations
+  alter column draws set not null;
+
+alter table public.tournament_registrations
+  alter column points set not null;
+
+alter table public.tournament_registrations
+  alter column is_waiting set not null;
+
 alter table public.tournament_registrations
   add constraint tournament_registrations_unique unique (tournament_id, user_id);
 
@@ -98,13 +463,16 @@ create index if not exists idx_tournament_registrations_user on public.tournamen
 
 alter table public.tournament_registrations enable row level security;
 
-create policy if not exists "Tournament registrations readable" on public.tournament_registrations
+drop policy if exists "Tournament registrations readable" on public.tournament_registrations;
+create policy "Tournament registrations readable" on public.tournament_registrations
   for select using (true);
 
-create policy if not exists "Players can register" on public.tournament_registrations
+drop policy if exists "Players can register" on public.tournament_registrations;
+create policy "Players can register" on public.tournament_registrations
   for insert with check (auth.uid() = user_id);
 
-create policy if not exists "Players manage their registration" on public.tournament_registrations
+drop policy if exists "Players manage their registration" on public.tournament_registrations;
+create policy "Players manage their registration" on public.tournament_registrations
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create trigger set_timestamp_tournament_registrations
@@ -112,6 +480,7 @@ create trigger set_timestamp_tournament_registrations
   for each row execute function public.trigger_set_timestamp();
 
 -- Overview view consolidating counts for UI consumption
+drop view if exists public.tournament_overview;
 create or replace view public.tournament_overview as
 select
   t.id,
@@ -145,6 +514,7 @@ left join (
 ) matches on matches.tournament_id = t.id;
 
 -- Helper view for leaderboard aggregation
+drop view if exists public.tournament_leaderboard;
 create or replace view public.tournament_leaderboard as
 select
   tr.tournament_id,

@@ -123,6 +123,7 @@ create trigger trg_tournament_match_results_after_del
   for each row execute function public.tournament_match_results_after_delete();
 
 -- Standings view for simplified ranking consumption
+drop view if exists public.tournament_rankings;
 create or replace view public.tournament_rankings as
 select
   s.tournament_id,
@@ -141,6 +142,7 @@ select
 from public.tournament_standings s;
 
 -- Update overview view to include ranking-ready stats
+drop view if exists public.tournament_overview;
 create or replace view public.tournament_overview as
 select
   t.id,
@@ -164,13 +166,33 @@ alter table public.tournament_standings enable row level security;
 
 do $$
 begin
-  if not exists (select 1 from pg_policies where polname = 'tournament_rounds_read_all') then
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'tournament_rounds'
+      and policyname = 'tournament_rounds_read_all'
+  ) then
     create policy "tournament_rounds_read_all" on public.tournament_rounds for select using (true);
   end if;
-  if not exists (select 1 from pg_policies where polname = 'tournament_match_results_read_all') then
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'tournament_match_results'
+      and policyname = 'tournament_match_results_read_all'
+  ) then
     create policy "tournament_match_results_read_all" on public.tournament_match_results for select using (true);
   end if;
-  if not exists (select 1 from pg_policies where polname = 'tournament_standings_read_all') then
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'tournament_standings'
+      and policyname = 'tournament_standings_read_all'
+  ) then
     create policy "tournament_standings_read_all" on public.tournament_standings for select using (true);
   end if;
 end$$;

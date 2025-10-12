@@ -1,8 +1,22 @@
 -- Add tags metadata to custom rules for lobby filtering
-ALTER TABLE public.custom_chess_rules
-ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT ARRAY[]::TEXT[];
+do $$
+begin
+  if exists (
+    select 1
+    from pg_catalog.pg_tables
+    where schemaname = 'public'
+      and tablename = 'custom_chess_rules'
+  ) then
+    perform
+      pg_catalog.set_config('search_path', 'public', true);
 
--- Ensure existing rows have a non-null array
-UPDATE public.custom_chess_rules
-SET tags = ARRAY[]::TEXT[]
-WHERE tags IS NULL;
+    execute 'alter table public.custom_chess_rules add column if not exists tags text[] default array[]::text[]';
+
+    execute '
+      update public.custom_chess_rules
+        set tags = array[]::text[]
+        where tags is null
+    ';
+  end if;
+end;
+$$ language plpgsql;
