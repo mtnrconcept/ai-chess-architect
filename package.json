@@ -10,7 +10,8 @@
     "build:dev": "npm run sync:tournaments && vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview --mode preview",
-    "db:migrate": "node scripts/run-supabase-migrations.mjs"
+    "db:migrate": "node scripts/run-supabase-migrations.mjs",
+    "postgrest:reload": "node scripts/refresh-postgrest-schema.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
