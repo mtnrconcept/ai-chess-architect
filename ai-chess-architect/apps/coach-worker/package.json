@@ -1,0 +1,20 @@
+{
+  "name": "@apps/coach-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/worker.ts"
+  },
+  "dependencies": {
+    "@packages/engine": "workspace:*",
+    "@packages/classifier": "workspace:*",
+    "@packages/llm": "workspace:*",
+    "pg": "^8.12.0",
+    "chess.js": "^1.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}

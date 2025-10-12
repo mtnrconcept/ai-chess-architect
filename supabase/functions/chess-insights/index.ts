@@ -106,7 +106,139 @@ const buildFallbackMessage = (payload: RequestPayload, reason: string) => {
     `Évaluation matérielle : ${advantageLabel} pour ${playerLabel}.\n` +
     `Phase estimée : ${turnPhase}. ${phaseMessage}\n` +
     `Plans suggérés : ${selectedPlans.join(' | ')}\n` +
-    `N’hésitez pas à me demander un plan précis ou une clarification. Je reste à votre disposition !`;
+    `N'hésitez pas à me demander un plan précis ou une clarification. Je reste à votre disposition !`;
+};
+
+type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+const toOpenAIMessages = (messages: ChatMessage[]) =>
+  messages.map(message => ({ role: message.role, content: message.content }));
+
+const callLovable = async (apiKey: string, messages: ChatMessage[], temperature: number) => {
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: toOpenAIMessages(messages),
+      temperature,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Lovable AI error:", response.status, errorText);
+    if (response.status === 429) {
+      const error = new Error("Lovable rate limit exceeded");
+      (error as { status?: number }).status = 429;
+      throw error;
+    }
+    throw new Error(`Lovable AI error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || content.trim().length === 0) {
+    throw new Error("Empty response from Lovable AI");
+  }
+  return content.trim();
+};
+
+const callGemini = async (apiKey: string, messages: ChatMessage[], temperature: number) => {
+  const systemMessage = messages.find(message => message.role === "system");
+  const conversation = messages
+    .filter(message => message.role !== "system")
+    .map(message => ({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text: message.content }],
+    }));
+
+  const body: Record<string, unknown> = {
+    contents: conversation,
+    generationConfig: { temperature },
+  };
+
+  if (systemMessage) {
+    body.systemInstruction = {
+      role: "system",
+      parts: [{ text: systemMessage.content }],
+    };
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Gemini error:", response.status, errorText);
+    if (response.status === 429) {
+      const error = new Error("Gemini rate limit exceeded");
+      (error as { status?: number }).status = 429;
+      throw error;
+    }
+    throw new Error(`Gemini error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+  for (const candidate of candidates) {
+    const parts = candidate?.content?.parts;
+    if (Array.isArray(parts)) {
+      const text = parts
+        .map((part: { text?: unknown }) => (typeof part?.text === "string" ? part.text : ""))
+        .join("\n")
+        .trim();
+      if (text.length > 0) {
+        return text;
+      }
+    }
+  }
+  throw new Error("Empty response from Gemini");
+};
+
+const callGroq = async (apiKey: string, messages: ChatMessage[], temperature: number) => {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "llama-3.1-70b-versatile",
+      messages: toOpenAIMessages(messages),
+      temperature,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Groq error:", response.status, errorText);
+    if (response.status === 429) {
+      const error = new Error("Groq rate limit exceeded");
+      (error as { status?: number }).status = 429;
+      throw error;
+    }
+    throw new Error(`Groq error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || content.trim().length === 0) {
+    throw new Error("Empty response from Groq");
+  }
+  return content.trim();
 };
 
 Deno.serve(async (req) => {
@@ -144,75 +276,90 @@ Deno.serve(async (req) => {
     const history = payload.history?.slice(-8) ?? [];
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
 
     let assistantMessage: string | null = null;
     let lastError: string | null = null;
 
+    const systemPrompt = `Tu es Coach CyberIA, un assistant d'échecs conversationnel francophone alimenté par Lovable.\n` +
+      `Tu discutes avec un joueur en direct. Pour chaque réponse :\n` +
+      `- Analyse la position actuelle et décris en une phrase le dernier coup ou la séquence récente.\n` +
+      `- Donne 2 à 3 idées de coups ou plans pertinents pour le camp au trait.\n` +
+      `- Identifie le nom de l'ouverture ou de la structure si possible, sinon indique qu'elle est atypique.\n` +
+      `- Réponds en français, avec un ton positif et motivant.\n` +
+      `- Termine par une question ou une invitation à poursuivre la conversation.`;
+
+    const contextMessage = [
+      `Représentation du plateau (du 8e rang vers le 1er) : ${payload.board}`,
+      `Coups joués : ${payload.moveHistory.length ? payload.moveHistory.join(', ') : 'aucun coup pour le moment'}`,
+      `Dernier coup : ${payload.moveHistory[payload.moveHistory.length - 1] ?? '—'}`,
+      `Camp au trait : ${payload.currentPlayer}`,
+      `Tour numéro : ${payload.turnNumber}`,
+      `Statut de la partie : ${payload.gameStatus}`,
+      `Règles spéciales actives : ${payload.activeRules.length ? payload.activeRules.join(' | ') : 'aucune'}`,
+      `Type de mise à jour : ${payload.trigger}`,
+      `Message du joueur : ${payload.userMessage || 'analyse générale demandée'}`,
+    ].join('\n');
+
+    const messages: ChatMessage[] = [
+      { role: "system", content: systemPrompt },
+      ...history.map(entry => ({
+        role: entry.role === "assistant" ? "assistant" : "user",
+        content: entry.content.slice(0, 4000),
+      })),
+      { role: "user", content: contextMessage },
+    ];
+
+    const providers: Array<{ name: string; exec: () => Promise<string> }> = [];
+
     if (LOVABLE_API_KEY) {
-      try {
-        const systemPrompt = `Tu es Coach CyberIA, un assistant d'échecs conversationnel francophone alimenté par Lovable.\n` +
-          `Tu discutes avec un joueur en direct. Pour chaque réponse :\n` +
-          `- Analyse la position actuelle et décris en une phrase le dernier coup ou la séquence récente.\n` +
-          `- Donne 2 à 3 idées de coups ou plans pertinents pour le camp au trait.\n` +
-          `- Identifie le nom de l'ouverture ou de la structure si possible, sinon indique qu'elle est atypique.\n` +
-          `- Réponds en français, avec un ton positif et motivant.\n` +
-          `- Termine par une question ou une invitation à poursuivre la conversation.`;
+      providers.push({
+        name: "Lovable",
+        exec: () => callLovable(LOVABLE_API_KEY, messages, 0.6),
+      });
+    }
 
-        const contextMessage = [
-          `Représentation du plateau (du 8e rang vers le 1er) : ${payload.board}`,
-          `Coups joués : ${payload.moveHistory.length ? payload.moveHistory.join(', ') : 'aucun coup pour le moment'}`,
-          `Dernier coup : ${payload.moveHistory[payload.moveHistory.length - 1] ?? '—'}`,
-          `Camp au trait : ${payload.currentPlayer}`,
-          `Tour numéro : ${payload.turnNumber}`,
-          `Statut de la partie : ${payload.gameStatus}`,
-          `Règles spéciales actives : ${payload.activeRules.length ? payload.activeRules.join(' | ') : 'aucune'}`,
-          `Type de mise à jour : ${payload.trigger}`,
-          `Message du joueur : ${payload.userMessage || 'analyse générale demandée'}`,
-        ].join('\n');
+    if (GEMINI_API_KEY) {
+      providers.push({
+        name: "Gemini",
+        exec: () => callGemini(GEMINI_API_KEY, messages, 0.6),
+      });
+    }
 
-        const messages = [
-          { role: "system" as const, content: systemPrompt },
-          ...history.map(entry => ({ role: entry.role, content: entry.content.slice(0, 4000) })),
-          { role: "user" as const, content: contextMessage },
-        ];
+    if (GROQ_API_KEY) {
+      providers.push({
+        name: "Groq",
+        exec: () => callGroq(GROQ_API_KEY, messages, 0.6),
+      });
+    }
 
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages,
-            temperature: 0.6,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("AI Gateway error:", response.status, errorText);
-          if (response.status === 429) {
+    if (providers.length === 0) {
+      lastError = "Aucune clé API AI disponible (Lovable/Gemini/Groq absentes)";
+    } else {
+      for (const provider of providers) {
+        try {
+          const content = await provider.exec();
+          if (content.trim().length > 0) {
+            assistantMessage = content.trim();
+            lastError = null;
+            break;
+          }
+          throw new Error("Empty response");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const status = (error as { status?: number }).status;
+          console.error(`[chess-insights] ${provider.name} provider failed:`, message);
+          lastError = `${provider.name}: ${message}`;
+          if (status === 429) {
             return json(req, { error: "Rate limit exceeded. Please try again later." }, { status: 429 });
           }
-          throw new Error(`AI Gateway error: ${response.status}`);
         }
-
-        const data = await response.json();
-        let content = (data?.choices?.[0]?.message?.content ?? '').trim();
-        content = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-
-        if (content.length > 0) {
-          assistantMessage = content;
-        } else {
-          throw new Error("Empty response from AI");
-        }
-      } catch (error) {
-        console.error("Error while fetching remote chat response:", error);
-        lastError = error instanceof Error ? error.message : String(error);
       }
-    } else {
-      lastError = "LOVABLE_API_KEY missing";
+
+      if (!assistantMessage && !lastError) {
+        lastError = "Aucune réponse reçue des fournisseurs AI";
+      }
     }
 
     if (!assistantMessage) {
