@@ -96,6 +96,14 @@ Ce script constitue une alternative directe à `supabase db push` lorsque le Sup
 
 Le script `scripts/run-supabase-migrations.mjs` applique chaque fichier `.sql` dans l'ordre en veillant à activer TLS (`sslmode=require`). Assure-toi simplement que la machine qui exécute ce script peut établir une connexion réseau vers l'hôte Supabase (IPv4 ou IPv6).
 
+Une fois les nouvelles tables et vues créées, force un rafraîchissement du cache PostgREST afin que `/rest/v1/tournaments` et les vues associées soient visibles immédiatement :
+
+```bash
+npm run postgrest:reload
+```
+
+La commande exécute `select pg_notify('pgrst','reload schema');` via la même connexion SSL, ce qui évite d'avoir à redémarrer manuellement l'API depuis le tableau de bord Supabase.
+
 Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
 
 ```sh
@@ -107,7 +115,12 @@ If you do not use the CLI, the secret can also be configured from the Supabase d
 Whenever the secret is updated, redeploy the edge functions so they pick up the latest value:
 
 ```sh
-npx supabase functions deploy generate-chess-rule chess-insights
+npx supabase functions deploy \
+  generate-chess-rule \
+  chess-insights \
+  sync-tournaments \
+  tournament-matchmaking \
+  report-tournament-match
 ```
 
 ## How can I deploy this project?

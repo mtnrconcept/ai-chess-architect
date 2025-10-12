@@ -43,6 +43,9 @@ testing the UI again:
   ```sql
   select pg_notify('pgrst', 'reload schema');
   ```
+
+  Depuis le dépôt, tu peux déclencher cette notification sans passer par psql en exécutant `npm run postgrest:reload`, qui se c
+  onnecte via `SUPABASE_DB_URL` et envoie la commande `NOTIFY` automatiquement.
 * Edge function preflight:
   ```bash
   curl -i -X OPTIONS "https://ucaqbhmyutlnitnedowk.functions.supabase.co/sync-tournaments"
