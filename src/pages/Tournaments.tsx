@@ -62,6 +62,7 @@ type TournamentTab = "running" | "upcoming" | "completed" | "mine";
 type LeaderboardState = {
   loading: boolean;
   entries: TournamentLeaderboardEntry[];
+  error: string | null;
 };
 
 const formatDateTime = (iso: string) => {
@@ -146,7 +147,11 @@ const TournamentPage = () => {
   const [activeTab, setActiveTab] = useState<TournamentTab>("running");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
-  const [leaderboardState, setLeaderboardState] = useState<LeaderboardState>({ loading: false, entries: [] });
+  const [leaderboardState, setLeaderboardState] = useState<LeaderboardState>({
+    loading: false,
+    entries: [],
+    error: null,
+  });
   const [joiningTournamentId, setJoiningTournamentId] = useState<string | null>(null);
   const [registeringTournamentId, setRegisteringTournamentId] = useState<string | null>(null);
   const [reportingMatchId, setReportingMatchId] = useState<string | null>(null);
@@ -377,17 +382,21 @@ const TournamentPage = () => {
   );
 
   const loadLeaderboard = async (tournamentId: string) => {
-    setLeaderboardState({ loading: true, entries: [] });
+    setLeaderboardState({ loading: true, entries: [], error: null });
     try {
       const entries = await fetchTournamentLeaderboard(tournamentId);
-      setLeaderboardState({ loading: false, entries });
+      setLeaderboardState({ loading: false, entries, error: null });
     } catch (error) {
-      if (error instanceof TournamentFeatureUnavailableError) {
-        setTournamentsUnavailable(true);
-      }
       const message = error instanceof Error ? error.message : "Classement inaccessible";
       toast({ title: "Erreur", description: message, variant: "destructive" });
-      setLeaderboardState({ loading: false, entries: [] });
+      setLeaderboardState({
+        loading: false,
+        entries: [],
+        error:
+          error instanceof TournamentFeatureUnavailableError
+            ? "Le classement n'est pas disponible : vérifiez la configuration Supabase dédiée."
+            : message,
+      });
     }
   };
 
@@ -409,7 +418,7 @@ const TournamentPage = () => {
     setDetailsOpen(open);
     if (!open) {
       setSelectedTournamentId(null);
-      setLeaderboardState({ loading: false, entries: [] });
+      setLeaderboardState({ loading: false, entries: [], error: null });
     }
   };
 
@@ -957,7 +966,7 @@ const TournamentPage = () => {
                   {leaderboardState.entries.length === 0 && !leaderboardState.loading ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center text-cyan-100/70">
-                        Aucun résultat enregistré pour le moment.
+                        {leaderboardState.error ?? "Aucun résultat enregistré pour le moment."}
                       </TableCell>
                     </TableRow>
                   ) : (
