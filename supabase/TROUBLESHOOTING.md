@@ -1,5 +1,19 @@
 # Supabase Troubleshooting Guide
 
+## `supabase: command not found`
+
+Certains environnements de build ou de test ne fournissent pas le binaire Supabase CLI. Les commandes telles que `supabase db push` échouent alors immédiatement.
+
+### Solution recommandée
+
+Utilise le script Node déjà inclus dans ce dépôt :
+
+```bash
+npm run db:migrate
+```
+
+Ce script se connecte directement à la base configurée via `SUPABASE_DB_URL`, applique uniquement les migrations SQL encore inédites (grâce à la table `public.__lovable_schema_migrations`), et assure le chiffrement TLS (`sslmode=require`). Il constitue une alternative drop-in à `supabase db push` dans les pipelines CI/CD ou les conteneurs minimalistes.
+
 ## `WITHIN GROUP is required for ordered-set aggregate mode`
 
 Postgres raises this error whenever an ordered-set aggregate (for example `percentile_cont`, `percentile_disc`, or `mode`) is invoked without the mandatory `WITHIN GROUP (ORDER BY ...)` clause.

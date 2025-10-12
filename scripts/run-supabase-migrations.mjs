@@ -5,6 +5,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 
+const MIGRATIONS_TABLE = 'public.__lovable_schema_migrations';
+
 function resolveMigrationDir() {
   const currentFile = fileURLToPath(import.meta.url);
   const projectRoot = path.resolve(path.dirname(currentFile), '..');
@@ -27,6 +29,27 @@ function normaliseConnectionString(rawUrl) {
 
   const separator = trimmed.includes('?') ? '&' : '?';
   return `${trimmed}${separator}sslmode=require`;
+}
+
+async function ensureMigrationsTable(sql) {
+  await sql.unsafe(`
+    create table if not exists ${MIGRATIONS_TABLE} (
+      filename text primary key,
+      executed_at timestamptz not null default timezone('utc', now())
+    )
+  `);
+}
+
+async function fetchExecutedMigrations(sql) {
+  const rows = await sql.unsafe(`select filename from ${MIGRATIONS_TABLE}`);
+  return new Set(rows.map((row) => row.filename));
+}
+
+async function markMigrationAsRun(sql, fileName) {
+  await sql.unsafe(
+    `insert into ${MIGRATIONS_TABLE} (filename) values ($1) on conflict (filename) do nothing`,
+    [fileName]
+  );
 }
 
 async function loadMigrations(dir) {
@@ -53,7 +76,18 @@ async function applyMigrations(connectionString, migrationsDir) {
       return;
     }
 
-    for (const fileName of migrationFiles) {
+    await ensureMigrationsTable(sql);
+    const executedMigrations = await fetchExecutedMigrations(sql);
+    const pendingMigrations = migrationFiles.filter(
+      (fileName) => !executedMigrations.has(fileName)
+    );
+
+    if (pendingMigrations.length === 0) {
+      console.log('Aucune nouvelle migration à appliquer (la base est à jour).');
+      return;
+    }
+
+    for (const fileName of pendingMigrations) {
       const filePath = path.join(migrationsDir, fileName);
       console.log(`\n➡️  Application de la migration: ${fileName}`);
 
@@ -65,7 +99,10 @@ async function applyMigrations(connectionString, migrationsDir) {
         continue;
       }
 
-      await sql.unsafe(statements);
+      await sql.begin(async (tx) => {
+        await tx.unsafe(statements);
+        await markMigrationAsRun(tx, fileName);
+      });
       console.log('   ✅ Migration appliquée avec succès');
     }
   } finally {
