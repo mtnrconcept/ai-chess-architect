@@ -62,7 +62,7 @@ This project is built with:
 
 ## Local configuration
 
-Some serverless features depend on the Lovable AI gateway. Both edge functions under `supabase/functions` require the `LOVABLE_API_KEY` secret to be present in the Supabase project so that they can authenticate against the gateway.
+Some serverless features depend on an external AI provider. The edge functions under `supabase/functions` will automatically use the first configured secret among `LOVABLE_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`. At least one of these secrets must be present in the Supabase project so that the rule generator and the coach can authenticate against the selected API.
 
 ### Supabase & Lovable AI integration
 
@@ -104,13 +104,18 @@ npm run postgrest:reload
 
 La commande exécute `select pg_notify('pgrst','reload schema');` via la même connexion SSL, ce qui évite d'avoir à redémarrer manuellement l'API depuis le tableau de bord Supabase.
 
-Set the secret with the Supabase CLI from the root of the repository (replace `sk_live_xxx` with your real key):
+Set one of the supported secrets with the Supabase CLI from the root of the repository (replace the placeholder with your real key). Examples:
 
 ```sh
 npx supabase secrets set LOVABLE_API_KEY=sk_live_xxx
+npx supabase secrets set GROQ_API_KEY=gsk_xxx
+npx supabase secrets set OPENAI_API_KEY=sk-proj-xxx
+npx supabase secrets set GEMINI_API_KEY=ya29.xxx
 ```
 
-If you do not use the CLI, the secret can also be configured from the Supabase dashboard by navigating to **Project Settings → API → Secrets** and adding a new entry named `LOVABLE_API_KEY`.
+You can optionally define `AI_PROVIDER` to force a specific provider when multiple keys are present (`lovable`, `groq`, `openai`, or `gemini`). Each provider also accepts an optional model override via `LOVABLE_MODEL`, `GROQ_MODEL`, `OPENAI_MODEL`, or `GEMINI_MODEL`.
+
+If you do not use the CLI, the secrets can also be configured from the Supabase dashboard by navigating to **Project Settings → API → Secrets** and adding new entries with the appropriate names.
 
 Whenever the secret is updated, redeploy the edge functions so they pick up the latest value:
 

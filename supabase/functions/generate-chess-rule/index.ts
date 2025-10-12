@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { authenticateRequest } from "../_shared/auth.ts";
+import { invokeChatCompletion } from "../_shared/ai-providers.ts";
 
 const corsOptions = { methods: ["POST"] };
 
@@ -38,11 +39,6 @@ serve(async (req) => {
     }
 
     const prompt = parsed.data.prompt;
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
 
     const systemPrompt = `Tu es un expert en règles d'échecs et en génération de configurations JSON pour un moteur de jeu d'échecs personnalisable.
 
@@ -92,66 +88,15 @@ RÈGLES IMPORTANTES :
 - Génère entre 2 et 4 tags courts en français pour décrire la règle
 - Sois créatif mais logique`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `DESCRIPTION DE LA RÈGLE : "${prompt}"` }
-        ],
-        temperature: 0.7,
-      }),
+    const { content: modelResponse } = await invokeChatCompletion({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `DESCRIPTION DE LA RÈGLE : "${prompt}"` },
+      ],
+      temperature: 0.7,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
-
-      if (response.status === 429) {
-        return jsonResponse(
-          req,
-          { error: "Rate limit exceeded. Please try again later." },
-          { status: 429 },
-          corsOptions,
-        );
-      }
-
-      throw new Error(`AI Gateway error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const choices = Array.isArray(data?.choices) ? data.choices : [];
-
-    if (choices.length === 0 || !choices[0]?.message) {
-      throw new Error("Invalid response from AI gateway");
-    }
-
-    const message = choices[0].message;
-    let rawContent: unknown = message.content;
-
-    if (Array.isArray(rawContent)) {
-      rawContent = rawContent
-        .map((entry: unknown) => {
-          if (typeof entry === "string") return entry;
-          if (entry && typeof entry === "object" && "text" in entry) {
-            const text = (entry as { text?: unknown }).text;
-            return typeof text === "string" ? text : "";
-          }
-          return "";
-        })
-        .join("\n");
-    }
-
-    if (typeof rawContent !== "string" || !rawContent.trim()) {
-      throw new Error("Réponse inattendue du modèle IA");
-    }
-
-    let ruleJson = rawContent.trim();
+    let ruleJson = modelResponse.trim();
 
     // Nettoyage du JSON
     ruleJson = ruleJson.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
@@ -182,6 +127,12 @@ RÈGLES IMPORTANTES :
   } catch (error) {
     console.error("Error in generate-chess-rule:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return jsonResponse(req, { error: errorMessage }, { status: 500 }, corsOptions);
+    const normalizedMessage = errorMessage || "Unknown error";
+    const status = normalizedMessage.includes("429") || normalizedMessage.includes("Rate limit")
+      ? 429
+      : normalizedMessage.includes("Aucun fournisseur IA")
+        ? 503
+        : 500;
+    return jsonResponse(req, { error: normalizedMessage }, { status }, corsOptions);
   }
 });
