@@ -299,8 +299,11 @@ const TournamentPage = () => {
               ? lobby.opponent_name ?? "Adversaire"
               : lobby.name ?? lobby.opponent_name ?? "Adversaire";
 
-        navigate("/play", {
+        navigate(`/play/${match.id}`, {
           state: {
+            matchId: match.id,
+            matchStatus: match.status,
+            tournamentId: match.tournament_id,
             customRules: isPreset ? [] : [preparedRule],
             presetRuleIds: isPreset ? [ruleId] : [],
             opponentType: lobbyMode,

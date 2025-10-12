@@ -33,6 +33,7 @@ const App = () => (
               <Route path="/generator" element={<Generator />} />
               <Route path="/lobby" element={<Lobby />} />
               <Route path="/play" element={<Play />} />
+              <Route path="/play/:matchId" element={<Play />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
               <Route path="/signup" element={<SignUp />} />
               <Route path="/profile" element={<Profile />} />

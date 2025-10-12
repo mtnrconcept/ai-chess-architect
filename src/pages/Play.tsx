@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateCcw, Send, Sparkles, Target, User, Volume2, VolumeX } from 'lucide-react';
@@ -30,6 +30,7 @@ import {
   serializeBoardState,
 } from '@/lib/postGameAnalysis';
 import { saveCompletedGame } from '@/lib/gameStorage';
+import { fetchTournamentMatch } from '@/lib/tournamentApi';
 
 const createChatMessageId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -156,7 +157,12 @@ const Play = () => {
     timeControl?: TimeControlOption;
     playerElo?: number;
     opponentElo?: number;
+    matchId?: string;
+    matchStatus?: string;
+    tournamentId?: string;
   } | undefined;
+
+  const params = useParams<{ matchId?: string }>();
 
   const opponentType = locationState?.opponentType === 'player'
     ? 'player'
@@ -164,13 +170,45 @@ const Play = () => {
       ? 'local'
       : 'ai';
   const lobbyId = typeof locationState?.lobbyId === 'string' ? locationState.lobbyId : undefined;
-  const lobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent' ? locationState.role : undefined;
-  const lobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
-  const opponentName = typeof locationState?.opponentName === 'string' ? locationState.opponentName : undefined;
+  const initialLobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent' ? locationState.role : undefined;
+  const initialLobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
+  const initialOpponentName = typeof locationState?.opponentName === 'string' ? locationState.opponentName : undefined;
   const playerName = typeof locationState?.playerName === 'string' ? locationState.playerName : undefined;
+  const routeMatchId = typeof params.matchId === 'string' ? params.matchId : undefined;
+  const stateMatchId = typeof locationState?.matchId === 'string' ? locationState.matchId : undefined;
+  const matchId = stateMatchId ?? routeMatchId;
+  const initialMatchStatus = typeof locationState?.matchStatus === 'string' ? locationState.matchStatus : null;
+
+  const [currentLobbyRole, setCurrentLobbyRole] = useState<typeof initialLobbyRole>(initialLobbyRole);
+  const [currentLobbyName, setCurrentLobbyName] = useState<string | undefined>(initialLobbyName);
+  const [currentOpponentName, setCurrentOpponentName] = useState<string | undefined>(initialOpponentName);
+  const [matchStatus, setMatchStatus] = useState<string | null>(initialMatchStatus);
+  const [waitingForOpponent, setWaitingForOpponent] = useState<boolean>(() =>
+    opponentType === 'player' && (initialMatchStatus === 'pending' || (!!initialLobbyRole && initialLobbyRole === 'creator' && !initialOpponentName))
+  );
+
+  useEffect(() => {
+    setCurrentLobbyRole(initialLobbyRole);
+  }, [initialLobbyRole]);
+
+  useEffect(() => {
+    setCurrentLobbyName(initialLobbyName);
+  }, [initialLobbyName]);
+
+  useEffect(() => {
+    setCurrentOpponentName(initialOpponentName);
+  }, [initialOpponentName]);
+
+  useEffect(() => {
+    setMatchStatus(initialMatchStatus);
+    if (opponentType === 'player') {
+      const shouldWait = initialMatchStatus === 'pending' || (!!initialLobbyRole && initialLobbyRole === 'creator' && !initialOpponentName);
+      setWaitingForOpponent(shouldWait);
+    }
+  }, [initialMatchStatus, opponentType, initialLobbyRole, initialOpponentName]);
 
   const playerDisplayName = playerName ?? 'Vous';
-  const opponentDisplayName = opponentName
+  const opponentDisplayName = currentOpponentName
     ?? (opponentType === 'ai' ? 'Cyber IA' : opponentType === 'local' ? 'Joueur local' : 'Adversaire inconnu');
 
   const playerElo = typeof locationState?.playerElo === 'number' ? locationState.playerElo : 1500;
@@ -187,6 +225,85 @@ const Play = () => {
   const initialTimeSeconds = timeControlSettings.initialSeconds;
 
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!matchId) return;
+
+    let cancelled = false;
+    const fallbackHost = initialLobbyRole === 'creator';
+
+    const syncMatchDetails = async () => {
+      try {
+        const details = await fetchTournamentMatch(matchId);
+        if (!details || cancelled) return;
+
+        setMatchStatus(details.status ?? null);
+
+        if (details.lobby?.name) {
+          setCurrentLobbyName(details.lobby.name);
+        }
+
+        if (details.is_ai_match) {
+          setCurrentOpponentName(details.ai_opponent_label ?? 'Voltus AI');
+        } else if (details.lobby?.opponent_name) {
+          setCurrentOpponentName(details.lobby.opponent_name);
+        }
+
+        if (user?.id) {
+          if (details.player1_id === user.id) {
+            setCurrentLobbyRole('creator');
+          } else if (details.player2_id === user.id) {
+            setCurrentLobbyRole('opponent');
+          }
+        }
+
+        const hostId = details.player1_id ?? null;
+        const isHost = user?.id ? user.id === hostId : fallbackHost;
+        if (opponentType === 'player') {
+          setWaitingForOpponent((details.status ?? null) === 'pending' && !!isHost);
+        }
+      } catch (error) {
+        console.error('[play] unable to synchroniser le match', error);
+      }
+    };
+
+    void syncMatchDetails();
+
+    const channel = supabase
+      .channel(`tournament-match-${matchId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tournament_matches', filter: `id=eq.${matchId}` }, payload => {
+        const updated = payload.new as { status?: string; player1_id?: string; player2_id?: string; is_ai_match?: boolean | null; ai_opponent_label?: string | null; };
+        const updatedStatus = updated?.status ?? null;
+        setMatchStatus(updatedStatus);
+
+        if (user?.id) {
+          if (updated?.player1_id === user.id) {
+            setCurrentLobbyRole('creator');
+          } else if (updated?.player2_id === user.id) {
+            setCurrentLobbyRole('opponent');
+          }
+        }
+
+        const isHost = user?.id ? updated?.player1_id === user.id : fallbackHost;
+        if (opponentType === 'player') {
+          setWaitingForOpponent(updatedStatus === 'pending' && !!isHost);
+        }
+
+        if (updated?.is_ai_match && updated.ai_opponent_label) {
+          setCurrentOpponentName(updated.ai_opponent_label);
+        }
+
+        if (updatedStatus === 'in_progress' || updatedStatus === 'completed') {
+          void syncMatchDetails();
+        }
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [matchId, opponentType, user?.id, initialLobbyRole]);
 
   const rawCustomRules = useMemo(() => {
     const custom = locationState?.customRules;
@@ -1754,6 +1871,8 @@ const Play = () => {
     gameSavedRef.current = false;
   };
 
+  const showWaitingOverlay = opponentType === 'player' && waitingForOpponent;
+
   const headerBadges = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       <Badge className="border-cyan-500/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
@@ -1762,9 +1881,9 @@ const Play = () => {
       <Badge className="border-cyan-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
         Temps : {timeControl === 'untimed' ? 'Sans limite' : timeControlSettings.label}
       </Badge>
-      {opponentType === 'player' && lobbyRole && (
+      {opponentType === 'player' && currentLobbyRole && (
         <Badge className="border-fuchsia-400/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-fuchsia-200">
-          {lobbyRole === 'creator' ? 'Hôte' : 'Adversaire'}
+          {currentLobbyRole === 'creator' ? 'Hôte' : 'Adversaire'}
         </Badge>
       )}
       <Button
@@ -1816,11 +1935,11 @@ const Play = () => {
       ) : (
         <span className="rounded-full border border-cyan-400/40 bg-black/40 px-3 py-1 font-semibold text-cyan-100">Standard</span>
       )}
-      {opponentType === 'player' && lobbyName && (
-        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">Lobby : {lobbyName}</Badge>
+      {opponentType === 'player' && currentLobbyName && (
+        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">Lobby : {currentLobbyName}</Badge>
       )}
-      {opponentType === 'player' && opponentName && (
-        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">Adversaire : {opponentName}</Badge>
+      {opponentType === 'player' && currentOpponentName && (
+        <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">Adversaire : {currentOpponentName}</Badge>
       )}
       {opponentType === 'player' && lobbyId && (
         <Badge className="border-white/20 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold text-white/80">ID : {lobbyId.slice(0, 8)}…</Badge>
@@ -2072,6 +2191,13 @@ const Play = () => {
       </div>
 
       <div className="relative z-10">
+        {showWaitingOverlay && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm">
+            <Loader2 className="h-9 w-9 animate-spin text-cyan-200" />
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-100">En attente de joueur</p>
+            <p className="text-xs text-cyan-100/70">Nous te connectons à un adversaire dès qu’il rejoint la table.</p>
+          </div>
+        )}
         <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 sm:px-8 sm:py-10 lg:px-12">
           {!isDesktop && (
             <div className="flex items-center justify-between gap-3">

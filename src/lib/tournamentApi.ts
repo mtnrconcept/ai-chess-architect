@@ -455,6 +455,25 @@ export const requestTournamentMatch = async (
   return data ?? { match: null, registration: null };
 };
 
+export const fetchTournamentMatch = async (matchId: string): Promise<TournamentMatch | null> => {
+  const supabaseClient = requireTournamentSupabase();
+
+  const { data, error } = await supabaseClient
+    .from("tournament_matches")
+    .select("*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
+    .eq("id", matchId)
+    .maybeSingle();
+
+  if (error) {
+    if (isRelationMissing(error)) {
+      throw new TournamentFeatureUnavailableError();
+    }
+    throw new Error(error.message);
+  }
+
+  return (data ?? null) as unknown as TournamentMatch | null;
+};
+
 export const reportTournamentMatch = async (
   matchId: string,
   result: "player1" | "player2" | "draw",

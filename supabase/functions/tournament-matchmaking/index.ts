@@ -58,7 +58,7 @@ const getMatchDetails = async (matchId: string) => {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("tournament_matches")
-    .select("id, tournament_id, lobby_id, table_number, player1_id, player2_id, status, result, started_at, completed_at, is_ai_match, ai_opponent_label, ai_opponent_difficulty, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
+    .select("id, tournament_id, lobby_id, table_number, player1_id, player2_id, status, result, started_at, completed_at, is_ai_match, ai_opponent_label, ai_opponent_difficulty, variant_rules, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
     .eq("id", matchId)
     .single();
 
