@@ -1,6 +1,8 @@
+const normalize = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
+
 export const coachApi = {
   async ingest(baseUrl: string, body: unknown) {
-    const response = await fetch(`${baseUrl}/coach/ingest`, {
+    const response = await fetch(`${normalize(baseUrl)}/coach/ingest`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -9,19 +11,19 @@ export const coachApi = {
   },
 
   async queue(baseUrl: string, gameId: string) {
-    const response = await fetch(`${baseUrl}/coach/queue/${gameId}`, {
+    const response = await fetch(`${normalize(baseUrl)}/coach/queue/${gameId}`, {
       method: "POST",
     });
     return response.json();
   },
 
   async status(baseUrl: string, gameId: string) {
-    const response = await fetch(`${baseUrl}/coach/status/${gameId}`);
+    const response = await fetch(`${normalize(baseUrl)}/coach/status/${gameId}`);
     return response.json();
   },
 
   async report(baseUrl: string, gameId: string) {
-    const response = await fetch(`${baseUrl}/coach/report/${gameId}`);
+    const response = await fetch(`${normalize(baseUrl)}/coach/report/${gameId}`);
     return response.json();
   },
 };

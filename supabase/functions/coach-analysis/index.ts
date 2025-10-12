@@ -1,5 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { delay } from "https://deno.land/std@0.224.0/async/delay.ts";
 import { Client } from "pg";
+import Stockfish from "npm:stockfish";
+import { invokeChatCompletion } from "../_shared/ai-providers.ts";
 
 const DATABASE_URL = Deno.env.get("SUPABASE_DB_URL");
 const LLM_PROVIDER = (Deno.env.get("LLM_PROVIDER") ?? "gemini").toLowerCase();
@@ -9,10 +12,11 @@ if (!DATABASE_URL) {
 }
 
 type Phase = "opening" | "middlegame" | "endgame";
+type StockfishScore = { cp?: number; mate?: number };
 type EvalOut = {
   depth: number;
   bestmove: string;
-  score: { cp?: number; mate?: number };
+  score: StockfishScore;
   pv: string[];
 };
 
@@ -133,9 +137,9 @@ async function runAnalysis(gameId: string) {
     `;
 
     const moves = await client.queryObject<
-      { ply: number; san: string; fen_before: string; fen_after: string }
+      { ply: number; san: string; uci: string | null; fen_before: string; fen_after: string }
     >`
-      select ply, san, fen_before, fen_after
+      select ply, san, uci, fen_before, fen_after
       from public.moves
       where game_id = ${gameId}
       order by ply
@@ -149,8 +153,8 @@ async function runAnalysis(gameId: string) {
     for (const move of moves.rows) {
       const phase: Phase = move.ply < 14 ? "opening" : move.ply > 60 ? "endgame" : "middlegame";
 
-      const before = await evalFen(move.fen_before, depth, multiPV);
-      const after = await evalFen(move.fen_after, depth, multiPV);
+      const before = await evaluatePosition(move.fen_before, depth, multiPV);
+      const after = await evaluatePosition(move.fen_after, depth, multiPV);
 
       const epBefore = winProb(before.score, phase);
       const epAfter = winProb(after.score, phase);
@@ -165,10 +169,10 @@ async function runAnalysis(gameId: string) {
         alreadyWinning: epBefore > 0.85,
       });
       const themes = themesHeuristic(before, after);
-      const coachDetails = await explainLLM({
+      const coachDetails = await explainMoveWithLLM({
         fen_before: move.fen_before,
         move_san: move.san,
-        move_uci: "",
+        move_uci: move.uci ?? "",
         best_uci: before.bestmove,
         delta_ep: round(delta, 3),
         pv_top1: before.pv,
@@ -245,17 +249,173 @@ async function getClient() {
   return client;
 }
 
-async function evalFen(fen: string, depth: number, multiPV: number): Promise<EvalOut> {
-  // TODO: Replace with actual Stockfish WASM invocation; stub for scaffold.
-  return {
-    depth,
-    bestmove: "e2e4",
-    score: { cp: 0 },
-    pv: ["e2e4", "e7e5", "g1f3"],
-  };
+/**
+ * Stockfish bridge --------------------------------------------------------
+ */
+
+class StockfishController {
+  private readonly workerPromise: Promise<any>;
+  private readonly listeners = new Set<(line: string) => void>();
+  private bound = false;
+  private ready = false;
+  private queue: Promise<void> = Promise.resolve();
+
+  constructor() {
+    this.workerPromise = Stockfish();
+  }
+
+  private async getWorker() {
+    const worker = await this.workerPromise;
+    if (!this.bound) {
+      worker.onmessage = (event: MessageEvent<string> | string) => {
+        const line = typeof event === "string" ? event : String(event?.data ?? "");
+        if (!line) return;
+        for (const listener of this.listeners) listener(line);
+      };
+      this.bound = true;
+    }
+    return worker;
+  }
+
+  private addListener(listener: (line: string) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private async waitFor(predicate: (line: string) => boolean, timeoutMs = 5000) {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("Stockfish response timeout"));
+      }, timeoutMs);
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        remove();
+      };
+
+      const remove = this.addListener((line) => {
+        if (predicate(line)) {
+          cleanup();
+          resolve();
+        }
+      });
+    });
+  }
+
+  private async ensureReady() {
+    if (this.ready) return;
+    const worker = await this.getWorker();
+    worker.postMessage("uci");
+    await this.waitFor((line) => line === "uciok", 8000);
+    worker.postMessage("setoption name Threads value 4");
+    worker.postMessage("setoption name Hash value 96");
+    worker.postMessage("isready");
+    await this.waitFor((line) => line === "readyok", 8000);
+    this.ready = true;
+  }
+
+  private async awaitIdle() {
+    const worker = await this.getWorker();
+    worker.postMessage("isready");
+    await this.waitFor((line) => line === "readyok", 5000);
+  }
+
+  private async evaluateInternal(fen: string, depth: number, multiPV: number): Promise<EvalOut> {
+    await this.ensureReady();
+    const worker = await this.getWorker();
+
+    await this.awaitIdle();
+    worker.postMessage("stop");
+    await delay(16);
+    worker.postMessage("ucinewgame");
+    worker.postMessage(`setoption name MultiPV value ${multiPV}`);
+    worker.postMessage(`position fen ${fen}`);
+
+    return new Promise<EvalOut>((resolve, reject) => {
+      let resolved = false;
+      let currentDepth = 0;
+      let score: StockfishScore = { cp: 0 };
+      let pv: string[] = [];
+      let bestmove = "";
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Stockfish evaluation timeout"));
+      }, Math.max(8000, depth * 500));
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        removeListener();
+      };
+
+      const removeListener = this.addListener((line) => {
+        if (line.startsWith("info") && line.includes(" multipv 1")) {
+          const depthMatch = line.match(/ depth (\d+)/);
+          if (depthMatch) {
+            currentDepth = Number.parseInt(depthMatch[1], 10);
+          }
+          const mateMatch = line.match(/ score mate (-?\d+)/);
+          const cpMatch = line.match(/ score cp (-?\d+)/);
+          if (mateMatch) {
+            score = { mate: Number.parseInt(mateMatch[1], 10) };
+          } else if (cpMatch) {
+            score = { cp: Number.parseInt(cpMatch[1], 10) };
+          }
+          const pvMatch = line.match(/ pv (.+)$/);
+          if (pvMatch) {
+            pv = pvMatch[1].trim().split(/\s+/);
+          }
+        }
+
+        if (line.startsWith("bestmove")) {
+          if (!resolved) {
+            resolved = true;
+            const parts = line.split(" ");
+            bestmove = parts[1] ?? "";
+            cleanup();
+            resolve({
+              depth: currentDepth,
+              bestmove,
+              score,
+              pv,
+            });
+          }
+        }
+      });
+
+      worker.postMessage(`go depth ${depth}`);
+    });
+  }
+
+  public async evaluate(fen: string, depth: number, multiPV: number): Promise<EvalOut> {
+    const task = this.queue.then(() => this.evaluateInternal(fen, depth, multiPV));
+    this.queue = task.then(() => undefined, () => undefined);
+    return task;
+  }
 }
 
-function winProb(score: { cp?: number; mate?: number }, phase: Phase) {
+const engineController = new StockfishController();
+
+async function evaluatePosition(fen: string, depth: number, multiPV: number): Promise<EvalOut> {
+  try {
+    return await engineController.evaluate(fen, depth, multiPV);
+  } catch (error) {
+    console.error("[coach-analysis] Stockfish failure", error);
+    return {
+      depth,
+      bestmove: "",
+      score: { cp: 0 },
+      pv: [],
+    };
+  }
+}
+
+/**
+ * Heuristics & helpers ----------------------------------------------------
+ */
+
+function winProb(score: StockfishScore, phase: Phase) {
   if (score.mate !== undefined) {
     return score.mate > 0 ? 0.99 : 0.01;
   }
@@ -285,8 +445,15 @@ function classify(
   return "blunder";
 }
 
-function themesHeuristic(_before: EvalOut, _after: EvalOut) {
-  return ["general"];
+function themesHeuristic(_before: EvalOut, after: EvalOut) {
+  const themes: string[] = [];
+  if (after.score.mate !== undefined && after.score.mate > 0) {
+    themes.push("mate_threat");
+  }
+  if ((after.score.cp ?? 0) < -200) {
+    themes.push("material_loss");
+  }
+  return themes.length ? themes : ["general"];
 }
 
 function accuracy(deltas: number[]) {
@@ -305,23 +472,77 @@ function toTextArray(values: string[]) {
   return `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
 }
 
-type CoachPayload = {
-  headline: string;
-  why_bad_or_good: string;
-  what_to_learn: string[];
-  best_line_explained: string;
+const fallbackCoachPayload = {
+  headline: "Bon coup, mais une meilleure option existait",
+  why_bad_or_good: "Tu conserves l'équilibre mais la ligne optimale te donnait plus d'activité.",
+  what_to_learn: [
+    "Toujours vérifier les pièces non protégées",
+    "Chercher le coup actif le plus simple",
+  ],
+  best_line_explained:
+    "La variante suggérée améliore la coordination des pièces et crée une menace directe.",
+} as const;
+
+type CoachPayload = typeof fallbackCoachPayload;
+
+type ExplainMoveInput = {
+  fen_before: string;
+  move_san: string;
+  move_uci: string;
+  best_uci?: string;
+  delta_ep: number;
+  pv_top1?: string[];
+  phase: Phase;
+  themes?: string[];
+  elo_bucket?: "novice" | "club" | "master";
+  provider: string;
 };
 
-async function explainLLM(_payload: unknown): Promise<CoachPayload> {
-  // TODO: Call Lovable / Groq / Gemini provider through existing gateway.
-  return {
-    headline: "Bon coup, mais une meilleure option existait",
-    why_bad_or_good: "Tu conserves l'équilibre mais la ligne optimale te donnait plus d'activité.",
-    what_to_learn: [
-      "Toujours vérifier les pièces non protégées",
-      "Chercher le coup actif le plus simple",
-    ],
-    best_line_explained:
-      "La variante suggérée améliore la coordination des pièces et crée une menace directe.",
-  };
+async function explainMoveWithLLM(input: ExplainMoveInput): Promise<CoachPayload> {
+  try {
+    const { content } = await invokeChatCompletion({
+      messages: [
+        {
+          role: "system",
+          content:
+            "Tu es un coach d'échecs francophone. Analyse la position et fournis une explication pédagogique. Réponds STRICTEMENT en JSON suivant le schéma {headline, why_bad_or_good, what_to_learn[], best_line_explained}.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            move: {
+              san: input.move_san,
+              uci: input.move_uci,
+              best: input.best_uci,
+            },
+            delta_ep: input.delta_ep,
+            pv_top1: input.pv_top1,
+            phase: input.phase,
+            themes: input.themes,
+            fen_before: input.fen_before,
+            elo_bucket: input.elo_bucket,
+            provider: input.provider,
+          }),
+        },
+      ],
+      temperature: 0.6,
+      maxOutputTokens: 400,
+    });
+
+    const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (
+      typeof parsed?.headline === "string" &&
+      typeof parsed?.why_bad_or_good === "string" &&
+      Array.isArray(parsed?.what_to_learn) &&
+      typeof parsed?.best_line_explained === "string"
+    ) {
+      return parsed as CoachPayload;
+    }
+  } catch (error) {
+    console.error("[coach-analysis] explainMoveWithLLM failed", error);
+  }
+
+  return { ...fallbackCoachPayload };
 }

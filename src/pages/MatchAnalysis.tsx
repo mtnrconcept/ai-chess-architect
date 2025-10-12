@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bolt,
   Brain,
@@ -39,6 +39,12 @@ import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors'
 import { cn } from '@/lib/utils';
 import type { GameState, Position, SerializedBoardState } from '@/types/chess';
 import type { CoachChatResponse } from '@/types/coach';
+import { CoachPanel } from '@/features/coach/CoachPanel';
+import { EvalGraph } from '@/features/coach/EvalGraph';
+import { KeyMoments } from '@/features/coach/KeyMoments';
+import { useCoach } from '@/features/coach/useCoach';
+import { buildCoachMoves } from '@/features/coach/buildPayload';
+import { coachApi } from '@/services/coachApi';
 
 const buildReplayState = (snapshot: SerializedBoardState): GameState => ({
   board: deserializeBoardState(snapshot),
@@ -87,6 +93,11 @@ const MatchAnalysis = () => {
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
   const [visualReplayActive, setVisualReplayActive] = useState(false);
+  const coachBaseUrl = import.meta.env.VITE_COACH_ANALYSIS_URL ?? '';
+  const coachRegistryRef = useRef<Map<string, string>>(new Map());
+  const [coachGameId, setCoachGameId] = useState<string | null>(null);
+  const [activeCoachPly, setActiveCoachPly] = useState<number | null>(null);
+  const { status: coachStatus, report: coachReport } = useCoach(coachBaseUrl, coachGameId);
 
   useEffect(() => {
     if (!user) {
@@ -128,6 +139,51 @@ const MatchAnalysis = () => {
     setCoachCommentary(null);
     setCoachError(null);
   }, [selectedGame]);
+
+  useEffect(() => {
+    if (!selectedGame || !coachBaseUrl) {
+      setCoachGameId(null);
+      setActiveCoachPly(null);
+      return;
+    }
+
+    const existing = coachRegistryRef.current.get(selectedGame.id);
+    if (existing) {
+      setCoachGameId(existing);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const movesPayload = buildCoachMoves(selectedGame);
+        if (movesPayload.length === 0) return;
+
+        const ingest = await coachApi.ingest(coachBaseUrl, {
+          owner_id: selectedGame.user_id,
+          pgn: null,
+          moves: movesPayload,
+          source: 'app',
+        });
+
+        if (cancelled) return;
+
+        const remoteId = ingest?.gameId as string | undefined;
+        if (!remoteId) return;
+
+        coachRegistryRef.current.set(selectedGame.id, remoteId);
+        setCoachGameId(remoteId);
+        await coachApi.queue(coachBaseUrl, remoteId);
+      } catch (err) {
+        console.error('Failed to queue coach analysis', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGame, coachBaseUrl]);
 
   const currentBoardSnapshot = useMemo(() => {
     if (!selectedGame) return null;
@@ -193,6 +249,87 @@ const MatchAnalysis = () => {
   const playerColorLabel = playerColor === 'white' ? 'Blancs' : 'Noirs';
   const opponentColorLabel = playerColor === 'white' ? 'Noirs' : 'Blancs';
   const finalEvaluation = evaluationData.length > 0 ? evaluationData[evaluationData.length - 1]?.score ?? 0 : 0;
+
+  const coachData = useMemo(() => {
+    if (!coachReport?.moves || !Array.isArray(coachReport.moves)) {
+      return { moves: [] as any[], points: [] as Array<{ ply: number; delta_ep: number; quality: string }> };
+    }
+    const moves = coachReport.moves.map(move => {
+      let comment = move.coach_json;
+      if (typeof comment === 'string') {
+        try {
+          comment = JSON.parse(comment);
+        } catch {
+          comment = null;
+        }
+      }
+      return { ...move, coach_json: comment };
+    });
+    const points = moves.map(move => ({
+      ply: Number(move.ply ?? 0),
+      delta_ep: Number(move.delta_ep ?? 0),
+      quality: move.quality ?? 'good',
+    }));
+    return { moves, points };
+  }, [coachReport]);
+
+  const coachKeyMoments = useMemo(() => {
+    const raw = coachReport?.report?.key_moments;
+    let values: unknown = raw;
+    if (typeof raw === 'string') {
+      try {
+        values = JSON.parse(raw);
+      } catch {
+        values = [];
+      }
+    }
+    if (!Array.isArray(values)) {
+      return [] as Array<{ ply: number; delta_ep: number; label: string; best: string }>;
+    }
+    return (values as any[]).map(value => ({
+      ply: Number(value?.ply ?? 0),
+      delta_ep: Number(value?.delta_ep ?? 0),
+      label: typeof value?.label === 'string' ? value.label : 'moment',
+      best: typeof value?.best === 'string' ? value.best : '',
+    }));
+  }, [coachReport]);
+
+  useEffect(() => {
+    if (!coachData.moves.length) return;
+    setActiveCoachPly(prev => prev ?? coachData.moves[0].ply);
+  }, [coachData.moves]);
+
+  const activeCoachComment = useMemo(() => {
+    if (activeCoachPly == null) return null;
+    return coachData.moves.find(move => move.ply === activeCoachPly)?.coach_json ?? null;
+  }, [coachData.moves, activeCoachPly]);
+
+  const coachLoadingAnalysis = Boolean(coachStatus && ['queued', 'running'].includes(coachStatus.status));
+  const coachSummary = coachReport?.report?.summary_md ?? '';
+  const coachAccuracyWhite = coachReport?.report?.accuracy_white ?? null;
+  const coachAccuracyBlack = coachReport?.report?.accuracy_black ?? null;
+  const coachStatusLabel = coachStatus?.status ?? (coachData.moves.length ? 'done' : coachGameId ? 'queued' : 'idle');
+  const coachStatusFriendly = useMemo(() => {
+    switch (coachStatusLabel) {
+      case 'queued':
+        return 'Analyse en file';
+      case 'running':
+        return 'Analyse en cours';
+      case 'done':
+        return 'Analyse terminée';
+      case 'error':
+        return 'Analyse en erreur';
+      default:
+        return 'En attente';
+    }
+  }, [coachStatusLabel]);
+
+  const handleCoachReplay = (ply: number) => {
+    setActiveCoachPly(ply);
+    const moveCount = selectedGame?.move_history.length ?? 0;
+    const targetIndex = Math.min(ply, moveCount);
+    setCurrentMoveIndex(Math.max(targetIndex, 0));
+  };
 
   const materialInsights = useMemo(() => {
     if (statsData.length === 0) {
@@ -1051,6 +1188,68 @@ const MatchAnalysis = () => {
             </CardContent>
           </Card>
         </section>
+
+        {selectedGame && coachBaseUrl && (
+          <section className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+            <Card className="rounded-2xl border border-cyan-400/30 bg-black/50 shadow-[0_0_35px_rgba(34,211,238,0.2)]">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
+                <CardTitle className="text-lg font-semibold text-white">Coach post-partie</CardTitle>
+                <Bolt className="h-5 w-5 text-cyan-300" />
+              </CardHeader>
+              <CardContent className="space-y-4 p-6 pt-0">
+                <div className="flex items-center justify-between rounded-xl border border-cyan-400/20 bg-black/60 px-4 py-3 text-xs uppercase tracking-[0.25em] text-cyan-100/70">
+                  <span>Statut</span>
+                  <Badge variant="outline" className="rounded-full border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-[0.7rem] tracking-[0.2em] text-cyan-100">
+                    {coachStatusFriendly}
+                  </Badge>
+                </div>
+                {coachData.points.length > 0 ? (
+                  <EvalGraph points={coachData.points} />
+                ) : (
+                  <div className="flex h-32 items-center justify-center rounded-2xl border border-cyan-400/20 bg-black/40 text-sm text-cyan-100/60">
+                    {coachLoadingAnalysis ? 'Analyse Stockfish en cours...' : 'En attente du lancement de l’analyse.'}
+                  </div>
+                )}
+                <div className="rounded-2xl border border-cyan-400/20 bg-black/40 p-4">
+                  <p className="mb-3 text-xs uppercase tracking-[0.3em] text-cyan-100/70">Moments clés</p>
+                  {coachKeyMoments.length > 0 ? (
+                    <KeyMoments items={coachKeyMoments} onReplay={handleCoachReplay} />
+                  ) : (
+                    <p className="text-sm text-cyan-100/70">
+                      {coachLoadingAnalysis ? 'Identification des moments critiques...' : 'Lance une nouvelle analyse pour voir les moments clés.'}
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="rounded-2xl border border-fuchsia-400/30 bg-black/50 shadow-[0_0_35px_rgba(147,51,234,0.25)]">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-6 pb-2">
+                <CardTitle className="text-lg font-semibold text-white">Commentaire du coach</CardTitle>
+                <MessageSquareText className="h-5 w-5 text-fuchsia-300" />
+              </CardHeader>
+              <CardContent className="space-y-4 p-6 pt-0">
+                <div className="grid grid-cols-2 gap-3 text-xs text-cyan-100/70">
+                  <div className="rounded-2xl border border-cyan-400/30 bg-black/40 p-3 text-center">
+                    <p className="uppercase tracking-[0.3em] text-[0.6rem] text-cyan-100/70">Précision blancs</p>
+                    <p className="text-lg font-semibold text-white">{coachAccuracyWhite !== null ? `${coachAccuracyWhite}%` : '—'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-400/30 bg-black/40 p-3 text-center">
+                    <p className="uppercase tracking-[0.3em] text-[0.6rem] text-cyan-100/70">Précision noirs</p>
+                    <p className="text-lg font-semibold text-white">{coachAccuracyBlack !== null ? `${coachAccuracyBlack}%` : '—'}</p>
+                  </div>
+                </div>
+                {coachSummary && (
+                  <div className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/10 p-4 text-sm text-fuchsia-100/80">
+                    {coachSummary}
+                  </div>
+                )}
+                <div className="rounded-2xl border border-fuchsia-400/20 bg-black/40 p-4 text-sm text-cyan-100/80">
+                  <CoachPanel comment={activeCoachComment} />
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <Card className="rounded-2xl border border-cyan-400/30 bg-black/50 shadow-[0_0_35px_rgba(59,130,246,0.25)]">
