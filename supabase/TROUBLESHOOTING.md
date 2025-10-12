@@ -337,3 +337,31 @@ console.log({ data, error });
 
 You should see the newly inserted tournament.
 
+
+---
+
+## Edge Function `/functions/v1/sync-tournaments` logs `Table/vues tournois introuvables. Applique les migrations.`
+
+The sync logic queries the `public.tournaments`, `public.tournament_matches`, `public.tournament_registrations` tables and the `public.tournament_overview`/`public.tournament_leaderboard` views. The error indicates these objects are missing or PostgREST has not reloaded the schema cache.
+
+### Resolution
+
+1. Apply the tournament migrations:
+
+   ```bash
+   supabase db push
+   # or, for a clean local project
+   supabase db reset
+   ```
+
+   These commands replay the SQL in `supabase/migrations/20251215100000_create_tournament_system.sql` (and the later hardening migrations) which create the required tables, views and RLS policies.
+
+2. Notify PostgREST to reload the schema if the API had already started:
+
+   ```sql
+   select pg_notify('pgrst', 'reload schema');
+   ```
+
+3. Retry the Edge Function invocation. It should now succeed and emit an HTTP 200 response.
+
+If you are working against a remote project, remember to deploy the database changes (`supabase db push --linked`) and redeploy the Edge Function (`supabase functions deploy sync-tournaments`).
