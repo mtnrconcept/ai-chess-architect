@@ -6,7 +6,7 @@ import { ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateC
 import type { LucideIcon } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
-import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance, PieceType } from '@/types/chess';
+import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance, PieceType, VisualEffect } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -145,6 +145,32 @@ const CAPTURED_PIECE_SYMBOLS: Record<ChessPiece['type'], { white: string; black:
 const ABILITY_ICON_MAP: Record<string, LucideIcon> = {
   bomb: Bomb,
   target: Target,
+};
+
+const SPECIAL_SOUND_EFFECTS: readonly SoundEffect[] = ['explosion', 'quantum-explosion', 'mine-detonation'] as const;
+
+const toSoundEffect = (value: unknown, fallback: SoundEffect): SoundEffect => {
+  if (typeof value !== 'string') return fallback;
+  return (SPECIAL_SOUND_EFFECTS as readonly string[]).includes(value) ? (value as SoundEffect) : fallback;
+};
+
+const toPositiveNumber = (value: unknown, fallback: number): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+};
+
+const toAnimationName = (value: unknown, fallback: string): string => {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+};
+
+const ruleTargetsPiece = (rule: ChessRule, piece: ChessPiece | null): boolean => {
+  if (!piece) return false;
+  if (rule.affectedPieces.length === 0) return true;
+  return rule.affectedPieces.includes('all') || rule.affectedPieces.includes(piece.type);
 };
 
 interface SpecialAbilityOption {
@@ -1319,6 +1345,7 @@ const Play = () => {
     const activeRuleIds = new Set(state.activeRules.filter(rule => rule.isActive).map(rule => rule.ruleId));
     const hasRule = (ruleId: string) => activeRuleIds.has(ruleId);
 
+    const originPosition: Position = { ...selectedPiece.position };
     const move = ChessEngine.createMove(state.board, selectedPiece, destination, state);
     move.timestamp = new Date().toISOString();
     move.durationMs = typeof selectionDuration === 'number' ? selectionDuration : null;
@@ -1375,6 +1402,94 @@ const Play = () => {
         });
       }
     }
+
+    const addVisualEffect = (effect: VisualEffect, sound?: SoundEffect) => {
+      updatedVisualEffects = [...updatedVisualEffects, effect];
+      if (sound && !events.includes(sound)) {
+        events.push(sound);
+      }
+    };
+
+    state.activeRules.forEach(rule => {
+      if (!rule.isActive) return;
+
+      const appliesToMover = ruleTargetsPiece(rule, selectedPiece);
+      const appliesToCaptured = ruleTargetsPiece(rule, move.captured ?? null);
+
+      rule.effects.forEach(effect => {
+        const params = effect.parameters ?? {};
+        switch (effect.action) {
+          case 'areaExplosion': {
+            if (!move.captured) return;
+            if (!appliesToCaptured && !appliesToMover) {
+              return;
+            }
+            if (!['onCapture', 'always', 'conditional'].includes(rule.trigger)) return;
+
+            const radius = Math.max(1, toPositiveNumber(params.radius, 1));
+            const animation = toAnimationName(params.animation, 'explosion');
+            const durationMs = Math.max(400, toPositiveNumber(params.durationMs, 900));
+            const sound = toSoundEffect(params.sound, 'explosion');
+            const position = { ...move.to };
+            addVisualEffect({
+              id: `${rule.ruleId}-explosion-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: 'explosion',
+              position,
+              radius,
+              animation,
+              durationMs,
+              startedAt: Date.now(),
+              ability: undefined,
+              ruleName: rule.ruleName,
+              notify: true,
+            }, sound);
+            break;
+          }
+          case 'createHologram': {
+            if (!appliesToMover) return;
+            if (!['onMove', 'always', 'conditional'].includes(rule.trigger)) return;
+            const animation = toAnimationName(params.animation, 'hologram');
+            const durationMs = Math.max(400, toPositiveNumber(params.durationMs, 1200));
+            const radius = Math.max(1, toPositiveNumber(params.radius, 1));
+            addVisualEffect({
+              id: `${rule.ruleId}-hologram-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: 'projection',
+              position: { ...move.to },
+              radius,
+              animation,
+              durationMs,
+              startedAt: Date.now(),
+              ability: undefined,
+              ruleName: rule.ruleName,
+              notify: false,
+            });
+            break;
+          }
+          case 'leavePhantom': {
+            if (!appliesToMover) return;
+            if (!['onMove', 'always', 'conditional'].includes(rule.trigger)) return;
+            const animation = toAnimationName(params.animation, 'ghost-veil');
+            const durationMs = Math.max(400, toPositiveNumber(params.durationMs, 1000));
+            const radius = Math.max(1, toPositiveNumber(params.radius, 1));
+            addVisualEffect({
+              id: `${rule.ruleId}-phantom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: 'phantom',
+              position: { ...originPosition },
+              radius,
+              animation,
+              durationMs,
+              startedAt: Date.now(),
+              ability: undefined,
+              ruleName: rule.ruleName,
+              notify: false,
+            });
+            break;
+          }
+          default:
+            break;
+        }
+      });
+    });
 
     const carnivorousPlantActive = state.activeRules.some(rule => rule.isActive && isCarnivorousPlantRule(rule));
     const plantCapturedPieces: ChessPiece[] = [];
