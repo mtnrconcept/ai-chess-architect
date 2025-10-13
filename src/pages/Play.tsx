@@ -6,7 +6,7 @@ import { ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateC
 import type { LucideIcon } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
-import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance } from '@/types/chess';
+import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance, PieceType } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -70,6 +70,30 @@ const PIECE_WEIGHTS: Record<ChessPiece['type'], number> = {
   bishop: 330,
   knight: 320,
   pawn: 100
+};
+
+const PIECE_TYPES: PieceType[] = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
+
+const PIECE_TYPE_LABELS: Record<PieceType, string> = {
+  king: 'le roi',
+  queen: 'la reine',
+  rook: 'la tour',
+  bishop: 'le fou',
+  knight: 'le cavalier',
+  pawn: 'le pion',
+};
+
+const isPieceType = (value: unknown): value is PieceType => {
+  return typeof value === 'string' && PIECE_TYPES.includes(value as PieceType);
+};
+
+const formatPieceList = (pieces: PieceType[]): string => {
+  if (pieces.length === 0) return '';
+  const labels = pieces.map(piece => PIECE_TYPE_LABELS[piece]);
+  if (labels.length === 1) return labels[0];
+  const head = labels.slice(0, -1).join(', ');
+  const tail = labels[labels.length - 1];
+  return `${head} et ${tail}`;
 };
 
 const AI_MOVE_DELAY_RANGES: Record<TimeControlOption, { min: number; max: number }> = {
@@ -478,6 +502,7 @@ const Play = () => {
     return options;
   }, [gameState.activeRules]);
 
+  
   const deploySpecialAttack = useCallback(
     (ability: SpecialAbilityOption, position: Position, options?: { allowOccupied?: boolean; clearSelection?: boolean }): DeployResult => {
       let outcome: DeployResult = { success: false, reason: 'state' };
@@ -545,57 +570,123 @@ const Play = () => {
         return nextState;
       });
 
-                  if (outcome.success) {
+      if (outcome.success) {
+        const countdownInfo = outcome.trigger === 'countdown'
+          ? `Détonation programmée dans ${outcome.countdown} tour${outcome.countdown > 1 ? 's' : ''}.`
+          : `Charge posée sur ${outcome.coordinate}.`;
         toast({
-          title: ${outcome.abilityLabel} activée,
-          description:
-            outcome.trigger === 'countdown'
-              ? Détonation programmée dans  tour.
-              : Charge posée sur .,
+          title: `${outcome.abilityLabel} activée`,
+          description: countdownInfo,
         });
-      } else if (outcome.reason === 'occupied') {
+      } else {
+        switch (outcome.reason) {
+          case 'occupied':
+            toast({
+              title: 'Case occupée',
+              description: 'Sélectionne une case libre pour déclencher cette capacité.',
+              variant: 'destructive',
+            });
+            break;
+          case 'duplicate':
+            toast({
+              title: 'Zone déjà piégée',
+              description: 'Une charge spéciale existe déjà sur cette case.',
+              variant: 'destructive',
+            });
+            break;
+          case 'invalid':
+            toast({
+              title: 'Coordonnée invalide',
+              description: 'Choisis une case valide du plateau pour utiliser cette capacité.',
+              variant: 'destructive',
+            });
+            break;
+          case 'state':
+            toast({
+              title: 'Capacité indisponible',
+              description: "Cette capacité ne peut pas être utilisée pour le moment.",
+              variant: 'destructive',
+            });
+            break;
+          default:
+            break;
+        }
+      }
+
+      return outcome;
+    },
+    [toast],
+  );
+
+  const tryInstantAbility = useCallback(
+    (ability: SpecialAbilityOption): boolean => {
+      const selectedPiece = gameState.selectedPiece;
+      if (!selectedPiece) {
         toast({
-          title: 'Case occupée',
-          description: 'Sélectionne une case libre pour déclencher cette capacité.',
-          variant: 'destructive',
-        });
-      } else if (outcome.reason === 'duplicate') {
-        toast({
-          title: 'Zone déjà piégée',
-          description: 'Une charge spéciale existe déjà sur cette case.',
-          variant: 'destructive',
-        });
-      }if (allowedPieces.length > 0 && !allowedPieces.includes(selectedPiece.type)) {
-        toast({
-          title: 'Pi�ce non compatible',
-          description: Cette capacit� s�applique surtout aux .,
+          title: 'Sélectionnez une pièce',
+          description: `Choisissez d'abord une pièce alliée pour activer ${ability.label.toLowerCase()}.`,
           variant: 'destructive',
         });
         return false;
       }
 
-      const board = gameState.board;
-      const chooseForwardCell = (distance: number): Position | null => {
-        const delta = selectedPiece.color === 'white' ? -distance : distance;
-        const candidate: Position = {
-          row: selectedPiece.position.row + delta,
-          col: selectedPiece.position.col,
-        };
-        if (!ChessEngine.isValidPosition(candidate)) return null;
-        return ChessEngine.getPieceAt(board, candidate) ? null : candidate;
-      };
+      const sourceRule = gameState.activeRules.find(rule => rule.ruleId === ability.ruleId);
+      const abilityEffect = sourceRule?.effects.find(effect => {
+        if (effect.action !== 'addAbility') return false;
+        const declaredAbility = typeof effect.parameters?.ability === 'string' ? effect.parameters.ability : undefined;
+        return declaredAbility === ability.ability;
+      });
+      const parameters = abilityEffect?.parameters ?? {};
 
-      let target: Position | null = null;
+      const allowedPiecesRaw = Array.isArray(parameters.allowedPieces) ? parameters.allowedPieces : [];
+      const allowedPieces: PieceType[] = allowedPiecesRaw
+        .map(value => (typeof value === 'string' ? value.toLowerCase() : ''))
+        .filter(isPieceType);
+
+      if (allowedPieces.length > 0 && !allowedPieces.includes(selectedPiece.type)) {
+        const formatted = formatPieceList(allowedPieces);
+        toast({
+          title: 'Pièce incompatible',
+          description: `${ability.label} se déclenche avec ${formatted}.`,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
       let allowOccupied = false;
+      let target: Position | null = null;
 
       switch (ability.ability) {
         case 'deployMine':
-          target = selectedPiece.position;
+          target = { ...selectedPiece.position };
           allowOccupied = true;
           break;
         case 'deployBomb': {
-          target = chooseForwardCell(2) ?? chooseForwardCell(1) ?? selectedPiece.position;
-          if (target.row === selectedPiece.position.row && target.col === selectedPiece.position.col) {
+          const maxDistanceParam = typeof parameters.maxDistance === 'number'
+            ? parameters.maxDistance
+            : typeof parameters.range === 'number'
+              ? parameters.range
+              : undefined;
+          const maxDistance = Number.isFinite(maxDistanceParam) ? Math.max(1, Math.floor(maxDistanceParam)) : 2;
+          const minDistanceParam = typeof parameters.minDistance === 'number' ? parameters.minDistance : undefined;
+          const minDistance = Number.isFinite(minDistanceParam) ? Math.max(1, Math.floor(minDistanceParam)) : 1;
+          const board = gameState.board;
+          const direction = selectedPiece.color === 'white' ? -1 : 1;
+
+          for (let distance = maxDistance; distance >= minDistance; distance--) {
+            const candidate: Position = {
+              row: selectedPiece.position.row + direction * distance,
+              col: selectedPiece.position.col,
+            };
+            if (!ChessEngine.isValidPosition(candidate)) continue;
+            if (!ChessEngine.getPieceAt(board, candidate)) {
+              target = candidate;
+              break;
+            }
+          }
+
+          if (!target) {
+            target = { ...selectedPiece.position };
             allowOccupied = true;
           }
           break;
@@ -611,7 +702,7 @@ const Play = () => {
       const result = deploySpecialAttack(ability, target, { allowOccupied, clearSelection: false });
       return result.success;
     },
-    [deploySpecialAttack, gameState.activeRules, gameState.board, gameState.currentPlayer, gameState.lastMoveByColor, gameState.selectedPiece, toast],
+    [deploySpecialAttack, gameState.activeRules, gameState.board, gameState.selectedPiece, toast],
   );
 
   const handleSpecialAction = useCallback((ability: SpecialAbilityOption) => {
@@ -624,20 +715,22 @@ const Play = () => {
     setPendingAbility(prev => {
       if (prev?.id === ability.id) {
         toast({
-          title: 'S�lection annul�e',
-          description: La capacit�  est d�sactiv�e.,
+          title: 'Sélection annulée',
+          description: `La capacité ${ability.label} est désactivée.`,
         });
         return null;
       }
 
       const instruction =
         ability.trigger === 'countdown'
-          ? D�tonation dans  tour.
-          : 'Clique ensuite sur la case � pi�ger.';
+          ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
+          : 'Clique ensuite sur la case à piéger.';
+
+      const description = `${instruction} ${ability.description}`.trim();
 
       toast({
-        title: ${ability.label} pr�te,
-        description: ${ability.description} ,
+        title: `${ability.label} prête`,
+        description,
       });
 
       return ability;
@@ -819,7 +912,7 @@ const Play = () => {
       if (detonated.length > 0) {
         detonated.forEach(attack => {
           const metadata = getSpecialAbilityMetadata(attack.ability);
-          const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
+          const coordinate = `${FILES[attack.position.col] ?? '?'}${8 - attack.position.row}`;
           toast({
             title: `${metadata?.label ?? 'Explosion'} déclenchée`,
             description: `La charge posée sur ${coordinate} s'est déclenchée.`,
@@ -907,7 +1000,7 @@ const Play = () => {
       seen.add(effect.id);
       if (effect.notify && effect.ability) {
         const metadata = getSpecialAbilityMetadata(effect.ability);
-        const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
+        const coordinate = `${FILES[effect.position.col] ?? '?'}${8 - effect.position.row}`;
         toast({
           title: `${metadata?.label ?? 'Explosion'} déclenchée`,
           description: effect.ruleName
