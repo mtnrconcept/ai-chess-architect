@@ -605,9 +605,6 @@ const Play = () => {
           activation: normalized.activation,
           freezeTurns: normalized.freezeTurns,
           allowOccupied: normalized.allowOccupied,
-          activation: normalized.activation,
-          freezeTurns: normalized.freezeTurns,
-          allowOccupied: normalized.allowOccupied,
         });
       });
     });
