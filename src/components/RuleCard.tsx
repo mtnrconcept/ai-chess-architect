@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Trash2, Power, PowerOff, AlertTriangle } from 'lucide-react';
 import { categoryColors } from '@/lib/ruleCategories';
-import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters } from '@/lib/specialAbilities';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, resolveSpecialAbilityName } from '@/lib/specialAbilities';
 
 interface RuleCardProps {
   rule: ChessRule;
@@ -54,14 +54,19 @@ const RuleCard = ({
   const abilitySummaries = Array.isArray(rule.effects)
     ? rule.effects
         .map(effect => {
-          if (effect.action !== 'addAbility' || typeof effect.parameters?.ability !== 'string') {
+          if (effect.action !== 'addAbility') {
+            return null;
+          }
+          const parameters = effect.parameters as Record<string, unknown> | undefined;
+          const abilityName = resolveSpecialAbilityName(parameters);
+          if (!abilityName) {
             return null;
           }
           const normalized = normalizeSpecialAbilityParameters(
-            effect.parameters.ability,
-            effect.parameters as Record<string, unknown> | undefined,
+            abilityName,
+            parameters,
           );
-          const metadata = getSpecialAbilityMetadata(effect.parameters.ability);
+          const metadata = getSpecialAbilityMetadata(abilityName);
           if (!normalized || !metadata) {
             return null;
           }
