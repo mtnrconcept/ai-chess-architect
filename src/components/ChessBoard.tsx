@@ -1,8 +1,32 @@
 import type { CSSProperties } from 'react';
-import { ChessPiece, Position, GameState } from '@/types/chess';
+import { ChessPiece, Position, GameState, VisualEffect } from '@/types/chess';
 import { cn } from '@/lib/utils';
 
 const sanitizeToken = (value: string): string => value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+
+const resolveEffectClassNames = (effect: VisualEffect) => {
+  const animationToken = sanitizeToken(effect.animation ?? '');
+  switch (effect.type) {
+    case 'projection':
+      return {
+        base: 'special-hologram',
+        animation: animationToken ? `special-hologram-${animationToken}` : '',
+        multiplier: 0.22,
+      } as const;
+    case 'phantom':
+      return {
+        base: 'special-phantom',
+        animation: animationToken ? `special-phantom-${animationToken}` : '',
+        multiplier: 0.18,
+      } as const;
+    default:
+      return {
+        base: 'special-explosion',
+        animation: animationToken ? `special-explosion-${animationToken}` : '',
+        multiplier: 0.3,
+      } as const;
+  }
+};
 
 interface ChessBoardProps {
   gameState: GameState;
@@ -148,16 +172,13 @@ const ChessBoard = ({
                       );
                     })}
                     {effectsHere.map(effect => {
-                      const scale = 1 + Math.max(0, effect.radius - 1) * 0.3;
-                      const animationToken = sanitizeToken(effect.animation ?? '');
-                      const animationClass = animationToken
-                        ? `special-explosion-${animationToken}`
-                        : '';
+                      const { base, animation, multiplier } = resolveEffectClassNames(effect);
+                      const scale = 1 + Math.max(0, effect.radius - 1) * multiplier;
                       const style: CSSProperties = { transform: `scale(${scale})` };
                       return (
                         <span
                           key={effect.id}
-                          className={cn('special-explosion', animationClass)}
+                          className={cn('special-effect', base, animation)}
                           style={style}
                         />
                       );

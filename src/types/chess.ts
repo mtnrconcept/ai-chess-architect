@@ -74,7 +74,7 @@ export interface SpecialAttackInstance {
 
 export interface VisualEffect {
   id: string;
-  type: 'explosion';
+  type: 'explosion' | 'projection' | 'phantom';
   position: Position;
   radius: number;
   animation: string;
