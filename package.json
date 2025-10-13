@@ -8,6 +8,7 @@
     "sync:tournaments": "node scripts/sync-tournaments.mjs",
     "build": "npm run sync:tournaments && vite build --mode production",
     "build:dev": "npm run sync:tournaments && vite build --mode development",
+    "postbuild": "node scripts/trigger-lovable-deploy.mjs",
     "lint": "eslint .",
     "test": "vitest",
     "preview": "vite preview --mode preview",
