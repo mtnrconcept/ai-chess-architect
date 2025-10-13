@@ -15,12 +15,59 @@ const err = (req: Request, body: unknown, status = 500) => respond(req, body, st
 // --- ENV & client ---
 const supabase = getSupabaseServiceRoleClient();
 
+type FunctionLogLevel = "info" | "warning" | "error";
+
+const writeFunctionLog = async (
+  level: FunctionLogLevel,
+  stage: string,
+  details: Record<string, unknown> = {},
+) => {
+  if (!supabase) return;
+  try {
+    await supabase.from("tournament_function_logs").insert({
+      function_name: "sync-tournaments",
+      payload: {
+        level,
+        stage,
+        ...details,
+        recorded_at: new Date().toISOString(),
+      },
+    });
+  } catch (loggingError) {
+    console.error("[sync-tournaments] Unable to persist diagnostic log:", loggingError);
+  }
+};
+
 // --- Types ---
 type VariantSource = {
   name: string;
   rules: string[];
   source: "lobby" | "fallback";
   lobbyId?: string | null;
+};
+
+type TournamentRow = {
+  id: string;
+  start_time: string;
+  variant_name: string | null;
+};
+
+type LobbyVariantRow = {
+  id: string | null;
+  name: string | null;
+  active_rules: unknown;
+};
+
+type TournamentCreationPayload = {
+  name: string;
+  description: string;
+  variant_name: string;
+  variant_rules: string[];
+  variant_source: VariantSource["source"];
+  variant_lobby_id: string | null;
+  start_time: string;
+  end_time: string;
+  status: "scheduled";
 };
 
 type PostgrestLikeError = { code?: string; message?: string; details?: string };
@@ -85,6 +132,10 @@ const ensureStatusTransitions = async (nowIso: string) => {
       if (isTournamentSchemaMissing(error)) {
         throw new FeatureUnavailableError("Schéma tournois manquant. Exécute les migrations.");
       }
+      await writeFunctionLog("error", "ensure_status_running_failed", {
+        error: error.message,
+        code: error.code,
+      });
       throw error;
     }
   }
@@ -99,6 +150,10 @@ const ensureStatusTransitions = async (nowIso: string) => {
       if (isTournamentSchemaMissing(error)) {
         throw new FeatureUnavailableError("Schéma tournois manquant. Exécute les migrations.");
       }
+      await writeFunctionLog("error", "ensure_status_completed_failed", {
+        error: error.message,
+        code: error.code,
+      });
       throw error;
     }
   }
@@ -106,7 +161,7 @@ const ensureStatusTransitions = async (nowIso: string) => {
 
 // --- Création idempotente des tournois d’un bloc ---
 const ensureBlockTournaments = async (blockStart: Date) => {
-  if (!supabase) return { created: 0, tournaments: [] as any[] };
+  if (!supabase) return { created: 0, tournaments: [] as TournamentRow[] };
 
   const blockStartIso = blockStart.toISOString();
   const blockEndIso = new Date(blockStart.getTime() + BLOCK_MS).toISOString();
@@ -117,7 +172,8 @@ const ensureBlockTournaments = async (blockStart: Date) => {
     .select("id,start_time,variant_name")
     .gte("start_time", blockStartIso)
     .lt("start_time", blockEndIso)
-    .order("start_time", { ascending: true });
+    .order("start_time", { ascending: true })
+    .returns<TournamentRow[]>();
 
   if (existingError) {
     if (isTournamentSchemaMissing(existingError)) {
@@ -137,21 +193,34 @@ const ensureBlockTournaments = async (blockStart: Date) => {
     .select("id,name,active_rules")
     .not("active_rules", "is", null)
     .order("updated_at", { ascending: false })
-    .limit(50);
+    .limit(50)
+    .returns<LobbyVariantRow[]>();
 
-  if (lobbyError) console.warn("[sync-tournaments] lobbies fetch error:", lobbyError.message);
+  if (lobbyError) {
+    console.warn("[sync-tournaments] lobbies fetch error:", lobbyError.message);
+    await writeFunctionLog("warning", "lobbies_fetch_failed", {
+      error: lobbyError.message,
+      code: lobbyError.code,
+    });
+  }
 
   const pool: VariantSource[] = [];
-  (lobbyVariants ?? []).forEach((l) => {
-    if (Array.isArray((l as any).active_rules) && (l as any).active_rules.length > 0) {
-      const v = normalizeVariant({
-        name: (l as any).name ?? "Variante communautaire",
-        rules: (l as any).active_rules,
-        source: "lobby",
-        lobbyId: (l as any).id,
-      });
-      if (v) pool.push(v);
-    }
+  (lobbyVariants ?? []).forEach((lobby) => {
+    if (!lobby) return;
+    const rules = Array.isArray(lobby.active_rules)
+      ? lobby.active_rules
+          .map((rule) => (typeof rule === "string" ? rule.trim() : ""))
+          .filter((rule): rule is string => rule.length > 0)
+      : [];
+    if (rules.length === 0) return;
+
+    const variant = normalizeVariant({
+      name: typeof lobby.name === "string" ? lobby.name : "Variante communautaire",
+      rules,
+      source: "lobby",
+      lobbyId: typeof lobby.id === "string" ? lobby.id : null,
+    });
+    if (variant) pool.push(variant);
   });
 
   const fall = fallbackVariants.map(normalizeVariant).filter((v): v is VariantSource => v !== null);
@@ -166,7 +235,7 @@ const ensureBlockTournaments = async (blockStart: Date) => {
       .filter((name) => name.length > 0),
   );
   const variantUsage = new Map<string, number>();
-  const creations = [];
+  const creations: TournamentCreationPayload[] = [];
 
   const start = new Date(blockStart);
   const end = new Date(blockStart.getTime() + BLOCK_MS);
@@ -217,12 +286,19 @@ const ensureBlockTournaments = async (blockStart: Date) => {
   const { data: upserted, error: upsertError } = await supabase
     .from("tournaments")
     .upsert(creations, { onConflict: "start_time,variant_name", ignoreDuplicates: false })
-    .select("id,start_time,variant_name");
+    .select("id,start_time,variant_name")
+    .returns<TournamentRow[]>();
 
   if (upsertError) {
     if (isTournamentSchemaMissing(upsertError)) {
       throw new FeatureUnavailableError("Table 'tournaments' introuvable. Applique les migrations.");
     }
+    await writeFunctionLog("error", "tournaments_upsert_failed", {
+      error: upsertError.message,
+      code: upsertError.code,
+      creations: creations.length,
+      blockStart: blockStartIso,
+    });
     throw upsertError;
   }
 
@@ -247,10 +323,24 @@ serve(async (req) => {
     await ensureStatusTransitions(now.toISOString());
 
     const created = (r1.created ?? 0) + (r2.created ?? 0);
+
+    await writeFunctionLog("info", "sync_completed", {
+      created,
+      ensuredBlocks: 2,
+      blockStart: blockStart.toISOString(),
+      nextBlockStart: nextBlockStart.toISOString(),
+    });
+
     return ok(req, { created, ensuredBlocks: 2 });
-  } catch (e: any) {
-    console.error("[sync-tournaments] error:", e?.message ?? e);
-    if (e instanceof FeatureUnavailableError) return err(req, { code: "feature_unavailable", error: e.message }, 503);
-    return err(req, { error: e?.message ?? "Unknown error" }, 500);
+  } catch (unknownError) {
+    const error = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    console.error("[sync-tournaments] error:", error.message ?? error);
+    await writeFunctionLog("error", "sync_failed", {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+    });
+    if (error instanceof FeatureUnavailableError) return err(req, { code: "feature_unavailable", error: error.message }, 503);
+    return err(req, { error: error.message ?? "Unknown error" }, 500);
   }
 });
