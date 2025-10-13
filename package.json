@@ -12,6 +12,7 @@
     "test": "vitest",
     "preview": "vite preview --mode preview",
     "db:migrate": "node scripts/run-supabase-migrations.mjs",
+    "db:push": "node scripts/supabase-db-push.mjs",
     "postgrest:reload": "node scripts/refresh-postgrest-schema.mjs"
   },
   "dependencies": {
