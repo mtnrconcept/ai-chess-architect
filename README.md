@@ -153,6 +153,24 @@ npx supabase functions deploy \
 
 Simply open [Lovable](https://lovable.dev/projects/1e794698-feca-4fca-ab3b-11990c0b270d) and click on Share -> Publish.
 
+### Synchroniser le build Lovable depuis la CLI
+
+Le script `npm run build` déclenche désormais automatiquement un webhook Lovable si l'une des variables suivantes est définie :
+
+- `LOVABLE_DEPLOY_HOOK`
+- `LOVABLE_DEPLOY_URL`
+- `LOVABLE_DEPLOY_ENDPOINT`
+
+Configure ce hook (généralement disponible dans l'onglet **Settings → Deploy hooks** de Lovable) dans ton environnement CI/CD afin qu'un `npm run build` local ou sur GitHub Actions rafraîchisse instantanément le build Lovable. Des options supplémentaires sont disponibles :
+
+- `LOVABLE_DEPLOY_METHOD` (par défaut `POST`)
+- `LOVABLE_DEPLOY_HEADERS` (objet JSON sérialisé pour ajouter des en-têtes personnalisés)
+- `LOVABLE_DEPLOY_SECRET` (ajout automatique d'un header `Authorization: Bearer ...`)
+- `LOVABLE_DEPLOY_BODY` (payload envoyé pour les méthodes autres que `GET/HEAD`)
+- `LOVABLE_DEPLOY_TIMEOUT_MS` (délai avant expiration, par défaut `15000`)
+
+En cas d'absence de configuration, le build local se poursuit normalement sans provoquer d'erreur.
+
 ## Can I connect a custom domain to my Lovable project?
 
 Yes, you can!
