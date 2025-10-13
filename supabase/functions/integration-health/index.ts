@@ -1,4 +1,5 @@
 import { getSupabaseServiceRoleClient, resolvedServiceRoleKey, resolvedSupabaseUrl } from "../_shared/auth.ts";
+import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 
 type ApiCategory = "supabase" | "edge_function" | "coach_api" | "http";
 
@@ -65,15 +66,6 @@ const SUPABASE_URL = resolvedSupabaseUrl;
 const SERVICE_ROLE_KEY = resolvedServiceRoleKey;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-
-const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
-  new Response(JSON.stringify(body), {
-    ...init,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...init.headers,
-    },
-  });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -345,15 +337,20 @@ async function probeEntry(entry: ApiRegistryRow): Promise<IntegrationHealthResul
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return handleOptions(req);
+  }
+
   if (!supabase || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
     return jsonResponse(
+      req,
       { error: "Supabase client not configured for integration diagnostics" },
       { status: 500 },
     );
   }
 
   if (req.method !== "POST" && req.method !== "GET") {
-    return jsonResponse({ error: "Method not allowed" }, { status: 405, headers: { allow: "GET, POST" } });
+    return jsonResponse(req, { error: "Method not allowed" }, { status: 405, headers: { allow: "GET, POST" } });
   }
 
   const { data, error } = await supabase
@@ -363,7 +360,7 @@ Deno.serve(async (req: Request) => {
     .order("service", { ascending: true });
 
   if (error) {
-    return jsonResponse({ error: error.message ?? "Unable to load API registry" }, { status: 500 });
+    return jsonResponse(req, { error: error.message ?? "Unable to load API registry" }, { status: 500 });
   }
 
   const results = await Promise.all(data.map(probeEntry));
@@ -378,5 +375,5 @@ Deno.serve(async (req: Request) => {
     results,
   };
 
-  return jsonResponse(response);
+  return jsonResponse(req, response);
 });
