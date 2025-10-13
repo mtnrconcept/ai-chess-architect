@@ -99,13 +99,21 @@ shared Lovable AI services without additional setup.
 
 Le fichier `.env` (ainsi que ses variantes `preview` et `production`) inclut maintenant la variable `SUPABASE_DB_URL` qui pointe vers la base de données Supabase fournie (`postgresql://postgres:[1BUllSHit12345$$]@db.ucaqbhmyutlnitnedowk.supabase.co:5432/postgres`).
 
-Pour créer les tables manquantes et appliquer les migrations SQL présentes dans `supabase/migrations`, lance la commande suivante :
+Pour créer les tables manquantes et appliquer les migrations SQL présentes dans `supabase/migrations`, tu peux maintenant t'appuyer sur la commande officielle Supabase (ce qui garantit le bon fonctionnement du coach IA, du générateur de règles et des tournois connectés au projet Lovable) :
+
+```bash
+npm run db:push
+```
+
+La commande encapsule `npx supabase db push` en ciblant automatiquement la base Lovable (`SUPABASE_DB_URL`) et le projet `ucaqbhmyutlnitnedowk`. Elle peut être utilisée telle quelle dans GitHub Actions ou sur ta machine locale.
+
+Si tu travailles dans un environnement dépourvu du CLI Supabase, l'ancien script reste disponible :
 
 ```bash
 npm run db:migrate
 ```
 
-Ce script constitue une alternative directe à `supabase db push` lorsque le Supabase CLI n'est pas installé sur la machine (comme dans certains environnements CI ou conteneurs éphémères). Il tient à jour la table `public.__lovable_schema_migrations` pour enregistrer chaque fichier appliqué et ignore automatiquement les migrations déjà exécutées.
+Ce dernier constitue une alternative directe qui n'a besoin que de Node.js.
 
 Le script `scripts/run-supabase-migrations.mjs` applique chaque fichier `.sql` dans l'ordre en veillant à activer TLS (`sslmode=require`). Assure-toi simplement que la machine qui exécute ce script peut établir une connexion réseau vers l'hôte Supabase (IPv4 ou IPv6).
 
