@@ -2,9 +2,127 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { authenticateRequest } from "../_shared/auth.ts";
-import { invokeChatCompletion } from "../_shared/ai-providers.ts";
+import { invokeChatCompletion, type AiProviderName } from "../_shared/ai-providers.ts";
 
 const corsOptions = { methods: ["POST"] };
+
+const BEST_RULE_MODELS: Partial<Record<AiProviderName, string>> = {
+  lovable: "google/gemini-2.0-pro-exp",
+  groq: "llama-3.1-70b-versatile",
+  openai: "gpt-4o",
+  gemini: "gemini-1.5-pro",
+};
+
+const QUALITY_CHECK_MODELS: Partial<Record<AiProviderName, string>> = {
+  lovable: "google/gemini-2.0-pro-exp",
+  groq: "llama-3.1-70b-versatile",
+  openai: "gpt-4o",
+  gemini: "gemini-1.5-pro",
+};
+
+const conditionSchema = z.object({
+  type: z.enum([
+    "pieceType",
+    "pieceColor",
+    "turnNumber",
+    "position",
+    "movesThisTurn",
+    "piecesOnBoard",
+  ]),
+  value: z.union([
+    z.string().trim().min(1),
+    z.number(),
+    z.boolean(),
+    z.array(z.string().trim().min(1)),
+    z.record(z.unknown()),
+  ]),
+  operator: z.enum([
+    "equals",
+    "notEquals",
+    "greaterThan",
+    "lessThan",
+    "greaterOrEqual",
+    "lessOrEqual",
+    "contains",
+    "in",
+  ]),
+});
+
+const effectSchema = z.object({
+  action: z.enum([
+    "allowExtraMove",
+    "modifyMovement",
+    "addAbility",
+    "restrictMovement",
+    "changeValue",
+    "triggerEvent",
+    "allowCapture",
+    "preventCapture",
+  ]),
+  target: z.enum(["self", "opponent", "all", "specific"]),
+  parameters: z.object({
+    count: z.number().int().min(0).optional(),
+    property: z.string().trim().min(1).optional(),
+    value: z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.array(z.unknown()),
+      z.record(z.unknown()),
+    ]).optional(),
+    duration: z.enum(["permanent", "temporary", "turns"]).optional(),
+    range: z.number().int().min(0).optional(),
+  }).default({}),
+});
+
+const ruleSchema = z.object({
+  ruleId: z.string().trim().min(1).optional(),
+  ruleName: z.string().trim().min(4).max(120),
+  description: z.string().trim().min(20),
+  category: z.enum([
+    "movement",
+    "capture",
+    "special",
+    "condition",
+    "victory",
+    "restriction",
+    "defense",
+    "behavior",
+  ]),
+  affectedPieces: z.array(z.enum([
+    "king",
+    "queen",
+    "rook",
+    "bishop",
+    "knight",
+    "pawn",
+    "all",
+  ])).min(1),
+  trigger: z.enum([
+    "always",
+    "onMove",
+    "onCapture",
+    "onCheck",
+    "onCheckmate",
+    "turnBased",
+    "conditional",
+  ]),
+  conditions: z.array(conditionSchema).default([]),
+  effects: z.array(effectSchema).min(1, "Au moins un effet est requis"),
+  priority: z.number().int().min(0).max(100).default(1),
+  isActive: z.boolean(),
+  tags: z.array(z.string().trim().min(2).max(20)).min(2).max(4),
+  validationRules: z.object({
+    allowedWith: z.array(z.string().trim()).default([]),
+    conflictsWith: z.array(z.string().trim()).default([]),
+    requiredState: z.record(z.unknown()).default({}),
+  }).default({ allowedWith: [], conflictsWith: [], requiredState: {} }),
+});
+
+const verificationSystemPrompt =
+  "Tu es un contrôleur qualité chargé de vérifier que la règle JSON fournie répond exactement au besoin décrit. " +
+  "Analyse la cohérence, la correspondance du thème, des conditions et des effets. Réponds STRICTEMENT au format JSON suivant: " +
+  '{"status":"OK"|"KO","reason":"Explication concise en français"}. Si la règle ne correspond pas, explique pourquoi dans "reason".';
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -95,6 +213,7 @@ RÈGLES IMPORTANTES :
         { role: "user", content: `DESCRIPTION DE LA RÈGLE : "${prompt}"` },
       ],
       temperature: 0.7,
+      preferredModels: BEST_RULE_MODELS,
     });
 
     let ruleJson = modelResponse.trim();
@@ -112,18 +231,104 @@ RÈGLES IMPORTANTES :
     const cleanedJson = ruleJson.slice(firstBrace, lastBrace + 1);
     const parsedRule = JSON.parse(cleanedJson);
 
-    // Garantir un ID unique
-    parsedRule.ruleId = parsedRule.ruleId || `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    parsedRule.createdAt = new Date().toISOString();
-    parsedRule.tags = Array.isArray(parsedRule.tags)
-      ? parsedRule.tags
-        .map((tag: unknown) => typeof tag === "string" ? tag.toLowerCase() : String(tag))
-        .filter((tag: string) => tag.length > 0)
-      : [];
-    parsedRule.conditions = Array.isArray(parsedRule.conditions) ? parsedRule.conditions : [];
-    parsedRule.effects = Array.isArray(parsedRule.effects) ? parsedRule.effects : [];
+    const normalizedRuleInput = {
+      ...parsedRule,
+      tags: Array.isArray(parsedRule.tags) ? parsedRule.tags : [],
+      conditions: Array.isArray(parsedRule.conditions) ? parsedRule.conditions : [],
+      effects: Array.isArray(parsedRule.effects) ? parsedRule.effects : [],
+      validationRules: parsedRule.validationRules ?? {},
+    };
 
-    return jsonResponse(req, { rule: parsedRule }, { status: 200 }, corsOptions);
+    const ruleValidation = ruleSchema.safeParse(normalizedRuleInput);
+
+    if (!ruleValidation.success) {
+      const details = ruleValidation.error.issues.map((issue) => ({
+        path: issue.path.join(".") || "root",
+        message: issue.message,
+      }));
+      return jsonResponse(
+        req,
+        { error: "La règle générée est invalide", details },
+        { status: 422 },
+        corsOptions,
+      );
+    }
+
+    const validatedRule = ruleValidation.data;
+
+    const finalRule = {
+      ...validatedRule,
+      ruleId: validatedRule.ruleId || `rule_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+      createdAt: new Date().toISOString(),
+      tags: validatedRule.tags
+        .map((tag) => tag.toLowerCase())
+        .filter((tag) => tag.length > 0),
+      validationRules: {
+        allowedWith: validatedRule.validationRules.allowedWith,
+        conflictsWith: validatedRule.validationRules.conflictsWith,
+        requiredState: validatedRule.validationRules.requiredState,
+      },
+    };
+
+    const verificationMessages = [
+      { role: "system", content: verificationSystemPrompt },
+      {
+        role: "user",
+        content: `PROMPT UTILISATEUR:\n${prompt}\n\nRÈGLE JSON:\n${JSON.stringify(finalRule, null, 2)}`,
+      },
+    ];
+
+    const { content: verificationResponse } = await invokeChatCompletion({
+      messages: verificationMessages,
+      temperature: 0,
+      maxOutputTokens: 400,
+      preferredModels: QUALITY_CHECK_MODELS,
+    });
+
+    const verificationPayload = verificationResponse
+      .replace(/```json\s*/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
+    let verificationResult: { status: string; reason?: string };
+
+    try {
+      verificationResult = JSON.parse(verificationPayload);
+    } catch {
+      return jsonResponse(
+        req,
+        {
+          error: "Échec de la validation de cohérence",
+          details: [
+            {
+              path: "verification",
+              message: "La réponse du vérificateur n'est pas un JSON valide",
+            },
+          ],
+        },
+        { status: 502 },
+        corsOptions,
+      );
+    }
+
+    if (verificationResult.status !== "OK") {
+      return jsonResponse(
+        req,
+        {
+          error: "La règle générée n'a pas passé la validation de cohérence",
+          details: [
+            {
+              path: "verification",
+              message: verificationResult.reason || "Motif non spécifié",
+            },
+          ],
+        },
+        { status: 422 },
+        corsOptions,
+      );
+    }
+
+    return jsonResponse(req, { rule: finalRule }, { status: 200 }, corsOptions);
   } catch (error) {
     console.error("Error in generate-chess-rule:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";

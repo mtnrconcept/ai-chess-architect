@@ -1,6 +1,6 @@
 export type SpecialAbilityTrigger = 'countdown' | 'contact';
 
-export type SpecialAbilityKey = 'deployBomb' | 'deployMine';
+export type SpecialAbilityKey = 'deployBomb' | 'deployMine' | 'freezeMissile';
 
 export type SpecialAbilityActivation = 'selfCell' | 'forwardCell' | 'selectCell';
 
@@ -24,7 +24,12 @@ export interface SpecialAbilityMetadata {
   defaultAnimation: string;
   defaultSound: string;
   buttonLabel?: string;
+<<<<<<< HEAD
   activation: SpecialAbilityActivation;
+=======
+  defaultFreezeTurns?: number;
+  allowOccupied?: boolean;
+>>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
 }
 
 export interface NormalizedSpecialAbilityParameters {
@@ -35,7 +40,12 @@ export interface NormalizedSpecialAbilityParameters {
   trigger: SpecialAbilityTrigger;
   animation: string;
   sound: string;
+<<<<<<< HEAD
   activation: SpecialAbilityActivation;
+=======
+  freezeTurns?: number;
+  allowOccupied?: boolean;
+>>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
 }
 
 const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetadata> = {
@@ -67,10 +77,133 @@ const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetad
     buttonLabel: 'Placer mine',
     activation: 'selfCell',
   },
+  freezeMissile: {
+    key: 'freezeMissile',
+    label: 'Missile cryogénique',
+    description: 'Lance un projectile qui gèle les pièces adverses dans la zone d’impact.',
+    defaultRadius: 1,
+    defaultCountdown: 2,
+    defaultDamage: 1,
+    trigger: 'countdown',
+    icon: 'target',
+    defaultAnimation: 'frost-burst',
+    defaultSound: 'ice-explosion',
+    buttonLabel: 'Lancer un missile gelant',
+    defaultFreezeTurns: 2,
+    allowOccupied: true,
+  },
 };
 
 const isSpecialAbilityKey = (value: string): value is SpecialAbilityKey =>
   Object.prototype.hasOwnProperty.call(SPECIAL_ABILITY_DEFINITIONS, value);
+
+const normalizeAbilityName = (raw: string): SpecialAbilityKey | undefined => {
+  if (!raw) return undefined;
+  if (isSpecialAbilityKey(raw)) return raw;
+
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+  const includesAll = (needles: string[]) => needles.every(needle => normalized.includes(needle));
+
+  if (includesAll(['freeze']) || includesAll(['gel']) || includesAll(['glace']) || includesAll(['frost']) || includesAll(['ice'])) {
+    if (normalized.includes('missile') || normalized.includes('rocket') || normalized.includes('projectile')) {
+      return 'freezeMissile';
+    }
+  }
+
+  if (normalized.includes('missile') && (normalized.includes('gel') || normalized.includes('glace') || normalized.includes('freeze') || normalized.includes('ice') || normalized.includes('frost'))) {
+    return 'freezeMissile';
+  }
+
+  if (normalized.includes('mine') || normalized.includes('trap') || normalized.includes('piege')) {
+    return 'deployMine';
+  }
+
+  if (
+    normalized.includes('bomb') ||
+    normalized.includes('bombe') ||
+    normalized.includes('explosion') ||
+    normalized.includes('rocket') ||
+    normalized.includes('missile')
+  ) {
+    return 'deployBomb';
+  }
+
+  return undefined;
+};
+
+const addCandidate = (value: unknown, store: Set<string>) => {
+  if (typeof value !== 'string') return;
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  store.add(trimmed);
+};
+
+export const resolveSpecialAbilityName = (
+  parameters: Record<string, unknown> | undefined,
+): string | undefined => {
+  if (!parameters) return undefined;
+
+  const candidates = new Set<string>();
+  const directAbility = (parameters as Record<string, unknown>).ability;
+  addCandidate(directAbility, candidates);
+
+  if (directAbility && typeof directAbility === 'object') {
+    const abilityObject = directAbility as Record<string, unknown>;
+    addCandidate(abilityObject.name, candidates);
+    addCandidate(abilityObject.label, candidates);
+    addCandidate(abilityObject.key, candidates);
+    addCandidate(abilityObject.id, candidates);
+    addCandidate(abilityObject.type, candidates);
+  }
+
+  const fallbackKeys = [
+    'abilityName',
+    'abilityLabel',
+    'ability_key',
+    'abilityKey',
+    'abilityId',
+    'specialAbility',
+    'special_ability',
+    'specialAbilityName',
+    'specialAttack',
+    'special_attack',
+    'specialTag',
+    'special_tag',
+    'tag',
+    'type',
+    'name',
+    'label',
+  ] as const;
+
+  fallbackKeys.forEach(key => {
+    addCandidate((parameters as Record<string, unknown>)[key], candidates);
+  });
+
+  const metadata = (parameters as Record<string, unknown>).metadata;
+  if (metadata && typeof metadata === 'object') {
+    const metadataRecord = metadata as Record<string, unknown>;
+    addCandidate(metadataRecord.ability, candidates);
+    addCandidate(metadataRecord.name, candidates);
+    addCandidate(metadataRecord.label, candidates);
+    addCandidate(metadataRecord.key, candidates);
+    addCandidate(metadataRecord.id, candidates);
+    addCandidate(metadataRecord.type, candidates);
+  }
+
+  const tags = (parameters as Record<string, unknown>).tags;
+  if (Array.isArray(tags)) {
+    tags.forEach(tag => addCandidate(tag, candidates));
+  }
+
+  for (const candidate of candidates) {
+    if (normalizeAbilityName(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+};
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -92,18 +225,37 @@ const toActivation = (value: unknown, fallback: SpecialAbilityActivation): Speci
 };
 
 export const getSpecialAbilityMetadata = (ability: string): SpecialAbilityMetadata | undefined => {
-  if (!isSpecialAbilityKey(ability)) return undefined;
-  return SPECIAL_ABILITY_DEFINITIONS[ability];
+  const key = normalizeAbilityName(ability);
+  if (!key) return undefined;
+  return SPECIAL_ABILITY_DEFINITIONS[key];
 };
 
 export const normalizeSpecialAbilityParameters = (
   ability: string,
   parameters: Record<string, unknown> | undefined,
 ): NormalizedSpecialAbilityParameters | undefined => {
-  const metadata = getSpecialAbilityMetadata(ability);
+  const key = normalizeAbilityName(ability);
+  if (!key) return undefined;
+
+  const metadata = SPECIAL_ABILITY_DEFINITIONS[key];
   if (!metadata) return undefined;
 
   const params = parameters ?? {};
+
+  const resolveFreezeTurns = (): number | undefined => {
+    if (metadata.defaultFreezeTurns === undefined) return undefined;
+    const sources = [params.freezeTurns, params.freezeDuration, params.turns];
+    for (const source of sources) {
+      if (typeof source === 'number' && Number.isFinite(source)) {
+        return Math.max(1, Math.round(source));
+      }
+      const parsed = Number.parseInt(String(source ?? ''), 10);
+      if (Number.isFinite(parsed)) {
+        return Math.max(1, parsed);
+      }
+    }
+    return metadata.defaultFreezeTurns;
+  };
 
   return {
     ability: metadata.key,
@@ -113,8 +265,14 @@ export const normalizeSpecialAbilityParameters = (
     trigger: toTrigger(params.trigger, metadata.trigger),
     animation: toText(params.animation, metadata.defaultAnimation),
     sound: toText(params.sound, metadata.defaultSound),
+<<<<<<< HEAD
     activation: toActivation(params.activation, metadata.activation),
   };
+=======
+    freezeTurns: resolveFreezeTurns(),
+    allowOccupied: metadata.allowOccupied ?? false,
+  } satisfies NormalizedSpecialAbilityParameters;
+>>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
 };
 
 export const formatSpecialAbilitySummary = (ability: SpecialAbility, metadata: SpecialAbilityMetadata): string => {

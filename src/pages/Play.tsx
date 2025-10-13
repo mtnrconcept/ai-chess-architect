@@ -6,7 +6,7 @@ import { ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateC
 import type { LucideIcon } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
-import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance } from '@/types/chess';
+import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance, PieceType, VisualEffect } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -20,7 +20,11 @@ import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
 import { useSoundEffects, type SoundEffect } from '@/hooks/useSoundEffects';
+<<<<<<< HEAD
 import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, type SpecialAbilityActivation, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
+=======
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, resolveSpecialAbilityName, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
+>>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
 import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -70,6 +74,95 @@ const PIECE_WEIGHTS: Record<ChessPiece['type'], number> = {
   bishop: 330,
   knight: 320,
   pawn: 100
+};
+
+const PIECE_TYPES: PieceType[] = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
+
+const PIECE_TYPE_LABELS: Record<PieceType, string> = {
+  king: 'le roi',
+  queen: 'la reine',
+  rook: 'la tour',
+  bishop: 'le fou',
+  knight: 'le cavalier',
+  pawn: 'le pion',
+};
+
+const isPieceType = (value: unknown): value is PieceType => {
+  return typeof value === 'string' && PIECE_TYPES.includes(value as PieceType);
+};
+
+const formatPieceList = (pieces: PieceType[]): string => {
+  if (pieces.length === 0) return '';
+  const labels = pieces.map(piece => PIECE_TYPE_LABELS[piece]);
+  if (labels.length === 1) return labels[0];
+  const head = labels.slice(0, -1).join(', ');
+  const tail = labels[labels.length - 1];
+  return `${head} et ${tail}`;
+};
+
+type FreezeApplication = {
+  color: PieceColor;
+  positions: Position[];
+  turns: number;
+};
+
+const collectPiecesWithinRadius = (
+  board: (ChessPiece | null)[][],
+  center: Position,
+  radius: number,
+  color: PieceColor,
+): Position[] => {
+  const affected: Position[] = [];
+  for (let row = Math.max(0, center.row - radius); row <= Math.min(7, center.row + radius); row++) {
+    for (let col = Math.max(0, center.col - radius); col <= Math.min(7, center.col + radius); col++) {
+      const dRow = Math.abs(row - center.row);
+      const dCol = Math.abs(col - center.col);
+      if (Math.max(dRow, dCol) > radius) continue;
+      const target = ChessEngine.getPieceAt(board, { row, col });
+      if (target && target.color === color) {
+        affected.push({ row, col });
+      }
+    }
+  }
+  return affected;
+};
+
+const mergeFreezeEffects = (
+  current: GameState['freezeEffects'],
+  board: (ChessPiece | null)[][],
+  applications: FreezeApplication[],
+): GameState['freezeEffects'] => {
+  if (applications.length === 0) return current;
+
+  const updated = current.map(effect => ({ ...effect }));
+
+  applications.forEach(({ color, positions, turns }) => {
+    positions.forEach(position => {
+      const target = ChessEngine.getPieceAt(board, position);
+      if (!target || target.color !== color) return;
+
+      const existingIndex = updated.findIndex(effect =>
+        effect.color === color && effect.position.row === position.row && effect.position.col === position.col
+      );
+
+      if (existingIndex >= 0) {
+        if (updated[existingIndex].remainingTurns < turns) {
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            remainingTurns: turns,
+          };
+        }
+      } else {
+        updated.push({
+          color,
+          position: { ...position },
+          remainingTurns: turns,
+        });
+      }
+    });
+  });
+
+  return updated;
 };
 
 const AI_MOVE_DELAY_RANGES: Record<TimeControlOption, { min: number; max: number }> = {
@@ -123,6 +216,32 @@ const ABILITY_ICON_MAP: Record<string, LucideIcon> = {
   target: Target,
 };
 
+const SPECIAL_SOUND_EFFECTS: readonly SoundEffect[] = ['explosion', 'quantum-explosion', 'mine-detonation'] as const;
+
+const toSoundEffect = (value: unknown, fallback: SoundEffect): SoundEffect => {
+  if (typeof value !== 'string') return fallback;
+  return (SPECIAL_SOUND_EFFECTS as readonly string[]).includes(value) ? (value as SoundEffect) : fallback;
+};
+
+const toPositiveNumber = (value: unknown, fallback: number): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+};
+
+const toAnimationName = (value: unknown, fallback: string): string => {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+};
+
+const ruleTargetsPiece = (rule: ChessRule, piece: ChessPiece | null): boolean => {
+  if (!piece) return false;
+  if (rule.affectedPieces.length === 0) return true;
+  return rule.affectedPieces.includes('all') || rule.affectedPieces.includes(piece.type);
+};
+
 interface SpecialAbilityOption {
   id: string;
   ruleId: string;
@@ -138,7 +257,12 @@ interface SpecialAbilityOption {
   animation: string;
   sound: string;
   buttonLabel?: string;
+<<<<<<< HEAD
   activation: SpecialAbilityActivation;
+=======
+  freezeTurns?: number;
+  allowOccupied?: boolean;
+>>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
 }
 
 type DeployResult =
@@ -437,15 +561,21 @@ const Play = () => {
 
     gameState.activeRules.forEach(rule => {
       rule.effects.forEach((effect, index) => {
-        if (effect.action !== 'addAbility' || typeof effect.parameters?.ability !== 'string') {
+        if (effect.action !== 'addAbility') {
+          return;
+        }
+
+        const parameters = effect.parameters as Record<string, unknown> | undefined;
+        const abilityName = resolveSpecialAbilityName(parameters);
+        if (!abilityName) {
           return;
         }
 
         const normalized = normalizeSpecialAbilityParameters(
-          effect.parameters.ability,
-          effect.parameters as Record<string, unknown> | undefined,
+          abilityName,
+          parameters,
         );
-        const metadata = getSpecialAbilityMetadata(effect.parameters.ability);
+        const metadata = getSpecialAbilityMetadata(abilityName);
 
         if (!normalized || !metadata) {
           return;
@@ -472,7 +602,12 @@ const Play = () => {
           animation: normalized.animation,
           sound: normalized.sound,
           buttonLabel: metadata.buttonLabel,
+<<<<<<< HEAD
           activation: normalized.activation,
+=======
+          freezeTurns: normalized.freezeTurns,
+          allowOccupied: normalized.allowOccupied,
+>>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
         });
       });
     });
@@ -480,6 +615,7 @@ const Play = () => {
     return options;
   }, [gameState.activeRules]);
 
+  
   const deploySpecialAttack = useCallback(
     (ability: SpecialAbilityOption, position: Position, options?: { allowOccupied?: boolean; clearSelection?: boolean }): DeployResult => {
       let outcome: DeployResult = { success: false, reason: 'state' };
@@ -495,8 +631,9 @@ const Play = () => {
           return prev;
         }
 
+        const allowOccupied = ability.allowOccupied || options?.allowOccupied || false;
         const occupant = ChessEngine.getPieceAt(prev.board, position);
-        if (occupant && !options?.allowOccupied) {
+        if (occupant && !allowOccupied) {
           outcome = { success: false, reason: 'occupied' };
           return prev;
         }
@@ -523,6 +660,7 @@ const Play = () => {
           animation: ability.animation,
           sound: ability.sound,
           ruleName: ability.ruleName,
+          freezeTurns: ability.freezeTurns,
         };
 
         const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
@@ -547,57 +685,126 @@ const Play = () => {
         return nextState;
       });
 
-                  if (outcome.success) {
+      if (outcome.success) {
+        const countdownInfo = outcome.trigger === 'countdown'
+          ? `Détonation programmée dans ${outcome.countdown} tour${outcome.countdown > 1 ? 's' : ''}.`
+          : `Charge posée sur ${outcome.coordinate}.`;
         toast({
-          title: ${outcome.abilityLabel} activée,
-          description:
-            outcome.trigger === 'countdown'
-              ? Détonation programmée dans  tour.
-              : Charge posée sur .,
+          title: `${outcome.abilityLabel} activée`,
+          description: countdownInfo,
         });
-      } else if (outcome.reason === 'occupied') {
+      } else {
+        switch (outcome.reason) {
+          case 'occupied':
+            toast({
+              title: 'Case occupée',
+              description: 'Sélectionne une case libre pour déclencher cette capacité.',
+              variant: 'destructive',
+            });
+            break;
+          case 'duplicate':
+            toast({
+              title: 'Zone déjà piégée',
+              description: 'Une charge spéciale existe déjà sur cette case.',
+              variant: 'destructive',
+            });
+            break;
+          case 'invalid':
+            toast({
+              title: 'Coordonnée invalide',
+              description: 'Choisis une case valide du plateau pour utiliser cette capacité.',
+              variant: 'destructive',
+            });
+            break;
+          case 'state':
+            toast({
+              title: 'Capacité indisponible',
+              description: "Cette capacité ne peut pas être utilisée pour le moment.",
+              variant: 'destructive',
+            });
+            break;
+          default:
+            break;
+        }
+      }
+
+      return outcome;
+    },
+    [toast],
+  );
+
+  const tryInstantAbility = useCallback(
+    (ability: SpecialAbilityOption): boolean => {
+      const selectedPiece = gameState.selectedPiece;
+      if (!selectedPiece) {
         toast({
-          title: 'Case occupée',
-          description: 'Sélectionne une case libre pour déclencher cette capacité.',
-          variant: 'destructive',
-        });
-      } else if (outcome.reason === 'duplicate') {
-        toast({
-          title: 'Zone déjà piégée',
-          description: 'Une charge spéciale existe déjà sur cette case.',
-          variant: 'destructive',
-        });
-      }if (allowedPieces.length > 0 && !allowedPieces.includes(selectedPiece.type)) {
-        toast({
-          title: 'Pi�ce non compatible',
-          description: Cette capacit� s�applique surtout aux .,
+          title: 'Sélectionnez une pièce',
+          description: `Choisissez d'abord une pièce alliée pour activer ${ability.label.toLowerCase()}.`,
           variant: 'destructive',
         });
         return false;
       }
 
-      const board = gameState.board;
-      const chooseForwardCell = (distance: number): Position | null => {
-        const delta = selectedPiece.color === 'white' ? -distance : distance;
-        const candidate: Position = {
-          row: selectedPiece.position.row + delta,
-          col: selectedPiece.position.col,
-        };
-        if (!ChessEngine.isValidPosition(candidate)) return null;
-        return ChessEngine.getPieceAt(board, candidate) ? null : candidate;
-      };
+      const sourceRule = gameState.activeRules.find(rule => rule.ruleId === ability.ruleId);
+      const abilityEffect = sourceRule?.effects.find(effect => {
+        if (effect.action !== 'addAbility') return false;
+        const parameters = effect.parameters as Record<string, unknown> | undefined;
+        const declaredName = resolveSpecialAbilityName(parameters);
+        if (!declaredName) return false;
+        const normalized = normalizeSpecialAbilityParameters(declaredName, parameters);
+        return normalized?.ability === ability.ability;
+      });
+      const parameters = abilityEffect?.parameters ?? {};
 
-      let target: Position | null = null;
+      const allowedPiecesRaw = Array.isArray(parameters.allowedPieces) ? parameters.allowedPieces : [];
+      const allowedPieces: PieceType[] = allowedPiecesRaw
+        .map(value => (typeof value === 'string' ? value.toLowerCase() : ''))
+        .filter(isPieceType);
+
+      if (allowedPieces.length > 0 && !allowedPieces.includes(selectedPiece.type)) {
+        const formatted = formatPieceList(allowedPieces);
+        toast({
+          title: 'Pièce incompatible',
+          description: `${ability.label} se déclenche avec ${formatted}.`,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
       let allowOccupied = false;
+      let target: Position | null = null;
 
       switch (ability.ability) {
         case 'deployMine':
-          target = selectedPiece.position;
+          target = { ...selectedPiece.position };
           allowOccupied = true;
           break;
         case 'deployBomb': {
-          target = chooseForwardCell(2) ?? chooseForwardCell(1) ?? selectedPiece.position;
-          if (target.row === selectedPiece.position.row && target.col === selectedPiece.position.col) {
+          const maxDistanceParam = typeof parameters.maxDistance === 'number'
+            ? parameters.maxDistance
+            : typeof parameters.range === 'number'
+              ? parameters.range
+              : undefined;
+          const maxDistance = Number.isFinite(maxDistanceParam) ? Math.max(1, Math.floor(maxDistanceParam)) : 2;
+          const minDistanceParam = typeof parameters.minDistance === 'number' ? parameters.minDistance : undefined;
+          const minDistance = Number.isFinite(minDistanceParam) ? Math.max(1, Math.floor(minDistanceParam)) : 1;
+          const board = gameState.board;
+          const direction = selectedPiece.color === 'white' ? -1 : 1;
+
+          for (let distance = maxDistance; distance >= minDistance; distance--) {
+            const candidate: Position = {
+              row: selectedPiece.position.row + direction * distance,
+              col: selectedPiece.position.col,
+            };
+            if (!ChessEngine.isValidPosition(candidate)) continue;
+            if (!ChessEngine.getPieceAt(board, candidate)) {
+              target = candidate;
+              break;
+            }
+          }
+
+          if (!target) {
+            target = { ...selectedPiece.position };
             allowOccupied = true;
           }
           break;
@@ -613,7 +820,7 @@ const Play = () => {
       const result = deploySpecialAttack(ability, target, { allowOccupied, clearSelection: false });
       return result.success;
     },
-    [deploySpecialAttack, gameState.activeRules, gameState.board, gameState.currentPlayer, gameState.lastMoveByColor, gameState.selectedPiece, toast],
+    [deploySpecialAttack, gameState.activeRules, gameState.board, gameState.selectedPiece, toast],
   );
 
   const handleSpecialAction = useCallback((ability: SpecialAbilityOption) => {
@@ -626,20 +833,22 @@ const Play = () => {
     setPendingAbility(prev => {
       if (prev?.id === ability.id) {
         toast({
-          title: 'S�lection annul�e',
-          description: La capacit�  est d�sactiv�e.,
+          title: 'Sélection annulée',
+          description: `La capacité ${ability.label} est désactivée.`,
         });
         return null;
       }
 
       const instruction =
         ability.trigger === 'countdown'
-          ? D�tonation dans  tour.
-          : 'Clique ensuite sur la case � pi�ger.';
+          ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
+          : 'Clique ensuite sur la case à piéger.';
+
+      const description = `${instruction} ${ability.description}`.trim();
 
       toast({
-        title: ${ability.label} pr�te,
-        description: ${ability.description} ,
+        title: `${ability.label} prête`,
+        description,
       });
 
       return ability;
@@ -772,6 +981,7 @@ const Play = () => {
         const updatedAttacks: GameState['specialAttacks'] = [];
         let visualEffects = prev.visualEffects;
         const eventsSet = new Set(prev.events ?? []);
+        const freezeApplications: FreezeApplication[] = [];
 
         prev.specialAttacks.forEach(attack => {
           if (attack.trigger !== 'countdown') {
@@ -804,10 +1014,28 @@ const Play = () => {
           ];
           const abilitySound = attack.sound as SoundEffect;
           eventsSet.add(abilitySound);
+
+          if (attack.ability === 'freezeMissile') {
+            const turns = Math.max(1, attack.freezeTurns ?? 2);
+            const targetColor: PieceColor = attack.owner === 'white' ? 'black' : 'white';
+            const affected = collectPiecesWithinRadius(prev.board, attack.position, attack.radius, targetColor);
+            if (affected.length > 0) {
+              freezeApplications.push({ color: targetColor, positions: affected, turns });
+            }
+          }
         });
 
         if (!changed) {
           return prev;
+        }
+
+        let freezeEffects = prev.freezeEffects;
+        if (freezeApplications.length > 0) {
+          freezeEffects = mergeFreezeEffects(
+            prev.freezeEffects.map(effect => ({ ...effect })),
+            prev.board,
+            freezeApplications
+          );
         }
 
         return {
@@ -815,13 +1043,14 @@ const Play = () => {
           specialAttacks: updatedAttacks,
           visualEffects,
           events: Array.from(eventsSet),
+          freezeEffects,
         };
       });
 
       if (detonated.length > 0) {
         detonated.forEach(attack => {
           const metadata = getSpecialAbilityMetadata(attack.ability);
-          const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
+          const coordinate = `${FILES[attack.position.col] ?? '?'}${8 - attack.position.row}`;
           toast({
             title: `${metadata?.label ?? 'Explosion'} déclenchée`,
             description: `La charge posée sur ${coordinate} s'est déclenchée.`,
@@ -909,7 +1138,7 @@ const Play = () => {
       seen.add(effect.id);
       if (effect.notify && effect.ability) {
         const metadata = getSpecialAbilityMetadata(effect.ability);
-        const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
+        const coordinate = `${FILES[effect.position.col] ?? '?'}${8 - effect.position.row}`;
         toast({
           title: `${metadata?.label ?? 'Explosion'} déclenchée`,
           description: effect.ruleName
@@ -1228,11 +1457,13 @@ const Play = () => {
     const activeRuleIds = new Set(state.activeRules.filter(rule => rule.isActive).map(rule => rule.ruleId));
     const hasRule = (ruleId: string) => activeRuleIds.has(ruleId);
 
+    const originPosition: Position = { ...selectedPiece.position };
     const move = ChessEngine.createMove(state.board, selectedPiece, destination, state);
     move.timestamp = new Date().toISOString();
     move.durationMs = typeof selectionDuration === 'number' ? selectionDuration : null;
     const events: SoundEffect[] = [];
     let updatedSpecialAttacks = state.specialAttacks.map(attack => ({ ...attack }));
+    const pendingFreezeApplications: FreezeApplication[] = [];
     let updatedVisualEffects = [...state.visualEffects];
 
     let pendingTransformations = { ...state.pendingTransformations };
@@ -1270,6 +1501,15 @@ const Play = () => {
               notify: true,
             },
           ];
+
+          if (attack.ability === 'freezeMissile') {
+            const turns = Math.max(1, attack.freezeTurns ?? 2);
+            const targetColor: PieceColor = state.currentPlayer;
+            const affected = collectPiecesWithinRadius(newBoard, attack.position, attack.radius, targetColor);
+            if (affected.length > 0) {
+              pendingFreezeApplications.push({ color: targetColor, positions: affected, turns });
+            }
+          }
         } else {
           remainingAttacks.push(attack);
         }
@@ -1284,6 +1524,94 @@ const Play = () => {
         });
       }
     }
+
+    const addVisualEffect = (effect: VisualEffect, sound?: SoundEffect) => {
+      updatedVisualEffects = [...updatedVisualEffects, effect];
+      if (sound && !events.includes(sound)) {
+        events.push(sound);
+      }
+    };
+
+    state.activeRules.forEach(rule => {
+      if (!rule.isActive) return;
+
+      const appliesToMover = ruleTargetsPiece(rule, selectedPiece);
+      const appliesToCaptured = ruleTargetsPiece(rule, move.captured ?? null);
+
+      rule.effects.forEach(effect => {
+        const params = effect.parameters ?? {};
+        switch (effect.action) {
+          case 'areaExplosion': {
+            if (!move.captured) return;
+            if (!appliesToCaptured && !appliesToMover) {
+              return;
+            }
+            if (!['onCapture', 'always', 'conditional'].includes(rule.trigger)) return;
+
+            const radius = Math.max(1, toPositiveNumber(params.radius, 1));
+            const animation = toAnimationName(params.animation, 'explosion');
+            const durationMs = Math.max(400, toPositiveNumber(params.durationMs, 900));
+            const sound = toSoundEffect(params.sound, 'explosion');
+            const position = { ...move.to };
+            addVisualEffect({
+              id: `${rule.ruleId}-explosion-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: 'explosion',
+              position,
+              radius,
+              animation,
+              durationMs,
+              startedAt: Date.now(),
+              ability: undefined,
+              ruleName: rule.ruleName,
+              notify: true,
+            }, sound);
+            break;
+          }
+          case 'createHologram': {
+            if (!appliesToMover) return;
+            if (!['onMove', 'always', 'conditional'].includes(rule.trigger)) return;
+            const animation = toAnimationName(params.animation, 'hologram');
+            const durationMs = Math.max(400, toPositiveNumber(params.durationMs, 1200));
+            const radius = Math.max(1, toPositiveNumber(params.radius, 1));
+            addVisualEffect({
+              id: `${rule.ruleId}-hologram-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: 'projection',
+              position: { ...move.to },
+              radius,
+              animation,
+              durationMs,
+              startedAt: Date.now(),
+              ability: undefined,
+              ruleName: rule.ruleName,
+              notify: false,
+            });
+            break;
+          }
+          case 'leavePhantom': {
+            if (!appliesToMover) return;
+            if (!['onMove', 'always', 'conditional'].includes(rule.trigger)) return;
+            const animation = toAnimationName(params.animation, 'ghost-veil');
+            const durationMs = Math.max(400, toPositiveNumber(params.durationMs, 1000));
+            const radius = Math.max(1, toPositiveNumber(params.radius, 1));
+            addVisualEffect({
+              id: `${rule.ruleId}-phantom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type: 'phantom',
+              position: { ...originPosition },
+              radius,
+              animation,
+              durationMs,
+              startedAt: Date.now(),
+              ability: undefined,
+              ruleName: rule.ruleName,
+              notify: false,
+            });
+            break;
+          }
+          default:
+            break;
+        }
+      });
+    });
 
     const carnivorousPlantActive = state.activeRules.some(rule => rule.isActive && isCarnivorousPlantRule(rule));
     const plantCapturedPieces: ChessPiece[] = [];
@@ -1388,6 +1716,10 @@ const Play = () => {
         const target = ChessEngine.getPieceAt(newBoard, effect.position);
         return target && target.color === effect.color && effect.remainingTurns > 0;
       });
+
+    if (pendingFreezeApplications.length > 0) {
+      freezeEffects = mergeFreezeEffects(freezeEffects, newBoard, pendingFreezeApplications);
+    }
 
     const freezeUsage = { ...state.freezeUsage };
 
@@ -2411,6 +2743,9 @@ const Play = () => {
                                 const info = ability.trigger === 'countdown'
                                   ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`
                                   : 'Détonation au contact';
+                                const impact = ability.freezeTurns
+                                  ? `Gel ${ability.freezeTurns} tour${ability.freezeTurns > 1 ? 's' : ''}`
+                                  : `Impact ${ability.damage}`;
                                 return (
                                   <Button
                                     key={ability.id}
@@ -2423,7 +2758,7 @@ const Play = () => {
                                         ? 'border-fuchsia-200/70 bg-fuchsia-500/20 text-fuchsia-100 shadow-[0_0_18px_rgba(244,114,182,0.4)]'
                                         : 'border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white'
                                     )}
-                                    title={`${ability.label} · Rayon ${ability.radius} · ${info} · Impact ${ability.damage}`}
+                                    title={`${ability.label} · Rayon ${ability.radius} · ${info} · ${impact}`}
                                   >
                                     <Icon className="h-4 w-4" />
                                     {ability.buttonLabel ?? ability.label}

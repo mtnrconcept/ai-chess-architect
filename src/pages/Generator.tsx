@@ -9,6 +9,7 @@ import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors'
 import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
+import NeonBackground from '@/components/layout/NeonBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import { analyzeRuleLogic } from '@/lib/ruleValidation';
 import type { Database } from '@/integrations/supabase/types';
@@ -24,32 +25,36 @@ const Generator = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
+      <NeonBackground contentClassName="px-4 py-10 sm:px-6 lg:px-8">
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </NeonBackground>
     );
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen p-4 flex items-center justify-center">
-        <Card className="max-w-xl w-full bg-card/80 backdrop-blur">
-          <CardHeader className="space-y-2 text-center">
-            <CardTitle className="text-3xl font-bold">Connexion requise</CardTitle>
-            <CardDescription>
-              Créez un compte ou connectez-vous pour générer et sauvegarder des règles personnalisées.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <Button asChild variant="premium" className="w-full">
-              <Link to="/signup">Créer un compte</Link>
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link to="/signup?mode=signin">Se connecter</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <NeonBackground contentClassName="px-4 py-10 sm:px-6 lg:px-8">
+        <div className="flex flex-1 items-center justify-center">
+          <Card className="w-full max-w-xl bg-card/80 backdrop-blur">
+            <CardHeader className="space-y-2 text-center">
+              <CardTitle className="text-3xl font-bold">Connexion requise</CardTitle>
+              <CardDescription>
+                Créez un compte ou connectez-vous pour générer et sauvegarder des règles personnalisées.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <Button asChild variant="premium" className="w-full">
+                <Link to="/signup">Créer un compte</Link>
+              </Button>
+              <Button asChild variant="outline" className="w-full">
+                <Link to="/signup?mode=signin">Se connecter</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </NeonBackground>
     );
   }
 
@@ -194,8 +199,8 @@ const Generator = () => {
   };
 
   return (
-    <div className="min-h-screen p-4">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <NeonBackground contentClassName="px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-5xl flex-1 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <Button variant="ghost" onClick={() => navigate('/')}>
@@ -275,7 +280,7 @@ const Generator = () => {
           </div>
         )}
       </div>
-    </div>
+    </NeonBackground>
   );
 };
 

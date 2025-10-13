@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Trash2, Power, PowerOff, AlertTriangle } from 'lucide-react';
 import { categoryColors } from '@/lib/ruleCategories';
-import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters } from '@/lib/specialAbilities';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, resolveSpecialAbilityName } from '@/lib/specialAbilities';
 
 interface RuleCardProps {
   rule: ChessRule;
@@ -54,14 +54,19 @@ const RuleCard = ({
   const abilitySummaries = Array.isArray(rule.effects)
     ? rule.effects
         .map(effect => {
-          if (effect.action !== 'addAbility' || typeof effect.parameters?.ability !== 'string') {
+          if (effect.action !== 'addAbility') {
+            return null;
+          }
+          const parameters = effect.parameters as Record<string, unknown> | undefined;
+          const abilityName = resolveSpecialAbilityName(parameters);
+          if (!abilityName) {
             return null;
           }
           const normalized = normalizeSpecialAbilityParameters(
-            effect.parameters.ability,
-            effect.parameters as Record<string, unknown> | undefined,
+            abilityName,
+            parameters,
           );
-          const metadata = getSpecialAbilityMetadata(effect.parameters.ability);
+          const metadata = getSpecialAbilityMetadata(abilityName);
           if (!normalized || !metadata) {
             return null;
           }
@@ -71,6 +76,7 @@ const RuleCard = ({
             radius: normalized.radius,
             countdown: normalized.countdown,
             damage: normalized.damage,
+            freezeTurns: normalized.freezeTurns,
           };
         })
         .filter((summary): summary is {
@@ -79,6 +85,7 @@ const RuleCard = ({
           radius: number;
           countdown: number;
           damage: number;
+          freezeTurns?: number;
         } => summary !== null)
     : [];
 
@@ -217,7 +224,11 @@ const RuleCard = ({
               >
                 <span className="font-semibold text-fuchsia-100">{ability.label}</span>
                 <span>Rayon {ability.radius}</span>
-                <span>Impact {ability.damage}</span>
+                <span>
+                  {ability.freezeTurns
+                    ? `Gel ${ability.freezeTurns} tour${ability.freezeTurns > 1 ? 's' : ''}`
+                    : `Impact ${ability.damage}`}
+                </span>
                 <span>
                   {ability.trigger === 'countdown'
                     ? `Détonation ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`
