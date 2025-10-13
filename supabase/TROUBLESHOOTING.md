@@ -322,6 +322,31 @@ serve(async (req) => {
 
 ---
 
+## Le coach IA fonctionne mais les tournois ne se synchronisent pas
+
+Ce symptôme indique généralement que seule la partie « lecture publique » de Supabase est configurée. Les tournois, eux, reposent
+sur une fonction edge (`sync-tournaments`) qui écrit dans les tables `public.tournaments`, `public.tournament_matches` et
+`public.tournament_registrations`. Vérifie les points suivants :
+
+1. **Clé service role manquante** – Le coach n'utilise que la clé publishable (`anon`). La fonction `sync-tournaments` appelle
+   `getSupabaseServiceRoleClient()` et renvoie `Supabase client not configured` si `SUPABASE_SERVICE_ROLE_KEY` (ou ses alias
+   `SUPABASE_SERVICE_ROLE` / `SERVICE_ROLE_KEY`) n'est pas défini dans les secrets du projet. Ajoute la clé via
+   `npx supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...` puis redéploie les fonctions.
+2. **Projet incorrect** – Les fonctions forcent par défaut l'identifiant `ucaqbhmyutlnitnedowk`. Si tu as cloné le projet dans un
+   autre environnement, renseigne `SUPABASE_PROJECT_ID`/`SUPABASE_URL` avec l'identifiant exact ou adapte le code. Sans cela, la
+   fonction écrira dans un projet vide et l'UI ne verra aucun tournoi.
+3. **Migrations non appliquées** – Sans les tables/vues de `supabase/migrations`, la fonction lève `feature_unavailable`. Exécute
+   `npm run db:push` (ou `npm run db:migrate`) et force un `NOTIFY pgrst, 'reload schema';` pour que `/rest/v1/tournaments` soit
+   exposé immédiatement.
+4. **Edge function non déployée** – Un coach fonctionnel prouve que les API REST répondent, mais pas que la fonction `sync-tournaments`
+   est à jour. Redeploie-la explicitement : `npx supabase functions deploy sync-tournaments` (ou via l'interface Supabase) afin qu'elle
+   prenne les derniers secrets et le code TypeScript.
+
+Lorsque ces quatre points sont validés, un appel manuel à `POST https://<project>.functions.supabase.co/sync-tournaments` doit
+retourner `{ "created": 20, "ensuredBlocks": 2 }` (ou des valeurs proches) et les tournois apparaissent côté client.
+
+---
+
 ## Edge Function `/functions/v1/chess-insights` returns **429 Too Many Requests**
 
 Supabase throttles edge functions per project. Burst requests from a UI (for example, firing on every keypress) exhaust the
