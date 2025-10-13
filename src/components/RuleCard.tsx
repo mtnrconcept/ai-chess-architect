@@ -71,6 +71,7 @@ const RuleCard = ({
             radius: normalized.radius,
             countdown: normalized.countdown,
             damage: normalized.damage,
+            freezeTurns: normalized.freezeTurns,
           };
         })
         .filter((summary): summary is {
@@ -79,6 +80,7 @@ const RuleCard = ({
           radius: number;
           countdown: number;
           damage: number;
+          freezeTurns?: number;
         } => summary !== null)
     : [];
 
@@ -217,7 +219,11 @@ const RuleCard = ({
               >
                 <span className="font-semibold text-fuchsia-100">{ability.label}</span>
                 <span>Rayon {ability.radius}</span>
-                <span>Impact {ability.damage}</span>
+                <span>
+                  {ability.freezeTurns
+                    ? `Gel ${ability.freezeTurns} tour${ability.freezeTurns > 1 ? 's' : ''}`
+                    : `Impact ${ability.damage}`}
+                </span>
                 <span>
                   {ability.trigger === 'countdown'
                     ? `Détonation ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`

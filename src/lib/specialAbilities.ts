@@ -1,6 +1,6 @@
 export type SpecialAbilityTrigger = 'countdown' | 'contact';
 
-export type SpecialAbilityKey = 'deployBomb' | 'deployMine';
+export type SpecialAbilityKey = 'deployBomb' | 'deployMine' | 'freezeMissile';
 
 export interface SpecialAbility {
   ability: SpecialAbilityKey;
@@ -22,6 +22,8 @@ export interface SpecialAbilityMetadata {
   defaultAnimation: string;
   defaultSound: string;
   buttonLabel?: string;
+  defaultFreezeTurns?: number;
+  allowOccupied?: boolean;
 }
 
 export interface NormalizedSpecialAbilityParameters {
@@ -32,6 +34,8 @@ export interface NormalizedSpecialAbilityParameters {
   trigger: SpecialAbilityTrigger;
   animation: string;
   sound: string;
+  freezeTurns?: number;
+  allowOccupied?: boolean;
 }
 
 const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetadata> = {
@@ -61,11 +65,61 @@ const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetad
     defaultSound: 'mine-detonation',
     buttonLabel: 'Placer une mine',
   },
+  freezeMissile: {
+    key: 'freezeMissile',
+    label: 'Missile cryogénique',
+    description: 'Lance un projectile qui gèle les pièces adverses dans la zone d’impact.',
+    defaultRadius: 1,
+    defaultCountdown: 2,
+    defaultDamage: 1,
+    trigger: 'countdown',
+    icon: 'target',
+    defaultAnimation: 'frost-burst',
+    defaultSound: 'ice-explosion',
+    buttonLabel: 'Lancer un missile gelant',
+    defaultFreezeTurns: 2,
+    allowOccupied: true,
+  },
 };
 
 const isSpecialAbilityKey = (value: string): value is SpecialAbilityKey => (
   Object.prototype.hasOwnProperty.call(SPECIAL_ABILITY_DEFINITIONS, value)
 );
+
+const normalizeAbilityName = (raw: string): SpecialAbilityKey | undefined => {
+  if (!raw) return undefined;
+  if (isSpecialAbilityKey(raw)) return raw;
+
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+  const includesAll = (needles: string[]) => needles.every(needle => normalized.includes(needle));
+
+  if (includesAll(['freeze']) || includesAll(['gel']) || includesAll(['glace']) || includesAll(['frost']) || includesAll(['ice'])) {
+    if (normalized.includes('missile') || normalized.includes('rocket') || normalized.includes('projectile')) {
+      return 'freezeMissile';
+    }
+  }
+
+  if (normalized.includes('missile') && (normalized.includes('gel') || normalized.includes('glace') || normalized.includes('freeze') || normalized.includes('ice') || normalized.includes('frost'))) {
+    return 'freezeMissile';
+  }
+
+  if (normalized.includes('mine') || normalized.includes('trap') || normalized.includes('piege')) {
+    return 'deployMine';
+  }
+
+  if (
+    normalized.includes('bomb') ||
+    normalized.includes('bombe') ||
+    normalized.includes('explosion') ||
+    normalized.includes('rocket') ||
+    normalized.includes('missile')
+  ) {
+    return 'deployBomb';
+  }
+
+  return undefined;
+};
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -82,18 +136,37 @@ const toText = (value: unknown, fallback: string): string => (
 );
 
 export const getSpecialAbilityMetadata = (ability: string): SpecialAbilityMetadata | undefined => {
-  if (!isSpecialAbilityKey(ability)) return undefined;
-  return SPECIAL_ABILITY_DEFINITIONS[ability];
+  const key = normalizeAbilityName(ability);
+  if (!key) return undefined;
+  return SPECIAL_ABILITY_DEFINITIONS[key];
 };
 
 export const normalizeSpecialAbilityParameters = (
   ability: string,
   parameters: Record<string, unknown> | undefined,
 ): NormalizedSpecialAbilityParameters | undefined => {
-  const metadata = getSpecialAbilityMetadata(ability);
+  const key = normalizeAbilityName(ability);
+  if (!key) return undefined;
+
+  const metadata = SPECIAL_ABILITY_DEFINITIONS[key];
   if (!metadata) return undefined;
 
   const params = parameters ?? {};
+
+  const resolveFreezeTurns = (): number | undefined => {
+    if (metadata.defaultFreezeTurns === undefined) return undefined;
+    const sources = [params.freezeTurns, params.freezeDuration, params.turns];
+    for (const source of sources) {
+      if (typeof source === 'number' && Number.isFinite(source)) {
+        return Math.max(1, Math.round(source));
+      }
+      const parsed = Number.parseInt(String(source ?? ''), 10);
+      if (Number.isFinite(parsed)) {
+        return Math.max(1, parsed);
+      }
+    }
+    return metadata.defaultFreezeTurns;
+  };
 
   return {
     ability: metadata.key,
@@ -103,6 +176,8 @@ export const normalizeSpecialAbilityParameters = (
     trigger: toTrigger(params.trigger, metadata.trigger),
     animation: toText(params.animation, metadata.defaultAnimation),
     sound: toText(params.sound, metadata.defaultSound),
+    freezeTurns: resolveFreezeTurns(),
+    allowOccupied: metadata.allowOccupied ?? false,
   } satisfies NormalizedSpecialAbilityParameters;
 };
 

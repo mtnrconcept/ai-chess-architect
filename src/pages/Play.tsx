@@ -96,6 +96,71 @@ const formatPieceList = (pieces: PieceType[]): string => {
   return `${head} et ${tail}`;
 };
 
+type FreezeApplication = {
+  color: PieceColor;
+  positions: Position[];
+  turns: number;
+};
+
+const collectPiecesWithinRadius = (
+  board: (ChessPiece | null)[][],
+  center: Position,
+  radius: number,
+  color: PieceColor,
+): Position[] => {
+  const affected: Position[] = [];
+  for (let row = Math.max(0, center.row - radius); row <= Math.min(7, center.row + radius); row++) {
+    for (let col = Math.max(0, center.col - radius); col <= Math.min(7, center.col + radius); col++) {
+      const dRow = Math.abs(row - center.row);
+      const dCol = Math.abs(col - center.col);
+      if (Math.max(dRow, dCol) > radius) continue;
+      const target = ChessEngine.getPieceAt(board, { row, col });
+      if (target && target.color === color) {
+        affected.push({ row, col });
+      }
+    }
+  }
+  return affected;
+};
+
+const mergeFreezeEffects = (
+  current: GameState['freezeEffects'],
+  board: (ChessPiece | null)[][],
+  applications: FreezeApplication[],
+): GameState['freezeEffects'] => {
+  if (applications.length === 0) return current;
+
+  const updated = current.map(effect => ({ ...effect }));
+
+  applications.forEach(({ color, positions, turns }) => {
+    positions.forEach(position => {
+      const target = ChessEngine.getPieceAt(board, position);
+      if (!target || target.color !== color) return;
+
+      const existingIndex = updated.findIndex(effect =>
+        effect.color === color && effect.position.row === position.row && effect.position.col === position.col
+      );
+
+      if (existingIndex >= 0) {
+        if (updated[existingIndex].remainingTurns < turns) {
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            remainingTurns: turns,
+          };
+        }
+      } else {
+        updated.push({
+          color,
+          position: { ...position },
+          remainingTurns: turns,
+        });
+      }
+    });
+  });
+
+  return updated;
+};
+
 const AI_MOVE_DELAY_RANGES: Record<TimeControlOption, { min: number; max: number }> = {
   bullet: { min: 500, max: 3000 },
   blitz: { min: 2000, max: 5000 },
@@ -188,6 +253,8 @@ interface SpecialAbilityOption {
   animation: string;
   sound: string;
   buttonLabel?: string;
+  freezeTurns?: number;
+  allowOccupied?: boolean;
 }
 
 type DeployResult =
@@ -521,6 +588,8 @@ const Play = () => {
           animation: normalized.animation,
           sound: normalized.sound,
           buttonLabel: metadata.buttonLabel,
+          freezeTurns: normalized.freezeTurns,
+          allowOccupied: normalized.allowOccupied,
         });
       });
     });
@@ -544,8 +613,9 @@ const Play = () => {
           return prev;
         }
 
+        const allowOccupied = ability.allowOccupied || options?.allowOccupied || false;
         const occupant = ChessEngine.getPieceAt(prev.board, position);
-        if (occupant && !options?.allowOccupied) {
+        if (occupant && !allowOccupied) {
           outcome = { success: false, reason: 'occupied' };
           return prev;
         }
@@ -572,6 +642,7 @@ const Play = () => {
           animation: ability.animation,
           sound: ability.sound,
           ruleName: ability.ruleName,
+          freezeTurns: ability.freezeTurns,
         };
 
         const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
@@ -889,6 +960,7 @@ const Play = () => {
         const updatedAttacks: GameState['specialAttacks'] = [];
         let visualEffects = prev.visualEffects;
         const eventsSet = new Set(prev.events ?? []);
+        const freezeApplications: FreezeApplication[] = [];
 
         prev.specialAttacks.forEach(attack => {
           if (attack.trigger !== 'countdown') {
@@ -921,10 +993,28 @@ const Play = () => {
           ];
           const abilitySound = attack.sound as SoundEffect;
           eventsSet.add(abilitySound);
+
+          if (attack.ability === 'freezeMissile') {
+            const turns = Math.max(1, attack.freezeTurns ?? 2);
+            const targetColor: PieceColor = attack.owner === 'white' ? 'black' : 'white';
+            const affected = collectPiecesWithinRadius(prev.board, attack.position, attack.radius, targetColor);
+            if (affected.length > 0) {
+              freezeApplications.push({ color: targetColor, positions: affected, turns });
+            }
+          }
         });
 
         if (!changed) {
           return prev;
+        }
+
+        let freezeEffects = prev.freezeEffects;
+        if (freezeApplications.length > 0) {
+          freezeEffects = mergeFreezeEffects(
+            prev.freezeEffects.map(effect => ({ ...effect })),
+            prev.board,
+            freezeApplications
+          );
         }
 
         return {
@@ -932,6 +1022,7 @@ const Play = () => {
           specialAttacks: updatedAttacks,
           visualEffects,
           events: Array.from(eventsSet),
+          freezeEffects,
         };
       });
 
@@ -1351,6 +1442,7 @@ const Play = () => {
     move.durationMs = typeof selectionDuration === 'number' ? selectionDuration : null;
     const events: SoundEffect[] = [];
     let updatedSpecialAttacks = state.specialAttacks.map(attack => ({ ...attack }));
+    const pendingFreezeApplications: FreezeApplication[] = [];
     let updatedVisualEffects = [...state.visualEffects];
 
     let pendingTransformations = { ...state.pendingTransformations };
@@ -1388,6 +1480,15 @@ const Play = () => {
               notify: true,
             },
           ];
+
+          if (attack.ability === 'freezeMissile') {
+            const turns = Math.max(1, attack.freezeTurns ?? 2);
+            const targetColor: PieceColor = state.currentPlayer;
+            const affected = collectPiecesWithinRadius(newBoard, attack.position, attack.radius, targetColor);
+            if (affected.length > 0) {
+              pendingFreezeApplications.push({ color: targetColor, positions: affected, turns });
+            }
+          }
         } else {
           remainingAttacks.push(attack);
         }
@@ -1594,6 +1695,10 @@ const Play = () => {
         const target = ChessEngine.getPieceAt(newBoard, effect.position);
         return target && target.color === effect.color && effect.remainingTurns > 0;
       });
+
+    if (pendingFreezeApplications.length > 0) {
+      freezeEffects = mergeFreezeEffects(freezeEffects, newBoard, pendingFreezeApplications);
+    }
 
     const freezeUsage = { ...state.freezeUsage };
 
@@ -2617,6 +2722,9 @@ const Play = () => {
                                 const info = ability.trigger === 'countdown'
                                   ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`
                                   : 'Détonation au contact';
+                                const impact = ability.freezeTurns
+                                  ? `Gel ${ability.freezeTurns} tour${ability.freezeTurns > 1 ? 's' : ''}`
+                                  : `Impact ${ability.damage}`;
                                 return (
                                   <Button
                                     key={ability.id}
@@ -2629,7 +2737,7 @@ const Play = () => {
                                         ? 'border-fuchsia-200/70 bg-fuchsia-500/20 text-fuchsia-100 shadow-[0_0_18px_rgba(244,114,182,0.4)]'
                                         : 'border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100 hover:border-fuchsia-200 hover:bg-fuchsia-500/20 hover:text-white'
                                     )}
-                                    title={`${ability.label} · Rayon ${ability.radius} · ${info} · Impact ${ability.damage}`}
+                                    title={`${ability.label} · Rayon ${ability.radius} · ${info} · ${impact}`}
                                   >
                                     <Icon className="h-4 w-4" />
                                     {ability.buttonLabel ?? ability.label}
