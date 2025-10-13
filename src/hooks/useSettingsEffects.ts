@@ -25,12 +25,6 @@ type SettingsEffectOptions = {
   pronunciationGuide: boolean;
 };
 
-const themeBackgrounds: Record<ThemeId, string> = {
-  neon: "radial-gradient(circle at top, rgba(20,230,255,0.35), transparent 55%), radial-gradient(circle at bottom, rgba(255,0,200,0.22), transparent 60%), url('/background.jpg')",
-  luminous: "linear-gradient(160deg, rgba(255,255,255,0.85), rgba(220,245,255,0.75)), url('/background.jpg')",
-  stealth: "linear-gradient(140deg, rgba(10,10,18,0.95), rgba(18,18,30,0.9)), url('/background.jpg')",
-};
-
 const uiScaleMap: Record<SettingsEffectOptions["uiSize"], number> = {
   sm: 0.92,
   md: 1,
@@ -187,8 +181,6 @@ export const useSettingsEffects = ({
     body.dataset.subtitles = subtitles ? "on" : "off";
     body.dataset.pronunciationGuide = pronunciationGuide ? "on" : "off";
     body.dataset.secondaryLanguage = secondaryLanguage;
-
-    body.style.setProperty("--app-background-image", themeBackgrounds[theme]);
 
     if (document.documentElement.lang !== language) {
       document.documentElement.lang = language;

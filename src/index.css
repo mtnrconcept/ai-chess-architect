@@ -61,7 +61,6 @@
     --transition-smooth: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     --ui-scale: 1;
     --neon-intensity: 0.85;
-    --app-background-image: url('/background.jpg');
     --spectral-trails-opacity: 0;
     --board-reflection-strength: 0;
     --coordinate-scale: 1;
@@ -199,11 +198,6 @@
     @apply text-foreground;
     font-size: calc(16px * var(--ui-scale));
     background-color: hsl(var(--background));
-    background-image: var(--app-background-image);
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-attachment: fixed;
     transition: var(--transition-smooth);
     position: relative;
     min-height: 100vh;

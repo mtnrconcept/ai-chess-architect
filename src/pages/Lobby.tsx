@@ -26,6 +26,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
+import NeonBackground from '@/components/layout/NeonBackground';
 import { allPresetRules } from '@/lib/presetRules';
 import { analyzeRuleLogic, RuleAnalysisResult } from '@/lib/ruleValidation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1256,8 +1257,8 @@ const Lobby = () => {
   };
 
   return (
-    <div className="min-h-screen p-4">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <NeonBackground contentClassName="px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-7xl flex-1 space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <Button variant="ghost" onClick={() => navigate('/')}>
             <ArrowLeft size={20} />
@@ -1687,9 +1688,9 @@ const Lobby = () => {
           </div>
         )}
       </div>
-    </div>
+      </div>
 
-    <Dialog
+      <Dialog
       open={playOptionsOpen}
       onOpenChange={open => {
         setPlayOptionsOpen(open);
@@ -1799,7 +1800,7 @@ const Lobby = () => {
         </div>
       </DialogContent>
     </Dialog>
-  </div>
+  </NeonBackground>
 );
 };
 
