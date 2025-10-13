@@ -6,7 +6,7 @@ import { ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateC
 import type { LucideIcon } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
-import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove } from '@/types/chess';
+import { GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -139,6 +139,19 @@ interface SpecialAbilityOption {
   sound: string;
   buttonLabel?: string;
 }
+
+type DeployResult =
+  | {
+      success: true;
+      coordinate: string;
+      trigger: SpecialAbilityTrigger;
+      countdown: number;
+      abilityLabel: string;
+    }
+  | {
+      success: false;
+      reason: 'state' | 'occupied' | 'duplicate' | 'invalid';
+    };
 
 const Play = () => {
   const navigate = useNavigate();
@@ -465,28 +478,171 @@ const Play = () => {
     return options;
   }, [gameState.activeRules]);
 
+  const deploySpecialAttack = useCallback(
+    (ability: SpecialAbilityOption, position: Position, options?: { allowOccupied?: boolean; clearSelection?: boolean }): DeployResult => {
+      let outcome: DeployResult = { success: false, reason: 'state' };
+
+      setGameState(prev => {
+        if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(prev.gameStatus)) {
+          outcome = { success: false, reason: 'state' };
+          return prev;
+        }
+
+        if (!ChessEngine.isValidPosition(position)) {
+          outcome = { success: false, reason: 'invalid' };
+          return prev;
+        }
+
+        const occupant = ChessEngine.getPieceAt(prev.board, position);
+        if (occupant && !options?.allowOccupied) {
+          outcome = { success: false, reason: 'occupied' };
+          return prev;
+        }
+
+        const alreadyArmed = prev.specialAttacks.some(
+          attack => attack.position.row === position.row && attack.position.col === position.col,
+        );
+        if (alreadyArmed) {
+          outcome = { success: false, reason: 'duplicate' };
+          return prev;
+        }
+
+        const attackId = `${ability.ability}-${Date.now()}`;
+        const specialAttack: SpecialAttackInstance = {
+          id: attackId,
+          ability: ability.ability,
+          owner: prev.currentPlayer,
+          position,
+          radius: ability.radius,
+          countdown: ability.countdown,
+          remaining: ability.countdown,
+          damage: ability.damage,
+          trigger: ability.trigger,
+          animation: ability.animation,
+          sound: ability.sound,
+          ruleName: ability.ruleName,
+        };
+
+        const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
+        outcome = {
+          success: true,
+          coordinate,
+          trigger: ability.trigger,
+          countdown: ability.countdown,
+          abilityLabel: ability.label,
+        };
+
+        const nextState: GameState = {
+          ...prev,
+          specialAttacks: [...prev.specialAttacks, specialAttack],
+        };
+
+        if (options?.clearSelection) {
+          nextState.selectedPiece = null;
+          nextState.validMoves = [];
+        }
+
+        return nextState;
+      });
+
+                  if (outcome.success) {
+        toast({
+          title: ${outcome.abilityLabel} activée,
+          description:
+            outcome.trigger === 'countdown'
+              ? Détonation programmée dans  tour.
+              : Charge posée sur .,
+        });
+      } else if (outcome.reason === 'occupied') {
+        toast({
+          title: 'Case occupée',
+          description: 'Sélectionne une case libre pour déclencher cette capacité.',
+          variant: 'destructive',
+        });
+      } else if (outcome.reason === 'duplicate') {
+        toast({
+          title: 'Zone déjà piégée',
+          description: 'Une charge spéciale existe déjà sur cette case.',
+          variant: 'destructive',
+        });
+      }if (allowedPieces.length > 0 && !allowedPieces.includes(selectedPiece.type)) {
+        toast({
+          title: 'Pi�ce non compatible',
+          description: Cette capacit� s�applique surtout aux .,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      const board = gameState.board;
+      const chooseForwardCell = (distance: number): Position | null => {
+        const delta = selectedPiece.color === 'white' ? -distance : distance;
+        const candidate: Position = {
+          row: selectedPiece.position.row + delta,
+          col: selectedPiece.position.col,
+        };
+        if (!ChessEngine.isValidPosition(candidate)) return null;
+        return ChessEngine.getPieceAt(board, candidate) ? null : candidate;
+      };
+
+      let target: Position | null = null;
+      let allowOccupied = false;
+
+      switch (ability.ability) {
+        case 'deployMine':
+          target = selectedPiece.position;
+          allowOccupied = true;
+          break;
+        case 'deployBomb': {
+          target = chooseForwardCell(2) ?? chooseForwardCell(1) ?? selectedPiece.position;
+          if (target.row === selectedPiece.position.row && target.col === selectedPiece.position.col) {
+            allowOccupied = true;
+          }
+          break;
+        }
+        default:
+          return false;
+      }
+
+      if (!target) {
+        return false;
+      }
+
+      const result = deploySpecialAttack(ability, target, { allowOccupied, clearSelection: false });
+      return result.success;
+    },
+    [deploySpecialAttack, gameState.activeRules, gameState.board, gameState.currentPlayer, gameState.lastMoveByColor, gameState.selectedPiece, toast],
+  );
+
   const handleSpecialAction = useCallback((ability: SpecialAbilityOption) => {
+    const instantSuccess = tryInstantAbility(ability);
+    if (instantSuccess) {
+      setPendingAbility(null);
+      return;
+    }
+
     setPendingAbility(prev => {
       if (prev?.id === ability.id) {
         toast({
-          title: 'Sélection annulée',
-          description: `La capacité ${ability.label} est désactivée.`,
+          title: 'S�lection annul�e',
+          description: La capacit�  est d�sactiv�e.,
         });
         return null;
       }
 
-      const countdownInfo = ability.trigger === 'countdown'
-        ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
-        : 'Explosion au contact d\'un adversaire.';
+      const instruction =
+        ability.trigger === 'countdown'
+          ? D�tonation dans  tour.
+          : 'Clique ensuite sur la case � pi�ger.';
 
-        toast({
-          title: `${ability.label} prête`,
-          description: `${ability.description} ${countdownInfo}`,
-        });
-
-        return ability;
+      toast({
+        title: ${ability.label} pr�te,
+        description: ${ability.description} ,
       });
-    }, [toast]);
+
+      return ability;
+    });
+  }, [toast, tryInstantAbility]);
 
   useEffect(() => {
     if (pendingAbility && !specialAbilities.some(ability => ability.id === pendingAbility.id)) {
@@ -663,7 +819,7 @@ const Play = () => {
       if (detonated.length > 0) {
         detonated.forEach(attack => {
           const metadata = getSpecialAbilityMetadata(attack.ability);
-          const coordinate = `${FILES[attack.position.col]}${8 - attack.position.row}`;
+          const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
           toast({
             title: `${metadata?.label ?? 'Explosion'} déclenchée`,
             description: `La charge posée sur ${coordinate} s'est déclenchée.`,
@@ -751,7 +907,7 @@ const Play = () => {
       seen.add(effect.id);
       if (effect.notify && effect.ability) {
         const metadata = getSpecialAbilityMetadata(effect.ability);
-        const coordinate = `${FILES[effect.position.col]}${8 - effect.position.row}`;
+        const coordinate = `${FILES[position.col] ?? '?'}${8 - position.row}`;
         toast({
           title: `${metadata?.label ?? 'Explosion'} déclenchée`,
           description: effect.ruleName
@@ -1695,75 +1851,10 @@ const Play = () => {
     if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
 
     if (pendingAbility) {
-      const existingPiece = ChessEngine.getPieceAt(gameState.board, position);
-      if (existingPiece) {
-        toast({
-          title: 'Case occupée',
-          description: 'Sélectionnez une case vide pour armer cette attaque spéciale.',
-          variant: 'destructive',
-        });
-        return;
+      const result = deploySpecialAttack(pendingAbility, position, { clearSelection: true });
+      if (result.success) {
+        setPendingAbility(null);
       }
-
-      const alreadyArmed = gameState.specialAttacks.some(
-        attack => attack.position.row === position.row && attack.position.col === position.col,
-      );
-      if (alreadyArmed) {
-        toast({
-          title: 'Zone déjà piégée',
-          description: 'Cette case possède déjà une charge spéciale active.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      const ability = pendingAbility;
-      const {
-        ability: abilityKey,
-        animation,
-        countdown,
-        damage,
-        label,
-        radius,
-        ruleName,
-        sound,
-        trigger,
-      } = ability;
-
-      const attackId = `${abilityKey}-${Date.now()}`;
-      setGameState(prev => ({
-        ...prev,
-        specialAttacks: [
-          ...prev.specialAttacks,
-          {
-            id: attackId,
-            ability: abilityKey,
-            owner: prev.currentPlayer,
-            position,
-            radius,
-            countdown,
-            remaining: countdown,
-            damage,
-            trigger,
-            animation,
-            sound,
-            ruleName,
-          },
-        ],
-        selectedPiece: null,
-        validMoves: [],
-      }));
-
-      const coordinateFile = FILES[position.col] ?? '?';
-      const coordinate = `${coordinateFile}${8 - position.row}`;
-      toast({
-        title: `${label} armée`,
-        description: trigger === 'countdown'
-          ? `Détonation programmée dans ${countdown} tour${countdown > 1 ? 's' : ''}.`
-          : `Explosion au contact lorsqu'un adversaire atteint ${coordinate}.`,
-      });
-
-      setPendingAbility(null);
       return;
     }
 
@@ -2455,3 +2546,6 @@ const Play = () => {
 };
 
 export default Play;
+
+
+
