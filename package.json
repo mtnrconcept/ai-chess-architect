@@ -3,6 +3,10 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "bin": {
+    "db": "./scripts/bin/db.mjs",
+    "supabase": "./scripts/bin/supabase.mjs"
+  },
   "scripts": {
     "dev": "vite",
     "sync:tournaments": "node scripts/sync-tournaments.mjs",

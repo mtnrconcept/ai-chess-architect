@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadEnv } from './utils/env.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const projectRoot = path.resolve(path.dirname(__filename), '..');
+
+loadEnv(projectRoot);
 
 const projectRef = process.env.SUPABASE_PROJECT_ID ?? process.env.SUPABASE_PROJECT_REF ?? 'ucaqbhmyutlnitnedowk';
 const dbUrl = process.env.SUPABASE_DB_URL;
@@ -16,7 +24,7 @@ if (projectRef) {
   console.log(`\x1b[90m→\x1b[0m projet        : ${projectRef}`);
 }
 
-const args = ['supabase', 'db', 'push', '--db-url', dbUrl];
+const args = ['--yes', '--', '@supabase/cli', 'db', 'push', '--db-url', dbUrl];
 
 if (projectRef) {
   args.push('--project-ref', projectRef);
