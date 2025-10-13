@@ -3,14 +3,15 @@ export type ChatMessage = {
   content: string;
 };
 
+export type AiProviderName = 'lovable' | 'groq' | 'openai' | 'gemini';
+
 export type ChatCompletionOptions = {
   messages: ChatMessage[];
   temperature?: number;
   maxOutputTokens?: number;
   model?: string;
+  preferredModels?: Partial<Record<AiProviderName, string>>;
 };
-
-type AiProviderName = 'lovable' | 'groq' | 'openai' | 'gemini';
 
 type ConfiguredProvider = {
   name: AiProviderName;
@@ -280,8 +281,31 @@ export const invokeChatCompletion = async (
   options: ChatCompletionOptions
 ): Promise<{ content: string; provider: AiProviderName }> => {
   const provider = pickProvider();
-  const content = await provider.invoke(provider, options);
-  return { content, provider: provider.name };
+  const { preferredModels, ...baseOptions } = options;
+  const resolvedModel =
+    baseOptions.model ?? preferredModels?.[provider.name] ?? provider.model;
+
+  try {
+    const content = await provider.invoke(provider, {
+      ...baseOptions,
+      model: resolvedModel,
+    });
+    return { content, provider: provider.name };
+  } catch (error) {
+    const attemptedPreferredModel =
+      preferredModels?.[provider.name] !== undefined &&
+      resolvedModel === preferredModels[provider.name];
+
+    if (attemptedPreferredModel && preferredModels?.[provider.name] !== provider.model) {
+      const fallbackContent = await provider.invoke(provider, {
+        ...baseOptions,
+        model: provider.model,
+      });
+      return { content: fallbackContent, provider: provider.name };
+    }
+
+    throw error;
+  }
 };
 
 export const listConfiguredProviders = () => getConfiguredProviders().map(provider => provider.name);
