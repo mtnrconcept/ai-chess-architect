@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
 import { useSoundEffects, type SoundEffect } from '@/hooks/useSoundEffects';
-import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, type SpecialAbilityActivation, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
 import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -138,6 +138,7 @@ interface SpecialAbilityOption {
   animation: string;
   sound: string;
   buttonLabel?: string;
+  activation: SpecialAbilityActivation;
 }
 
 type DeployResult =
@@ -471,6 +472,7 @@ const Play = () => {
           animation: normalized.animation,
           sound: normalized.sound,
           buttonLabel: metadata.buttonLabel,
+          activation: normalized.activation,
         });
       });
     });

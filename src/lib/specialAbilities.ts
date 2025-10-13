@@ -2,6 +2,8 @@ export type SpecialAbilityTrigger = 'countdown' | 'contact';
 
 export type SpecialAbilityKey = 'deployBomb' | 'deployMine';
 
+export type SpecialAbilityActivation = 'selfCell' | 'forwardCell' | 'selectCell';
+
 export interface SpecialAbility {
   ability: SpecialAbilityKey;
   radius: number;
@@ -22,6 +24,7 @@ export interface SpecialAbilityMetadata {
   defaultAnimation: string;
   defaultSound: string;
   buttonLabel?: string;
+  activation: SpecialAbilityActivation;
 }
 
 export interface NormalizedSpecialAbilityParameters {
@@ -32,13 +35,14 @@ export interface NormalizedSpecialAbilityParameters {
   trigger: SpecialAbilityTrigger;
   animation: string;
   sound: string;
+  activation: SpecialAbilityActivation;
 }
 
 const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetadata> = {
   deployBomb: {
     key: 'deployBomb',
-    label: 'Bombe quantique',
-    description: 'Place une charge explosive à retardement capable de balayer plusieurs cases.',
+    label: 'Charge quantique',
+    description: 'Place une charge explosive a retardement capable de nettoyer plusieurs cases.',
     defaultRadius: 1,
     defaultCountdown: 3,
     defaultDamage: 3,
@@ -46,12 +50,13 @@ const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetad
     icon: 'bomb',
     defaultAnimation: 'quantum-bomb',
     defaultSound: 'quantum-explosion',
-    buttonLabel: 'Déployer une bombe',
+    buttonLabel: 'Activer bombe',
+    activation: 'forwardCell',
   },
   deployMine: {
     key: 'deployMine',
     label: 'Mine sentinelle',
-    description: 'Déploie une mine qui explose dès qu\'un adversaire la traverse.',
+    description: 'Arme une mine qui explose des qu un adversaire traverse la case.',
     defaultRadius: 1,
     defaultCountdown: 0,
     defaultDamage: 2,
@@ -59,13 +64,13 @@ const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetad
     icon: 'target',
     defaultAnimation: 'mine-shockwave',
     defaultSound: 'mine-detonation',
-    buttonLabel: 'Placer une mine',
+    buttonLabel: 'Placer mine',
+    activation: 'selfCell',
   },
 };
 
-const isSpecialAbilityKey = (value: string): value is SpecialAbilityKey => (
-  Object.prototype.hasOwnProperty.call(SPECIAL_ABILITY_DEFINITIONS, value)
-);
+const isSpecialAbilityKey = (value: string): value is SpecialAbilityKey =>
+  Object.prototype.hasOwnProperty.call(SPECIAL_ABILITY_DEFINITIONS, value);
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -73,13 +78,18 @@ const toFiniteNumber = (value: unknown, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const toTrigger = (value: unknown, fallback: SpecialAbilityTrigger): SpecialAbilityTrigger => {
-  return value === 'contact' || value === 'countdown' ? value : fallback;
-};
+const toTrigger = (value: unknown, fallback: SpecialAbilityTrigger): SpecialAbilityTrigger =>
+  value === 'contact' || value === 'countdown' ? value : fallback;
 
-const toText = (value: unknown, fallback: string): string => (
-  typeof value === 'string' && value.trim().length > 0 ? value : fallback
-);
+const toText = (value: unknown, fallback: string): string =>
+  typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+
+const toActivation = (value: unknown, fallback: SpecialAbilityActivation): SpecialAbilityActivation => {
+  if (value === 'selfCell' || value === 'forwardCell' || value === 'selectCell') {
+    return value;
+  }
+  return fallback;
+};
 
 export const getSpecialAbilityMetadata = (ability: string): SpecialAbilityMetadata | undefined => {
   if (!isSpecialAbilityKey(ability)) return undefined;
@@ -103,15 +113,17 @@ export const normalizeSpecialAbilityParameters = (
     trigger: toTrigger(params.trigger, metadata.trigger),
     animation: toText(params.animation, metadata.defaultAnimation),
     sound: toText(params.sound, metadata.defaultSound),
-  } satisfies NormalizedSpecialAbilityParameters;
+    activation: toActivation(params.activation, metadata.activation),
+  };
 };
 
 export const formatSpecialAbilitySummary = (ability: SpecialAbility, metadata: SpecialAbilityMetadata): string => {
-  const triggerDescription = ability.trigger === 'countdown'
-    ? `détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`
-    : 'détonation au contact';
+  const triggerDescription =
+    ability.trigger === 'countdown'
+      ? `detonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}`
+      : 'detonation au contact';
 
-  return `${metadata.label} · Rayon ${ability.radius} · ${triggerDescription}`;
+  return `${metadata.label} :: rayon ${ability.radius} :: ${triggerDescription}`;
 };
 
 export { SPECIAL_ABILITY_DEFINITIONS };
