@@ -60,6 +60,19 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## FX runtime (GSAP + Pixi.js)
+
+The repository includes a modular FX system located under `src/fx`. It exposes:
+
+- `FxProvider` & `useFxTrigger` (wrap your chess board and trigger intents at runtime),
+- a Pixi.js based renderer with GSAP timelines (`registry.ts`),
+- a small NLP lexicon `FxLexicon` capable of mapping textual rule descriptions to normalised FX intents,
+- `runFxIntents()` helper used by the rules engine to connect generated rule metadata with visual effects.
+
+Effects are defined declaratively via JSON `fxIntents` descriptors (generated together with your chess rules). The resolver automatically picks the proper GSAP / Pixi routines: mines spawning, area hazards, holograms, warps, trails, explosions… All the heavy lifting (glow filters, particle pools, easing & clean-up) lives inside `fx/registry.ts`, which you can extend with additional shaders, spritesheets or Rive/Lottie assets.
+
+To wire it to the board, wrap your board container inside `<FxProvider>` and call `triggerFx(intents, payload)` whenever an engine event fires (piece move, capture, trap activation, etc.). The provider takes care of mounting a transparent Pixi canvas above the board, resizing it, and orchestrating the timelines.
+
 ## Local configuration
 
 Some serverless features depend on an external AI provider. The edge functions under `supabase/functions` will automatically use the first configured secret among `LOVABLE_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`. At least one of these secrets must be present in the Supabase project so that the rule generator and the coach can authenticate against the selected API.
