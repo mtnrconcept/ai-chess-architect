@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_registry: {
+        Row: {
+          active: boolean
+          category: "supabase" | "edge_function" | "coach_api" | "http"
+          config: Json
+          created_at: string
+          id: string
+          method: string
+          notes: string | null
+          service: string
+          target: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          category: "supabase" | "edge_function" | "coach_api" | "http"
+          config?: Json
+          created_at?: string
+          id?: string
+          method?: string
+          notes?: string | null
+          service: string
+          target: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          category?: "supabase" | "edge_function" | "coach_api" | "http"
+          config?: Json
+          created_at?: string
+          id?: string
+          method?: string
+          notes?: string | null
+          service?: string
+          target?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       custom_chess_rules: {
         Row: {
           affected_pieces: string[]
