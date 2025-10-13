@@ -4,9 +4,113 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { lookup } from 'node:dns/promises';
 import postgres from 'postgres';
 
 const MIGRATIONS_TABLE = 'public.__lovable_schema_migrations';
+const IPV6_NETWORK_ERROR_CODES = new Set(['ENETUNREACH', 'EHOSTUNREACH']);
+
+const maskConnectionString = (value) => value.replace(/:(?:[^:@/]+)@/, ':***@');
+
+const isLikelyIpv6ConnectivityError = (error) => {
+  if (!error) {
+    return false;
+  }
+
+  if (typeof error.code === 'string' && IPV6_NETWORK_ERROR_CODES.has(error.code)) {
+    return true;
+  }
+
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
+  return message.includes('ipv6') || message.includes('::');
+};
+
+const resolveConnectionStringWithIpv4Hostaddr = async (connectionString) => {
+  try {
+    const url = new URL(connectionString);
+
+    if (url.searchParams.has('hostaddr')) {
+      return null;
+    }
+
+    const hostname = url.hostname;
+    if (!hostname) {
+      return null;
+    }
+
+    const { address } = await lookup(hostname, { family: 4 });
+    if (!address) {
+      return null;
+    }
+
+    url.searchParams.set('hostaddr', address);
+    return { connectionString: url.toString(), hostaddr: address };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `Impossible de résoudre une adresse IPv4 pour ${maskConnectionString(connectionString)}. Détail: ${message}`
+    );
+    return null;
+  }
+};
+
+const closeSqlClient = async (sql) => {
+  if (!sql) {
+    return;
+  }
+
+  try {
+    await sql.end({ timeout: 5 });
+  } catch (error) {
+    if (error instanceof Error) {
+      console.warn(`Fermeture de connexion Postgres échouée: ${error.message}`);
+    }
+  }
+};
+
+const createSqlClient = async (connectionString) => {
+  const baseOptions = {
+    transform: {
+      undefined: null,
+    },
+    ssl: 'require',
+    max: 1,
+  };
+
+  let sql = postgres(connectionString, baseOptions);
+
+  const verifyConnection = async (client) => {
+    await client.unsafe('select 1');
+  };
+
+  try {
+    await verifyConnection(sql);
+    return { sql, connectionStringUsed: connectionString };
+  } catch (error) {
+    await closeSqlClient(sql);
+
+    if (isLikelyIpv6ConnectivityError(error)) {
+      const fallback = await resolveConnectionStringWithIpv4Hostaddr(connectionString);
+      if (fallback) {
+        console.warn(
+          `Connexion IPv6 vers Supabase indisponible (${error instanceof Error ? error.message : error}). ` +
+            `Nouvel essai via IPv4 (hostaddr=${fallback.hostaddr}).`
+        );
+
+        sql = postgres(fallback.connectionString, baseOptions);
+        try {
+          await verifyConnection(sql);
+          return { sql, connectionStringUsed: fallback.connectionString };
+        } catch (fallbackError) {
+          await closeSqlClient(sql);
+          throw fallbackError;
+        }
+      }
+    }
+
+    throw error;
+  }
+};
 
 function resolveProjectRoot() {
   const currentFile = fileURLToPath(import.meta.url);
@@ -124,13 +228,13 @@ async function loadMigrations(dir) {
 }
 
 async function applyMigrations(connectionString, migrationsDir) {
-  const sql = postgres(connectionString, {
-    transform: {
-      undefined: null,
-    },
-    ssl: 'require',
-    max: 1,
-  });
+  const { sql, connectionStringUsed } = await createSqlClient(connectionString);
+
+  if (connectionStringUsed !== connectionString) {
+    console.log(
+      `Connexion rétablie via ${maskConnectionString(connectionStringUsed)} (fallback IPv4).`
+    );
+  }
 
   try {
     const migrationFiles = await loadMigrations(migrationsDir);
@@ -170,7 +274,7 @@ async function applyMigrations(connectionString, migrationsDir) {
       console.log('   ✅ Migration appliquée avec succès');
     }
   } finally {
-    await sql.end({ timeout: 5 });
+    await closeSqlClient(sql);
   }
 }
 
@@ -196,7 +300,7 @@ async function main() {
 
   const migrationsDir = resolveMigrationDir(projectRoot);
   console.log(`Utilisation des migrations depuis ${migrationsDir}`);
-  console.log(`Connexion à ${connectionString.replace(/:(?:[^:@\/]+)@/, ':***@')}`);
+  console.log(`Connexion à ${maskConnectionString(connectionString)}`);
 
   try {
     await applyMigrations(connectionString, migrationsDir);
