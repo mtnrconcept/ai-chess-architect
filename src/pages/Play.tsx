@@ -20,11 +20,14 @@ import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
 import { useSoundEffects, type SoundEffect } from '@/hooks/useSoundEffects';
-<<<<<<< HEAD
-import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, type SpecialAbilityActivation, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
-=======
-import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, resolveSpecialAbilityName, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
->>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
+import {
+  getSpecialAbilityMetadata,
+  normalizeSpecialAbilityParameters,
+  resolveSpecialAbilityName,
+  type SpecialAbilityActivation,
+  type SpecialAbilityKey,
+  type SpecialAbilityTrigger,
+} from '@/lib/specialAbilities';
 import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -257,12 +260,9 @@ interface SpecialAbilityOption {
   animation: string;
   sound: string;
   buttonLabel?: string;
-<<<<<<< HEAD
   activation: SpecialAbilityActivation;
-=======
   freezeTurns?: number;
   allowOccupied?: boolean;
->>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
 }
 
 type DeployResult =
@@ -602,12 +602,12 @@ const Play = () => {
           animation: normalized.animation,
           sound: normalized.sound,
           buttonLabel: metadata.buttonLabel,
-<<<<<<< HEAD
           activation: normalized.activation,
-=======
           freezeTurns: normalized.freezeTurns,
           allowOccupied: normalized.allowOccupied,
->>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
+          activation: normalized.activation,
+          freezeTurns: normalized.freezeTurns,
+          allowOccupied: normalized.allowOccupied,
         });
       });
     });

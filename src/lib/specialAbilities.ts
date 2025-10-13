@@ -24,12 +24,11 @@ export interface SpecialAbilityMetadata {
   defaultAnimation: string;
   defaultSound: string;
   buttonLabel?: string;
-<<<<<<< HEAD
   activation: SpecialAbilityActivation;
-=======
   defaultFreezeTurns?: number;
   allowOccupied?: boolean;
->>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
+  defaultFreezeTurns?: number;
+  allowOccupied?: boolean;
 }
 
 export interface NormalizedSpecialAbilityParameters {
@@ -40,12 +39,12 @@ export interface NormalizedSpecialAbilityParameters {
   trigger: SpecialAbilityTrigger;
   animation: string;
   sound: string;
-<<<<<<< HEAD
   activation: SpecialAbilityActivation;
-=======
   freezeTurns?: number;
   allowOccupied?: boolean;
->>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
+  activation: SpecialAbilityActivation;
+  freezeTurns?: number;
+  allowOccupied?: boolean;
 }
 
 const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetadata> = {
@@ -89,6 +88,7 @@ const SPECIAL_ABILITY_DEFINITIONS: Record<SpecialAbilityKey, SpecialAbilityMetad
     defaultAnimation: 'frost-burst',
     defaultSound: 'ice-explosion',
     buttonLabel: 'Lancer un missile gelant',
+    activation: 'selectCell',
     defaultFreezeTurns: 2,
     allowOccupied: true,
   },
@@ -257,6 +257,9 @@ export const normalizeSpecialAbilityParameters = (
     return metadata.defaultFreezeTurns;
   };
 
+  const allowOccupied =
+    typeof params.allowOccupied === 'boolean' ? params.allowOccupied : metadata.allowOccupied ?? false;
+
   return {
     ability: metadata.key,
     radius: Math.max(1, toFiniteNumber(params.radius, metadata.defaultRadius)),
@@ -265,14 +268,10 @@ export const normalizeSpecialAbilityParameters = (
     trigger: toTrigger(params.trigger, metadata.trigger),
     animation: toText(params.animation, metadata.defaultAnimation),
     sound: toText(params.sound, metadata.defaultSound),
-<<<<<<< HEAD
     activation: toActivation(params.activation, metadata.activation),
-  };
-=======
     freezeTurns: resolveFreezeTurns(),
-    allowOccupied: metadata.allowOccupied ?? false,
+    allowOccupied,
   } satisfies NormalizedSpecialAbilityParameters;
->>>>>>> a67767311204383348be11f3c27fcd09fa41ef56
 };
 
 export const formatSpecialAbilitySummary = (ability: SpecialAbility, metadata: SpecialAbilityMetadata): string => {
