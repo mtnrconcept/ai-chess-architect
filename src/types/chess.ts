@@ -70,6 +70,7 @@ export interface SpecialAttackInstance {
   animation: string;
   sound: string;
   ruleName: string;
+  freezeTurns?: number;
 }
 
 export interface VisualEffect {
