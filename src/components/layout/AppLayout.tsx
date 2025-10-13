@@ -16,6 +16,7 @@ const navigationLinks = [
   { label: "Classement", to: "/leaderboard" },
   { label: "Analyse", to: "/analysis" },
   { label: "Paramètres", to: "/settings" },
+  { label: "Diagnostics", to: "/diagnostics" },
 ];
 
 const AppLayout = () => {

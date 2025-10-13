@@ -148,6 +148,9 @@ export type AuthResult = AuthSuccess | AuthFailure;
 export const supabaseProjectDiagnostics = () =>
   globalScope.__YOUAREGOOD_SUPABASE_DIAGNOSTICS__ ?? diagnostics;
 
+export const resolvedSupabaseUrl = SUPABASE_URL;
+export const resolvedServiceRoleKey = SERVICE_ROLE_KEY;
+
 export const authenticateRequest = async (req: Request): Promise<AuthResult> => {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
