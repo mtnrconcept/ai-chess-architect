@@ -121,6 +121,79 @@ const normalizeAbilityName = (raw: string): SpecialAbilityKey | undefined => {
   return undefined;
 };
 
+const addCandidate = (value: unknown, store: Set<string>) => {
+  if (typeof value !== 'string') return;
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  store.add(trimmed);
+};
+
+export const resolveSpecialAbilityName = (
+  parameters: Record<string, unknown> | undefined,
+): string | undefined => {
+  if (!parameters) return undefined;
+
+  const candidates = new Set<string>();
+  const directAbility = (parameters as Record<string, unknown>).ability;
+  addCandidate(directAbility, candidates);
+
+  if (directAbility && typeof directAbility === 'object') {
+    const abilityObject = directAbility as Record<string, unknown>;
+    addCandidate(abilityObject.name, candidates);
+    addCandidate(abilityObject.label, candidates);
+    addCandidate(abilityObject.key, candidates);
+    addCandidate(abilityObject.id, candidates);
+    addCandidate(abilityObject.type, candidates);
+  }
+
+  const fallbackKeys = [
+    'abilityName',
+    'abilityLabel',
+    'ability_key',
+    'abilityKey',
+    'abilityId',
+    'specialAbility',
+    'special_ability',
+    'specialAbilityName',
+    'specialAttack',
+    'special_attack',
+    'specialTag',
+    'special_tag',
+    'tag',
+    'type',
+    'name',
+    'label',
+  ] as const;
+
+  fallbackKeys.forEach(key => {
+    addCandidate((parameters as Record<string, unknown>)[key], candidates);
+  });
+
+  const metadata = (parameters as Record<string, unknown>).metadata;
+  if (metadata && typeof metadata === 'object') {
+    const metadataRecord = metadata as Record<string, unknown>;
+    addCandidate(metadataRecord.ability, candidates);
+    addCandidate(metadataRecord.name, candidates);
+    addCandidate(metadataRecord.label, candidates);
+    addCandidate(metadataRecord.key, candidates);
+    addCandidate(metadataRecord.id, candidates);
+    addCandidate(metadataRecord.type, candidates);
+  }
+
+  const tags = (parameters as Record<string, unknown>).tags;
+  if (Array.isArray(tags)) {
+    tags.forEach(tag => addCandidate(tag, candidates));
+  }
+
+  for (const candidate of candidates) {
+    if (normalizeAbilityName(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+};
+
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const parsed = Number.parseFloat(String(value ?? ''));

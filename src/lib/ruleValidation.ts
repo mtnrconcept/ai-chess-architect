@@ -1,5 +1,5 @@
 import { ChessRule, RuleCondition, RuleEffect } from '@/types/chess';
-import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters } from '@/lib/specialAbilities';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, resolveSpecialAbilityName } from '@/lib/specialAbilities';
 
 const generateAnonymousRuleId = (() => {
   let counter = 0;
@@ -256,10 +256,11 @@ export const analyzeRuleLogic = (rule: unknown): RuleAnalysisResult => {
       return effect;
     }
 
-    const abilityName = typeof effect.parameters?.ability === 'string' ? effect.parameters.ability : '';
+    const abilityParameters = effect.parameters as Record<string, unknown> | undefined;
+    const abilityName = resolveSpecialAbilityName(abilityParameters) ?? '';
     const normalized = normalizeSpecialAbilityParameters(
       abilityName,
-      effect.parameters as Record<string, unknown> | undefined,
+      abilityParameters,
     );
 
     if (!normalized) {

@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
 import { useSoundEffects, type SoundEffect } from '@/hooks/useSoundEffects';
-import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
+import { getSpecialAbilityMetadata, normalizeSpecialAbilityParameters, resolveSpecialAbilityName, type SpecialAbilityKey, type SpecialAbilityTrigger } from '@/lib/specialAbilities';
 import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -553,15 +553,21 @@ const Play = () => {
 
     gameState.activeRules.forEach(rule => {
       rule.effects.forEach((effect, index) => {
-        if (effect.action !== 'addAbility' || typeof effect.parameters?.ability !== 'string') {
+        if (effect.action !== 'addAbility') {
+          return;
+        }
+
+        const parameters = effect.parameters as Record<string, unknown> | undefined;
+        const abilityName = resolveSpecialAbilityName(parameters);
+        if (!abilityName) {
           return;
         }
 
         const normalized = normalizeSpecialAbilityParameters(
-          effect.parameters.ability,
-          effect.parameters as Record<string, unknown> | undefined,
+          abilityName,
+          parameters,
         );
-        const metadata = getSpecialAbilityMetadata(effect.parameters.ability);
+        const metadata = getSpecialAbilityMetadata(abilityName);
 
         if (!normalized || !metadata) {
           return;
@@ -730,8 +736,11 @@ const Play = () => {
       const sourceRule = gameState.activeRules.find(rule => rule.ruleId === ability.ruleId);
       const abilityEffect = sourceRule?.effects.find(effect => {
         if (effect.action !== 'addAbility') return false;
-        const declaredAbility = typeof effect.parameters?.ability === 'string' ? effect.parameters.ability : undefined;
-        return declaredAbility === ability.ability;
+        const parameters = effect.parameters as Record<string, unknown> | undefined;
+        const declaredName = resolveSpecialAbilityName(parameters);
+        if (!declaredName) return false;
+        const normalized = normalizeSpecialAbilityParameters(declaredName, parameters);
+        return normalized?.ability === ability.ability;
       });
       const parameters = abilityEffect?.parameters ?? {};
 
