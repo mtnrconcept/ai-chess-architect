@@ -60,12 +60,53 @@ const NORMALISED_PROJECT_NAME = normaliseEnvValue(RAW_PROJECT_NAME);
 const EFFECTIVE_PROJECT_NAME = NORMALISED_PROJECT_NAME ?? EXPECTED_PROJECT_NAME;
 const IS_PLACEHOLDER_URL = RAW_SUPABASE_URL ? PLACEHOLDER_SUPABASE_URL.test(RAW_SUPABASE_URL) : false;
 
+const RAW_FUNCTIONS_URL = readEnvValue('VITE_SUPABASE_FUNCTIONS_URL', 'SUPABASE_FUNCTIONS_URL');
+
+const normaliseFunctionsOrigin = (value: string | undefined) => {
+  const normalised = normaliseEnvValue(value);
+  if (!normalised) return undefined;
+
+  try {
+    const candidate = normalised.startsWith('http://') || normalised.startsWith('https://')
+      ? normalised
+      : `https://${normalised}`;
+    const url = new URL(candidate);
+    return `${url.protocol}//${url.host}`;
+  } catch (_error) {
+    return undefined;
+  }
+};
+
+const deriveFunctionsOriginFromSupabaseUrl = (value: string | undefined) => {
+  if (!value) return undefined;
+
+  try {
+    const candidate = value.startsWith('http://') || value.startsWith('https://')
+      ? value
+      : `https://${value}`;
+    const url = new URL(candidate);
+    if (!url.host.endsWith('.supabase.co')) {
+      return `${url.protocol}//${url.host}`;
+    }
+
+    const functionsHost = `${url.host.replace('.supabase.co', '.functions.supabase.co')}`;
+    return `${url.protocol}//${functionsHost}`;
+  } catch (_error) {
+    return undefined;
+  }
+};
+
 const SUPABASE_URL =
   !RAW_SUPABASE_URL || IS_PLACEHOLDER_URL
     ? EFFECTIVE_PROJECT_ID
       ? `https://${EFFECTIVE_PROJECT_ID}.supabase.co`
       : undefined
     : RAW_SUPABASE_URL;
+
+const SUPABASE_FUNCTIONS_URL =
+  normaliseFunctionsOrigin(RAW_FUNCTIONS_URL)
+  ?? deriveFunctionsOriginFromSupabaseUrl(SUPABASE_URL)
+  ?? (EFFECTIVE_PROJECT_ID ? `https://${EFFECTIVE_PROJECT_ID}.functions.supabase.co` : undefined);
 
 const SUPABASE_ANON_KEY = readEnvValue(
   'VITE_SUPABASE_ANON_KEY',
@@ -98,6 +139,7 @@ type SupabaseDiagnostics = {
   resolvedUrl?: string | null;
   isPlaceholderUrl: boolean;
   anonKeyPreview?: string | null;
+  functionsUrl?: string | null;
   problems: string[];
 };
 
@@ -213,6 +255,7 @@ function createSingletonClient(): SupabaseInitialisation {
     anonKeyPreview: SUPABASE_ANON_KEY
       ? `${SUPABASE_ANON_KEY.slice(0, 6)}…${SUPABASE_ANON_KEY.slice(-4)}`
       : null,
+    functionsUrl: SUPABASE_FUNCTIONS_URL ?? null,
     problems,
   };
 
@@ -237,6 +280,13 @@ function createSingletonClient(): SupabaseInitialisation {
       autoRefreshToken: true,
       detectSessionInUrl: true,
     },
+    ...(SUPABASE_FUNCTIONS_URL
+      ? {
+          functions: {
+            url: SUPABASE_FUNCTIONS_URL,
+          },
+        }
+      : {}),
   });
 
   globalScope.__SUPABASE_CLIENT__ = client;
