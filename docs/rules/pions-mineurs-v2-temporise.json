@@ -1,0 +1,196 @@
+{
+  "meta": {
+    "ruleId": "rule_1701198501",
+    "ruleName": "Pions Mineurs Temporisés",
+    "version": "2.0.0",
+    "description": "Variante temporisée : les mines posées par les pions explosent automatiquement après N plies si elles n'ont pas été déclenchées.",
+    "category": "behavior",
+    "priority": 5,
+    "isActive": true,
+    "tags": ["pawn", "mine", "special-attack", "trap", "timed"]
+  },
+
+  "scope": {
+    "affectedPieces": ["pawn"],
+    "sides": ["white", "black"]
+  },
+
+  "ui": {
+    "actions": [
+      {
+        "id": "special_place_mine",
+        "label": "Déposer une mine temporisée",
+        "icon": "icon.mine",
+        "hint": "Sélectionne un pion puis une case cible valide",
+        "availability": {
+          "requiresSelection": true,
+          "pieceTypes": ["pawn"],
+          "phase": "main",
+          "cooldownOk": true,
+          "hasMovesRemaining": true
+        },
+        "targeting": {
+          "mode": "tile",
+          "validTilesProvider": "rules.pawnMinesTimed.getValidTiles"
+        },
+        "consumesTurn": true,
+        "cooldown": { "perPiece": 1 },
+        "maxPerPiece": 3
+      }
+    ]
+  },
+
+  "assets": {
+    "sprites": {
+      "mine_idle": { "src": "vfx/mine_idle.webp", "zIndex": 3, "anchor": "center" },
+      "mine_warning": { "src": "vfx/mine_warning.webp", "zIndex": 4, "anchor": "center" },
+      "explosion": { "src": "vfx/explosion_sheet.webp", "fps": 24, "frames": 16, "zIndex": 6 }
+    },
+    "audio": {
+      "place": { "src": "sfx/mine_place.wav", "volume": 0.7 },
+      "arm":   { "src": "sfx/mine_arm.wav",   "volume": 0.6 },
+      "tick":  { "src": "sfx/mine_tick.wav",  "volume": 0.4 },
+      "boom":  { "src": "sfx/mine_explode.wav", "volume": 0.9 }
+    }
+  },
+
+  "state": {
+    "namespace": "rules.pawnMinesTimed",
+    "schema": {
+      "mines": [
+        {
+          "id": "string",
+          "tile": "string",
+          "owner": "white|black",
+          "visibleTo": "all|owner|none",
+          "armed": "boolean",
+          "stackIndex": "number",
+          "ttl": { "type": "number", "nullable": true },
+          "createdAtPly": "number"
+        }
+      ]
+    },
+    "initial": { "mines": [] },
+    "serialize": true
+  },
+
+  "parameters": {
+    "visibility": "all",
+    "friendlyFire": true,
+    "armDelayPly": 0,
+    "timer": {
+      "ttlPly": 4,
+      "warnBefore": 1,
+      "detonateOnExpiry": true
+    },
+    "detonation": {
+      "trigger": "onEnterTileOrExpiry",
+      "radius": 0,
+      "capturePriority": "mineFirst"
+    },
+    "placement": {
+      "onlyEmptyTile": true,
+      "forbidCurrentTile": false,
+      "forbidOccupiedByAlly": true,
+      "forbidOccupiedByEnemy": true,
+      "forbidKingZone": false,
+      "forbidLastRank": false,
+      "allowedOffsets": "boardAny"
+    },
+    "limits": {
+      "maxMinesPerPawn": 3,
+      "globalMaxMines": 16
+    },
+    "undo": { "restoreMines": true },
+    "promotion": { "minesPersistAfterPromotion": true },
+    "stacking": { "allowMultipleOnSameTile": false }
+  },
+
+  "events": [
+    {
+      "id": "placeMine",
+      "emit": "rules.pawnMinesTimed.placeMine",
+      "payload": { "pieceId": "string", "from": "tile", "to": "tile" }
+    },
+    {
+      "id": "explodeMine",
+      "emit": "rules.pawnMinesTimed.explodeMine",
+      "payload": { "mineId": "string", "tile": "tile", "victimId": "string|null", "cause": "enter|expiry" }
+    },
+    {
+      "id": "mineTick",
+      "emit": "rules.pawnMinesTimed.tick",
+      "payload": { "mineId": "string", "remaining": "number" }
+    }
+  ],
+
+  "handlers": {
+    "ui.special_place_mine": "rules.pawnMinesTimed.handlePlaceMineAction",
+    "lifecycle.onEnterTile": "rules.pawnMinesTimed.handleEnterTile",
+    "lifecycle.onMoveCommitted": "rules.pawnMinesTimed.handleMoveCommitted",
+    "lifecycle.onUndo": "rules.pawnMinesTimed.handleUndo",
+    "lifecycle.onPromote": "rules.pawnMinesTimed.handlePromote",
+    "persistence.onSerialize": "rules.pawnMinesTimed.serialize",
+    "persistence.onDeserialize": "rules.pawnMinesTimed.deserialize"
+  },
+
+  "logic": {
+    "guards": [
+      {
+        "id": "limitChecks",
+        "run": "rules.pawnMinesTimed.checkLimits",
+        "onFail": "blockAction",
+        "message": "Limite de mines atteinte"
+      }
+    ],
+    "effects": [
+      {
+        "id": "placeMineEffect",
+        "when": "ui.special_place_mine",
+        "do": [
+          { "action": "state.addMine", "params": { "tile": "$targetTile", "owner": "$activeSide" } },
+          { "action": "vfx.play", "params": { "sprite": "mine_idle", "tile": "$targetTile", "audio": "place" } },
+          { "action": "turn.end" }
+        ]
+      },
+      {
+        "id": "enterTileDetonation",
+        "when": "lifecycle.onEnterTile",
+        "if": "rules.pawnMinesTimed.tileHasArmedMine",
+        "do": [
+          { "action": "rules.pawnMinesTimed.resolveExplosion", "params": { "tile": "$to", "cause": "enter" } }
+        ]
+      },
+      {
+        "id": "tickAndExpire",
+        "when": "lifecycle.onMoveCommitted",
+        "do": [
+          { "action": "rules.pawnMinesTimed.tickAndMaybeExplode" }
+        ]
+      }
+    ]
+  },
+
+  "integration": {
+    "engineContracts": {
+      "readBoard": true,
+      "readPieces": true,
+      "capturePiece(pieceId, reason)": "required",
+      "spawnDecal(spriteId, tile)": "required",
+      "playAnimation(spriteId, tile)": "required",
+      "playAudio(audioId)": "required",
+      "markTileStatus(tile, status)": "optional",
+      "registerUiAction(actionSpec)": "required",
+      "cooldown.set(pieceId, actionId, turns)": "required",
+      "cooldown.isReady(pieceId, actionId)": "required"
+    }
+  },
+
+  "validationRules": {
+    "allowedWith": [],
+    "conflictsWith": ["atomic_chess"],
+    "requiredState": {}
+  },
+
+  "createdAt": "2025-10-13T08:12:25.454Z"
+}
