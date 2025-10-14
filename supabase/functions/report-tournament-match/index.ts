@@ -68,7 +68,7 @@ serve(async req => {
       return jsonResponse(req, { error: message }, { status: 404 }, corsOptions);
     }
 
-    if (match.status === "completed") {
+    if (match.status === "finished") {
       return jsonResponse(req, { error: "Le résultat a déjà été enregistré" }, { status: 409 }, corsOptions);
     }
 
@@ -95,7 +95,7 @@ serve(async req => {
     const { error: updateMatchError } = await supabase
       .from("tournament_matches")
       .update({
-        status: "completed",
+        status: "finished",
         result,
         winner_id: winnerId,
         reported_by: user.id,
@@ -203,7 +203,7 @@ serve(async req => {
     return jsonResponse(
       req,
       {
-        match: { ...match, status: "completed", result, winner_id: winnerId },
+        match: { ...match, status: "finished", result, winner_id: winnerId },
         leaderboard: leaderboard ?? [],
       },
       { status: 200 },

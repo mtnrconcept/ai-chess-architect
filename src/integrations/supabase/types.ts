@@ -163,16 +163,21 @@ export type Database = {
       }
       tournament_matches: {
         Row: {
+          ai_opponent_difficulty: string | null
+          ai_opponent_label: string | null
           completed_at: string | null
           created_at: string
           id: string
+          is_ai_match: boolean | null
           lobby_id: string | null
           player1_id: string
           player2_id: string | null
           reported_by: string | null
           result: "player1" | "player2" | "draw" | null
+          room_id: string | null
+          round: number | null
           started_at: string | null
-          status: "pending" | "in_progress" | "completed" | "cancelled"
+          status: "pending" | "playing" | "finished" | "cancelled"
           table_number: number | null
           tournament_id: string
           updated_at: string
@@ -180,16 +185,21 @@ export type Database = {
           winner_id: string | null
         }
         Insert: {
+          ai_opponent_difficulty?: string | null
+          ai_opponent_label?: string | null
           completed_at?: string | null
           created_at?: string
           id?: string
+          is_ai_match?: boolean | null
           lobby_id?: string | null
           player1_id: string
           player2_id?: string | null
           reported_by?: string | null
           result?: "player1" | "player2" | "draw" | null
+          room_id?: string | null
+          round?: number | null
           started_at?: string | null
-          status?: "pending" | "in_progress" | "completed" | "cancelled"
+          status?: "pending" | "playing" | "finished" | "cancelled"
           table_number?: number | null
           tournament_id: string
           updated_at?: string
@@ -197,16 +207,21 @@ export type Database = {
           winner_id?: string | null
         }
         Update: {
+          ai_opponent_difficulty?: string | null
+          ai_opponent_label?: string | null
           completed_at?: string | null
           created_at?: string
           id?: string
+          is_ai_match?: boolean | null
           lobby_id?: string | null
           player1_id?: string
           player2_id?: string | null
           reported_by?: string | null
           result?: "player1" | "player2" | "draw" | null
+          room_id?: string | null
+          round?: number | null
           started_at?: string | null
-          status?: "pending" | "in_progress" | "completed" | "cancelled"
+          status?: "pending" | "playing" | "finished" | "cancelled"
           table_number?: number | null
           tournament_id?: string
           updated_at?: string
@@ -334,12 +349,13 @@ export type Database = {
       tournaments: {
         Row: {
           created_at: string
+          created_by: string | null
           description: string | null
-          end_time: string
+          ends_at: string
           id: string
-          name: string
-          start_time: string
-          status: "scheduled" | "running" | "completed" | "cancelled"
+          starts_at: string
+          status: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          title: string
           updated_at: string
           variant_lobby_id: string | null
           variant_name: string
@@ -348,12 +364,13 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          created_by?: string | null
           description?: string | null
-          end_time: string
+          ends_at: string
           id?: string
-          name: string
-          start_time: string
-          status?: "scheduled" | "running" | "completed" | "cancelled"
+          starts_at: string
+          status?: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          title: string
           updated_at?: string
           variant_lobby_id?: string | null
           variant_name: string
@@ -362,12 +379,13 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          created_by?: string | null
           description?: string | null
-          end_time?: string
+          ends_at?: string
           id?: string
-          name?: string
-          start_time?: string
-          status?: "scheduled" | "running" | "completed" | "cancelled"
+          starts_at?: string
+          status?: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          title?: string
           updated_at?: string
           variant_lobby_id?: string | null
           variant_name?: string
@@ -399,17 +417,31 @@ export type Database = {
           completed_match_count: number
           created_at: string
           description: string | null
-          end_time: string
+          ends_at: string
           id: string
-          name: string
           player_count: number
-          start_time: string
-          status: "scheduled" | "running" | "completed" | "cancelled"
+          starts_at: string
+          status: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          title: string
           updated_at: string
           variant_lobby_id: string | null
           variant_name: string
           variant_rules: string[]
           variant_source: string | null
+        }
+        Relationships: []
+      }
+      active_tournaments: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          ends_at: string
+          id: string
+          starts_at: string
+          status: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          title: string
+          updated_at: string
         }
         Relationships: []
       }

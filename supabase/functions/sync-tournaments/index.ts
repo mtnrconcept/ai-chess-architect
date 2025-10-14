@@ -48,7 +48,7 @@ type VariantSource = {
 
 type TournamentRow = {
   id: string;
-  start_time: string;
+  starts_at: string;
   variant_name: string | null;
 };
 
@@ -59,14 +59,14 @@ type LobbyVariantRow = {
 };
 
 type TournamentCreationPayload = {
-  name: string;
+  title: string;
   description: string;
   variant_name: string;
   variant_rules: string[];
   variant_source: VariantSource["source"];
   variant_lobby_id: string | null;
-  start_time: string;
-  end_time: string;
+  starts_at: string;
+  ends_at: string;
   status: "scheduled";
 };
 
@@ -116,23 +116,23 @@ const TOURNAMENTS_PER_BLOCK = 10; // 10 tournois simultanés par bloc
 
 const computeBlockStart = (d: Date) => new Date(Math.floor(d.getTime() / BLOCK_MS) * BLOCK_MS);
 
-// --- Transitions d'état (scheduled -> running -> completed) ---
+// --- Transitions d'état (scheduled -> active -> completed) ---
 const ensureStatusTransitions = async (nowIso: string) => {
   if (!supabase) return;
 
-  // scheduled -> running
+  // scheduled -> active
   {
     const { error } = await supabase
       .from("tournaments")
-      .update({ status: "running" })
-      .lte("start_time", nowIso)
-      .gt("end_time", nowIso)
-      .neq("status", "running");
+      .update({ status: "active" })
+      .lte("starts_at", nowIso)
+      .gt("ends_at", nowIso)
+      .neq("status", "active");
     if (error) {
       if (isTournamentSchemaMissing(error)) {
         throw new FeatureUnavailableError("Schéma tournois manquant. Exécute les migrations.");
       }
-      await writeFunctionLog("error", "ensure_status_running_failed", {
+      await writeFunctionLog("error", "ensure_status_active_failed", {
         error: error.message,
         code: error.code,
       });
@@ -140,9 +140,9 @@ const ensureStatusTransitions = async (nowIso: string) => {
     }
   }
 
-  // running -> completed
+  // active -> completed
   {
-    const { error } = await supabase.from("tournaments").update({ status: "completed" }).lte("end_time", nowIso).neq(
+    const { error } = await supabase.from("tournaments").update({ status: "completed" }).lte("ends_at", nowIso).neq(
       "status",
       "completed",
     );
@@ -169,10 +169,10 @@ const ensureBlockTournaments = async (blockStart: Date) => {
   // Récup existants dans ce block
   const { data: existing, error: existingError } = await supabase
     .from("tournaments")
-    .select("id,start_time,variant_name")
-    .gte("start_time", blockStartIso)
-    .lt("start_time", blockEndIso)
-    .order("start_time", { ascending: true })
+    .select("id,starts_at,variant_name")
+    .gte("starts_at", blockStartIso)
+    .lt("starts_at", blockEndIso)
+    .order("starts_at", { ascending: true })
     .returns<TournamentRow[]>();
 
   if (existingError) {
@@ -263,7 +263,7 @@ const ensureBlockTournaments = async (blockStart: Date) => {
     const sequenceNumber = (existingCount + i + 1).toString().padStart(2, '0');
 
     const payload = {
-      name: `${uniqueVariantName} - ${blockLabel} - ${sequenceNumber}`,
+      title: `${uniqueVariantName} - ${blockLabel} - ${sequenceNumber}`,
       description:
         variant.source === 'lobby'
           ? `Variante issue du lobby "${variant.name}"`
@@ -272,8 +272,8 @@ const ensureBlockTournaments = async (blockStart: Date) => {
       variant_rules: variant.rules,
       variant_source: variant.source,
       variant_lobby_id: variant.lobbyId ?? null,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
+      starts_at: start.toISOString(),
+      ends_at: end.toISOString(),
       status: 'scheduled' as const,
     };
 
@@ -282,11 +282,11 @@ const ensureBlockTournaments = async (blockStart: Date) => {
 
   if (creations.length === 0) return { created: 0, tournaments: existing ?? [] };
 
-  // Idempotence: upsert sur clé unique (start_time, variant_name)
+  // Idempotence: upsert sur clé unique (starts_at, variant_name)
   const { data: upserted, error: upsertError } = await supabase
     .from("tournaments")
-    .upsert(creations, { onConflict: "start_time,variant_name", ignoreDuplicates: false })
-    .select("id,start_time,variant_name")
+    .upsert(creations, { onConflict: "starts_at,variant_name", ignoreDuplicates: false })
+    .select("id,starts_at,variant_name")
     .returns<TournamentRow[]>();
 
   if (upsertError) {
@@ -313,6 +313,14 @@ serve(async (req) => {
   if (!supabase) return err(req, { error: "Supabase client not configured" });
 
   try {
+    const { error: schemaError } = await supabase.from("tournaments").select("id").limit(1);
+    if (schemaError) {
+      if (isTournamentSchemaMissing(schemaError)) {
+        throw new FeatureUnavailableError("Table 'tournaments' introuvable. Applique les migrations.");
+      }
+      throw schemaError;
+    }
+
     const now = new Date();
     const blockStart = computeBlockStart(now);
     const nextBlockStart = new Date(blockStart.getTime() + BLOCK_MS);

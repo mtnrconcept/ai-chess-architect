@@ -431,7 +431,7 @@ const Play = () => {
           setCurrentOpponentName(updated.ai_opponent_label);
         }
 
-        if (updatedStatus === 'in_progress' || updatedStatus === 'completed') {
+        if (updatedStatus === 'playing' || updatedStatus === 'finished') {
           void syncMatchDetails();
         }
       })
