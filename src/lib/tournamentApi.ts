@@ -9,7 +9,7 @@ import type {
   TournamentMatch,
 } from "@/types/tournament";
 
-const ACTIVE_MATCH_STATUSES = new Set(["pending", "in_progress"]);
+const ACTIVE_MATCH_STATUSES = new Set(["pending", "playing"]);
 
 export class TournamentFeatureUnavailableError extends Error {
   constructor(message = "Les tournois ne sont pas disponibles : configurez Supabase pour activer cette fonctionnalité.") {
@@ -153,7 +153,7 @@ const isFunctionUnavailable = (error: { message?: string | null; code?: string |
 const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
   const supabaseClient = requireTournamentSupabase();
 
-  const tournamentsQuery = supabaseClient.from("tournaments").select("*").order("start_time", { ascending: true });
+  const tournamentsQuery = supabaseClient.from("tournaments").select("*").order("starts_at", { ascending: true });
 
   if (tournamentId) {
     tournamentsQuery.eq("id", tournamentId);
@@ -181,7 +181,7 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
   const registrationCounts = new Map<string, number>();
-  const matchCounts = new Map<string, { active: number; completed: number }>();
+  const matchCounts = new Map<string, { active: number; finished: number }>();
 
   if (tournamentIds.length > 0) {
     const { data: registrations, error: registrationsError } = await supabaseClient
@@ -221,9 +221,9 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
     (matches ?? []).forEach(match => {
       const id = match.tournament_id;
       if (!id) return;
-      const counts = matchCounts.get(id) ?? { active: 0, completed: 0 };
-      if (match.status === "completed") {
-        counts.completed += 1;
+      const counts = matchCounts.get(id) ?? { active: 0, finished: 0 };
+      if (match.status === "finished") {
+        counts.finished += 1;
       } else if (match.status && ACTIVE_MATCH_STATUSES.has(match.status)) {
         counts.active += 1;
       }
@@ -235,7 +235,7 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
     ...tournament,
     player_count: registrationCounts.get(tournament.id) ?? 0,
     active_match_count: matchCounts.get(tournament.id)?.active ?? 0,
-    completed_match_count: matchCounts.get(tournament.id)?.completed ?? 0,
+    completed_match_count: matchCounts.get(tournament.id)?.finished ?? 0,
   })) as TournamentOverview[];
 };
 
@@ -323,7 +323,7 @@ export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> =
     const { data, error } = await supabaseClient
       .from("tournament_overview")
       .select("*")
-      .order("start_time", { ascending: true });
+      .order("starts_at", { ascending: true });
 
     if (error) {
       if (isOverviewViewMissing(error)) {

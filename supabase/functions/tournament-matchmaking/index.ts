@@ -110,7 +110,7 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
   const { error: updateMatchError } = await supabase
     .from("tournament_matches")
     .update({
-      status: "in_progress",
+      status: "playing",
       started_at: context.nowIso,
       updated_at: context.nowIso,
       is_ai_match: true,
@@ -221,7 +221,7 @@ serve(async req => {
 
     const { data: tournament, error: tournamentError } = await supabase
       .from("tournaments")
-      .select("id, name, start_time, end_time, status, variant_rules, variant_name")
+      .select("id, title, starts_at, ends_at, status, variant_rules, variant_name")
       .eq("id", tournamentId)
       .single();
 
@@ -236,8 +236,8 @@ serve(async req => {
     }
 
     const now = new Date();
-    const start = new Date(tournament.start_time);
-    const end = new Date(tournament.end_time);
+    const start = new Date(tournament.starts_at);
+    const end = new Date(tournament.ends_at);
 
     if (now < start) {
       return jsonResponse(req, { error: "Le tournoi n'a pas encore commencé" }, { status: 409 }, corsOptions);
@@ -304,7 +304,7 @@ serve(async req => {
         .from("tournament_matches")
         .update({
           player2_id: user.id,
-          status: "in_progress",
+          status: "playing",
           started_at: nowIso,
           updated_at: nowIso,
         })
@@ -355,7 +355,7 @@ serve(async req => {
       const { data: lobby, error: lobbyError } = await supabase
         .from("lobbies")
         .insert({
-          name: `${tournament.name} · Table ${nextTableNumber}`,
+          name: `${tournament.title} · Table ${nextTableNumber}`,
           creator_id: user.id,
           active_rules: tournament.variant_rules,
           max_players: 2,

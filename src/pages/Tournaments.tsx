@@ -57,7 +57,7 @@ import type { ChessRule } from "@/types/chess";
 
 const blockDurationHours = 2;
 
-type TournamentTab = "running" | "upcoming" | "completed" | "mine";
+type TournamentTab = "active" | "upcoming" | "completed" | "mine";
 
 type LeaderboardState = {
   loading: boolean;
@@ -78,8 +78,8 @@ const formatDateTime = (iso: string) => {
 
 const computeTimeInfo = (tournament: TournamentOverview) => {
   const now = Date.now();
-  const start = new Date(tournament.start_time).getTime();
-  const end = new Date(tournament.end_time).getTime();
+  const start = new Date(tournament.starts_at).getTime();
+  const end = new Date(tournament.ends_at).getTime();
 
   if (now < start) {
     const minutes = Math.max(1, Math.round((start - now) / 60000));
@@ -91,7 +91,7 @@ const computeTimeInfo = (tournament: TournamentOverview) => {
     return `Se termine dans ${minutes} min`;
   }
 
-  return `Terminé le ${formatDateTime(tournament.end_time)}`;
+  return `Terminé le ${formatDateTime(tournament.ends_at)}`;
 };
 
 const resolveUserDisplayName = (user: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
@@ -112,7 +112,7 @@ const resolveUserDisplayName = (user: { email?: string | null; user_metadata?: R
 };
 
 const statusBadgeClasses: Record<TournamentTab, string> = {
-  running: "bg-emerald-500/20 text-emerald-200 border-emerald-500/30",
+  active: "bg-emerald-500/20 text-emerald-200 border-emerald-500/30",
   upcoming: "bg-cyan-500/20 text-cyan-100 border-cyan-500/30",
   completed: "bg-fuchsia-500/20 text-fuchsia-100 border-fuchsia-500/30",
   mine: "bg-amber-500/20 text-amber-100 border-amber-500/30",
@@ -124,15 +124,27 @@ const TournamentStatusBadge = ({
   tournament: TournamentOverview;
 }) => {
   const now = Date.now();
-  const start = new Date(tournament.start_time).getTime();
-  const end = new Date(tournament.end_time).getTime();
+  const start = new Date(tournament.starts_at).getTime();
+  const end = new Date(tournament.ends_at).getTime();
+
+  if (tournament.status === "cancelled") {
+    return <Badge className={statusBadgeClasses.completed}>Annulé</Badge>;
+  }
+
+  if (tournament.status === "completed") {
+    return <Badge className={statusBadgeClasses.completed}>Clôturé</Badge>;
+  }
+
+  if (tournament.status === "active") {
+    return <Badge className={statusBadgeClasses.active}>En cours</Badge>;
+  }
 
   if (now < start) {
     return <Badge className={statusBadgeClasses.upcoming}>Programmé</Badge>;
   }
 
   if (now >= start && now < end) {
-    return <Badge className={statusBadgeClasses.running}>En cours</Badge>;
+    return <Badge className={statusBadgeClasses.active}>En cours</Badge>;
   }
 
   return <Badge className={statusBadgeClasses.completed}>Clôturé</Badge>;
@@ -144,7 +156,7 @@ const TournamentPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<TournamentTab>("running");
+  const [activeTab, setActiveTab] = useState<TournamentTab>("active");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
   const [leaderboardState, setLeaderboardState] = useState<LeaderboardState>({
@@ -201,25 +213,35 @@ const TournamentPage = () => {
     myRegistrations,
   ]);
 
-  const runningTournaments = useMemo(
-    () => tournaments.filter(tournament => new Date(tournament.end_time).getTime() > Date.now()),
-    [tournaments],
-  );
+  const inWindowTournaments = useMemo(() => {
+    const now = Date.now();
+    return tournaments.filter(tournament => new Date(tournament.ends_at).getTime() > now);
+  }, [tournaments]);
 
-  const activeTournaments = useMemo(
-    () => runningTournaments.filter(tournament => new Date(tournament.start_time).getTime() <= Date.now()),
-    [runningTournaments],
-  );
+  const activeTournaments = useMemo(() => {
+    const now = Date.now();
+    return inWindowTournaments.filter(tournament => {
+      const start = new Date(tournament.starts_at).getTime();
+      const end = new Date(tournament.ends_at).getTime();
+      return tournament.status === "active" && start <= now && end > now;
+    });
+  }, [inWindowTournaments]);
 
-  const upcomingTournaments = useMemo(
-    () => runningTournaments.filter(tournament => new Date(tournament.start_time).getTime() > Date.now()),
-    [runningTournaments],
-  );
+  const upcomingTournaments = useMemo(() => {
+    const now = Date.now();
+    return tournaments.filter(tournament => {
+      const start = new Date(tournament.starts_at).getTime();
+      return ["draft", "scheduled"].includes(tournament.status) && start > now;
+    });
+  }, [tournaments]);
 
-  const completedTournaments = useMemo(
-    () => tournaments.filter(tournament => new Date(tournament.end_time).getTime() <= Date.now()),
-    [tournaments],
-  );
+  const completedTournaments = useMemo(() => {
+    const now = Date.now();
+    return tournaments.filter(tournament => {
+      const end = new Date(tournament.ends_at).getTime();
+      return end <= now || tournament.status === "completed" || tournament.status === "cancelled";
+    });
+  }, [tournaments]);
 
   const myTournamentList = useMemo(
     () => tournaments.filter(tournament => registrationByTournament.has(tournament.id)),
@@ -332,7 +354,7 @@ const TournamentPage = () => {
     return myRegistrations.find(
       registration =>
         registration.current_match &&
-        registration.current_match.status !== "completed" &&
+        registration.current_match.status !== "finished" &&
         registration.current_match.status !== "cancelled",
     );
   }, [myRegistrations, user]);
@@ -454,7 +476,7 @@ const TournamentPage = () => {
       await registerForTournament(tournament.id, user.id, displayName, avatarUrl);
       toast({
         title: "Inscription confirmée",
-        description: `Vous êtes inscrit à ${tournament.name}.`,
+        description: `Vous êtes inscrit à ${tournament.title}.`,
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["my-tournament-registrations", user.id] }),
@@ -492,7 +514,7 @@ const TournamentPage = () => {
       const response: MatchmakingResponse = await requestTournamentMatch(tournamentId, displayName);
       if (response.match?.status === "pending") {
         toast({ title: "Salle créée", description: "Nous attendons un adversaire pour démarrer la partie." });
-      } else if (response.match?.status === "in_progress") {
+      } else if (response.match?.status === "playing") {
         toast({ title: "Adversaire trouvé", description: "Votre match de tournoi peut commencer." });
       } else {
         toast({ title: "Participation enregistrée", description: "Votre inscription est confirmée." });
@@ -599,7 +621,7 @@ const TournamentPage = () => {
   }, [activeTournaments.length, tournaments, upcomingTournaments.length]);
 
   const tabConfig: { id: TournamentTab; label: string; tournaments: TournamentOverview[] }[] = [
-    { id: "running", label: "En cours", tournaments: activeTournaments },
+    { id: "active", label: "En cours", tournaments: activeTournaments },
     { id: "upcoming", label: "À venir", tournaments: upcomingTournaments },
     { id: "completed", label: "Terminés", tournaments: completedTournaments },
     { id: "mine", label: "Mes tournois", tournaments: myTournamentList },
@@ -735,12 +757,12 @@ const TournamentPage = () => {
                     Table {ongoingMatchRegistration.current_match.table_number ?? "-"}
                   </Badge>
                   <Badge variant="outline" className="border-emerald-300/40 bg-emerald-500/20 text-emerald-100">
-                    {ongoingMatchTournament?.name ?? "Tournoi"}
+                    {ongoingMatchTournament?.title ?? "Tournoi"}
                   </Badge>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                {ongoingMatchRegistration.current_match.status === "in_progress" && (
+                {ongoingMatchRegistration.current_match.status === "playing" && (
                   <>
                     <Button
                       size="sm"
@@ -841,7 +863,10 @@ const TournamentPage = () => {
                 const isUserRegistered = Boolean(registration);
                 const isLoadingJoin = joiningTournamentId === tournament.id;
                 const isLoadingRegister = registeringTournamentId === tournament.id;
-                const canJoin = isUserRegistered && new Date(tournament.start_time).getTime() <= Date.now();
+                const canJoin =
+                  isUserRegistered &&
+                  tournament.status === "active" &&
+                  new Date(tournament.starts_at).getTime() <= Date.now();
                 const Icon = tournament.status === "completed" ? Swords : Trophy;
 
                 return (
@@ -855,7 +880,7 @@ const TournamentPage = () => {
                           <Icon className="h-5 w-5 text-cyan-200" />
                         </span>
                         <div>
-                          <p className="text-lg font-semibold text-white">{tournament.name}</p>
+                          <p className="text-lg font-semibold text-white">{tournament.title}</p>
                           <p className="text-xs uppercase tracking-wide text-cyan-100/60">
                             Variante : {tournament.variant_name}
                           </p>
@@ -863,10 +888,10 @@ const TournamentPage = () => {
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs text-cyan-100/70">
                         <span className="flex items-center gap-1">
-                          <CalendarClock className="h-4 w-4 text-cyan-300" /> Début : {formatDateTime(tournament.start_time)}
+                          <CalendarClock className="h-4 w-4 text-cyan-300" /> Début : {formatDateTime(tournament.starts_at)}
                         </span>
                         <span className="flex items-center gap-1">
-                          <CalendarClock className="h-4 w-4 text-amber-300" /> Fin : {formatDateTime(tournament.end_time)}
+                          <CalendarClock className="h-4 w-4 text-amber-300" /> Fin : {formatDateTime(tournament.ends_at)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Swords className="h-4 w-4 text-fuchsia-300" /> {computeTimeInfo(tournament)}
@@ -931,7 +956,7 @@ const TournamentPage = () => {
         <DialogContent className="max-w-3xl border-cyan-400/40 bg-black/90 text-white">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold">
-              {selectedTournament?.name ?? "Tournoi"}
+              {selectedTournament?.title ?? "Tournoi"}
             </DialogTitle>
             <DialogDescription className="text-sm text-cyan-100/70">
               Classement mis à jour automatiquement à la fin de chaque match.
@@ -943,7 +968,7 @@ const TournamentPage = () => {
                 <div className="rounded-xl border border-cyan-500/30 bg-black/40 p-4">
                   <p className="text-cyan-200/80">Fenêtre</p>
                   <p className="mt-1 text-sm font-semibold text-white">
-                    {formatDateTime(selectedTournament.start_time)} → {formatDateTime(selectedTournament.end_time)}
+                    {formatDateTime(selectedTournament.starts_at)} → {formatDateTime(selectedTournament.ends_at)}
                   </p>
                 </div>
                 <div className="rounded-xl border border-cyan-500/30 bg-black/40 p-4">
@@ -1018,12 +1043,12 @@ const TournamentPage = () => {
                       <div className="flex items-center gap-2 text-xs">
                         <Badge
                           className={
-                            match.status === "completed"
+                            match.status === "finished"
                               ? "bg-emerald-500/20 text-emerald-100"
                               : "bg-cyan-500/20 text-cyan-100"
                           }
                         >
-                          {match.status === "completed" ? "Terminé" : match.status === "in_progress" ? "En cours" : "En attente"}
+                          {match.status === "finished" ? "Terminé" : match.status === "playing" ? "En cours" : "En attente"}
                         </Badge>
                         {match.result && (
                           <Badge className="bg-fuchsia-500/20 text-fuchsia-100">Résultat : {match.result}</Badge>
