@@ -505,7 +505,7 @@ async function explainMoveWithLLM(input: ExplainMoveInput): Promise<CoachPayload
         {
           role: "system",
           content:
-            "Tu es un coach d'échecs francophone. Analyse la position et fournis une explication pédagogique. Réponds STRICTEMENT en JSON suivant le schéma {headline, why_bad_or_good, what_to_learn[], best_line_explained}.",
+            "Tu es un coach d'échecs francophone. Analyse la position et fournis une explication pédagogique concise. Réponds STRICTEMENT en JSON suivant le schéma {headline, why_bad_or_good, what_to_learn[], best_line_explained}. Limite chaque champ texte à deux phrases courtes maximum.",
         },
         {
           role: "user",
