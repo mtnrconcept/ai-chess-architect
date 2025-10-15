@@ -324,7 +324,10 @@ const invokeSyncTournamentsViaDirectFetch = async (
     throw new TournamentFeatureUnavailableError(SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE);
   }
 
-  const headers = new Headers({ "Content-Type": "application/json" });
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "x-client-info": "ai-chess-architect-web",
+  });
 
   if (supabaseAnonKey) {
     headers.set("apikey", supabaseAnonKey);

@@ -162,6 +162,7 @@ const invoke = async () => {
         'Content-Type': 'application/json',
         apikey: anonKey,
         Authorization: `Bearer ${anonKey}`,
+        'x-client-info': 'ai-chess-architect-web',
       },
       body: JSON.stringify({}),
     });
