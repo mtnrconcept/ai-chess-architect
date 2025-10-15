@@ -1,92 +1,45 @@
-export type CorsOptions = {
-  methods?: string[];
-  headers?: string[];
-  maxAge?: number;
-  credentials?: boolean;
-};
-
-const DEFAULT_HEADERS = [
-  "authorization",
-  "x-client-info",
-  "apikey",
-  "content-type",
-  "accept",
+// Minimal, robuste, et sans dépendances externes
+export const ALLOWED_ORIGINS = [
+  "https://preview--ai-chess-architect.lovable.app",
+  "https://ai-chess-architect.lovable.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
 ];
 
-const DEFAULT_METHODS = ["GET", "POST", "OPTIONS"];
+export function getOrigin(request: Request): string {
+  return request.headers.get("origin") ?? "";
+}
 
-const normalizeHeaderList = (headers: string[]) =>
-  headers
-    .map(header => header.trim())
-    .filter(header => header.length > 0)
-    .join(", ");
+export function resolveAllowOrigin(request: Request): string {
+  const origin = getOrigin(request);
+  if (origin && ALLOWED_ORIGINS.includes(origin)) return origin;
+  // Par défaut on peut mettre '*' si tu n’envoies pas de credentials.
+  // Ici on préfère être strict.
+  return "https://preview--ai-chess-architect.lovable.app";
+}
 
-const mergeHeaders = (base: HeadersInit | undefined, cors: Record<string, string>): Headers => {
-  const merged = new Headers(base);
-  for (const [key, value] of Object.entries(cors)) {
-    merged.set(key, value);
-  }
-  return merged;
-};
-
-export const createCorsHeaders = (req: Request, options: CorsOptions = {}): Record<string, string> => {
-  const originHeader = req.headers.get("Origin") ?? req.headers.get("origin");
-  const allowOrigin = originHeader && originHeader !== "null" ? originHeader : "*";
-
-  const requestedHeaders = req.headers.get("Access-Control-Request-Headers")
-    ?? req.headers.get("access-control-request-headers");
-
-  const allowHeaders = requestedHeaders && requestedHeaders.trim().length > 0
-    ? requestedHeaders
-    : normalizeHeaderList(options.headers ?? DEFAULT_HEADERS);
-
-  const allowMethods = normalizeHeaderList([
-    ...new Set([
-      ...DEFAULT_METHODS,
-      ...(options.methods ?? []),
-      "OPTIONS",
-    ]),
-  ]);
-
-  const corsHeaders: Record<string, string> = {
+export function corsHeaders(request: Request): HeadersInit {
+  const allowOrigin = resolveAllowOrigin(request);
+  return {
     "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Headers": allowHeaders,
-    "Access-Control-Allow-Methods": allowMethods,
-    "Access-Control-Max-Age": String(options.maxAge ?? 86400),
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
+}
 
-  const shouldAllowCredentials = (options.credentials ?? true) && allowOrigin !== "*";
-  if (shouldAllowCredentials) {
-    corsHeaders["Access-Control-Allow-Credentials"] = "true";
-  }
+export function okPreflight(request: Request): Response {
+  return new Response("ok", { headers: corsHeaders(request) });
+}
 
-  return corsHeaders;
-};
-
-export const handleOptions = (req: Request, options?: CorsOptions): Response =>
-  new Response("ok", {
-    status: 200,
-    headers: createCorsHeaders(req, options),
-  });
-
-export const corsResponse = (
-  req: Request,
-  body: BodyInit,
-  init: ResponseInit = {},
-  options?: CorsOptions,
-): Response => {
-  const headers = mergeHeaders(init.headers, createCorsHeaders(req, options));
-  return new Response(body, { ...init, headers });
-};
-
-export const jsonResponse = (
-  req: Request,
-  body: unknown,
-  init: ResponseInit = {},
-  options?: CorsOptions,
-): Response => {
-  const headers = mergeHeaders(init.headers, createCorsHeaders(req, options));
-  headers.set("Content-Type", "application/json; charset=utf-8");
-  return new Response(JSON.stringify(body), { ...init, headers });
-};
+export function withCors(request: Request, init?: ResponseInit): ResponseInit {
+  return {
+    ...(init ?? {}),
+    headers: {
+      ...(init?.headers ?? {}),
+      ...corsHeaders(request),
+    },
+  };
+}
