@@ -9,7 +9,181 @@ import type {
   TournamentMatch,
 } from "@/types/tournament";
 
-const ACTIVE_MATCH_STATUSES = new Set(["pending", "playing"]);
+type TournamentStatus = TournamentOverview["status"];
+
+const FALLBACK_VARIANT_NAME = "Variante Voltus";
+
+const normaliseString = (value: unknown, fallback = "") => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  if (value != null) {
+    const coerced = String(value).trim();
+    if (coerced.length > 0) {
+      return coerced;
+    }
+  }
+
+  return fallback;
+};
+
+const normaliseIsoDate = (value: unknown, fallback?: string) => {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  return fallback ?? new Date().toISOString();
+};
+
+const normaliseNumber = (value: unknown, fallback = 0) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+};
+
+const normaliseVariantRules = (value: unknown) => {
+  const rules: string[] = [];
+
+  const pushRule = (rule: unknown) => {
+    if (typeof rule !== "string") {
+      return;
+    }
+    const trimmed = rule.trim();
+    if (trimmed.length > 0) {
+      rules.push(trimmed);
+    }
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(pushRule);
+  } else if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(pushRule);
+      } else {
+        pushRule(value);
+      }
+    } catch (_error) {
+      value
+        .split(",")
+        .map(segment => segment.trim())
+        .forEach(pushRule);
+    }
+  }
+
+  return rules.length > 0 ? rules : [];
+};
+
+const normaliseTournamentStatus = (value: unknown): TournamentStatus => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    switch (normalized) {
+      case "draft":
+      case "scheduled":
+      case "active":
+      case "completed":
+      case "cancelled":
+        return normalized;
+      case "running":
+      case "in_progress":
+        return "active";
+      case "canceled":
+        return "cancelled";
+      case "complete":
+        return "completed";
+      default:
+        break;
+    }
+  }
+
+  return "scheduled";
+};
+
+const normaliseTournamentOverviewRow = (
+  raw: Record<string, unknown>,
+  overrides: Partial<Pick<TournamentOverview, "player_count" | "active_match_count" | "completed_match_count">> = {},
+): TournamentOverview => {
+  const startsAt = normaliseIsoDate(
+    raw.starts_at ?? raw.start_time ?? raw.startAt ?? raw.startsAt,
+    normaliseIsoDate(raw.created_at ?? raw.createdAt ?? raw.start_time ?? raw.startAt ?? new Date()),
+  );
+  const endsAt = normaliseIsoDate(
+    raw.ends_at ?? raw.end_time ?? raw.endAt ?? raw.endsAt,
+    normaliseIsoDate(raw.updated_at ?? raw.updatedAt ?? raw.end_time ?? raw.endAt ?? startsAt),
+  );
+
+  const createdAt = normaliseIsoDate(raw.created_at ?? raw.createdAt ?? startsAt, startsAt);
+  const updatedAt = normaliseIsoDate(raw.updated_at ?? raw.updatedAt ?? createdAt, createdAt);
+
+  const basePlayerCount =
+    overrides.player_count ??
+    normaliseNumber(raw.player_count ?? raw.players ?? raw.playerCount ?? raw.total_players, 0);
+  const baseActiveMatches =
+    overrides.active_match_count ??
+    normaliseNumber(raw.active_match_count ?? raw.active_matches ?? raw.activeMatchCount, 0);
+
+  const completedFromRaw =
+    raw.completed_match_count ??
+    raw.completed_matches ??
+    raw.matches_completed ??
+    raw.matches ??
+    raw.total_matches;
+
+  const baseCompletedMatches = overrides.completed_match_count ?? normaliseNumber(completedFromRaw, 0);
+
+  const variantName = normaliseString(raw.variant_name, FALLBACK_VARIANT_NAME);
+  const variantSource = normaliseString(raw.variant_source ?? (raw.variant_lobby_id ? "lobby" : ""), "") || null;
+  const variantLobbyId = normaliseString(raw.variant_lobby_id ?? raw.variantLobbyId ?? "", "") || null;
+
+  return {
+    id: normaliseString(raw.id ?? raw.tournament_id ?? "", "__unknown__"),
+    title: normaliseString(raw.title ?? raw.name ?? raw.tournament_title, "Tournoi Voltus"),
+    description: normaliseString(raw.description ?? raw.details ?? "", "") || null,
+    variant_name: variantName,
+    variant_source: variantSource,
+    variant_rules: normaliseVariantRules(raw.variant_rules ?? raw.variantRules ?? []),
+    variant_lobby_id: variantLobbyId,
+    starts_at: startsAt,
+    ends_at: endsAt,
+    status: normaliseTournamentStatus(raw.status),
+    created_at: createdAt,
+    updated_at: updatedAt,
+    player_count: basePlayerCount,
+    active_match_count: baseActiveMatches,
+    completed_match_count: baseCompletedMatches,
+  } satisfies TournamentOverview;
+};
+
+const sortByStartDate = (rows: TournamentOverview[]) =>
+  [...rows].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
+
+const normaliseMatchStatus = (value: unknown) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
+
+const FINISHED_MATCH_STATUSES = new Set(["finished", "completed", "done"]);
+
+const ACTIVE_MATCH_STATUSES = new Set(["pending", "playing", "in_progress", "running"]);
 
 export class TournamentFeatureUnavailableError extends Error {
   constructor(message = "Les tournois ne sont pas disponibles : configurez Supabase pour activer cette fonctionnalité.") {
@@ -153,7 +327,7 @@ const isFunctionUnavailable = (error: { message?: string | null; code?: string |
 const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
   const supabaseClient = requireTournamentSupabase();
 
-  const tournamentsQuery = supabaseClient.from("tournaments").select("*").order("starts_at", { ascending: true });
+  const tournamentsQuery = supabaseClient.from("tournaments").select("*");
 
   if (tournamentId) {
     tournamentsQuery.eq("id", tournamentId);
@@ -170,7 +344,9 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
     throw new Error(tournamentsError.message);
   }
 
-  const tournamentList = tournaments ?? [];
+  const tournamentList = (tournaments ?? [])
+    .map(row => normaliseTournamentOverviewRow(row as Record<string, unknown>))
+    .filter(tournament => tournament.id !== "__unknown__");
 
   if (tournamentList.length === 0) {
     return [];
@@ -222,21 +398,25 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
       const id = match.tournament_id;
       if (!id) return;
       const counts = matchCounts.get(id) ?? { active: 0, finished: 0 };
-      if (match.status === "finished") {
+      const status = normaliseMatchStatus(match.status);
+      if (FINISHED_MATCH_STATUSES.has(status)) {
         counts.finished += 1;
-      } else if (match.status && ACTIVE_MATCH_STATUSES.has(match.status)) {
+      } else if (status && ACTIVE_MATCH_STATUSES.has(status)) {
         counts.active += 1;
       }
       matchCounts.set(id, counts);
     });
   }
 
-  return tournamentList.map(tournament => ({
-    ...tournament,
-    player_count: registrationCounts.get(tournament.id) ?? 0,
-    active_match_count: matchCounts.get(tournament.id)?.active ?? 0,
-    completed_match_count: matchCounts.get(tournament.id)?.finished ?? 0,
-  })) as TournamentOverview[];
+  return sortByStartDate(
+    tournamentList.map(tournament =>
+      normaliseTournamentOverviewRow(tournament, {
+        player_count: registrationCounts.get(tournament.id) ?? tournament.player_count ?? 0,
+        active_match_count: matchCounts.get(tournament.id)?.active ?? tournament.active_match_count ?? 0,
+        completed_match_count: matchCounts.get(tournament.id)?.finished ?? tournament.completed_match_count ?? 0,
+      }),
+    ),
+  );
 };
 
 const fetchSingleTournamentOverview = async (tournamentId: string): Promise<TournamentOverview> => {
@@ -250,7 +430,7 @@ const fetchSingleTournamentOverview = async (tournamentId: string): Promise<Tour
       .maybeSingle();
 
     if (data) {
-      return data;
+      return normaliseTournamentOverviewRow(data as Record<string, unknown>);
     }
 
     if (isOverviewViewMissing(error)) {
@@ -320,10 +500,7 @@ export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> =
   const supabaseClient = requireTournamentSupabase();
 
   try {
-    const { data, error } = await supabaseClient
-      .from("tournament_overview")
-      .select("*")
-      .order("starts_at", { ascending: true });
+    const { data, error } = await supabaseClient.from("tournament_overview").select("*");
 
     if (error) {
       if (isOverviewViewMissing(error)) {
@@ -335,7 +512,11 @@ export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> =
       throw new Error(error.message);
     }
 
-    return data ?? [];
+    return sortByStartDate(
+      (data ?? [])
+        .map(row => normaliseTournamentOverviewRow(row as Record<string, unknown>))
+        .filter(row => row.id !== "__unknown__"),
+    );
   } catch (unknownError) {
     if (unknownError instanceof TournamentFeatureUnavailableError) {
       throw unknownError;
