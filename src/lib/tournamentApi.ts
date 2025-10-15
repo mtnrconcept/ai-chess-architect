@@ -1,4 +1,11 @@
-import { supabase, supabaseEnvProblems } from "@/integrations/supabase/client";
+import {
+  resolveSupabaseFunctionUrl,
+  supabase,
+  supabaseAnonKey,
+  supabaseDiagnostics,
+  supabaseEnvProblems,
+  supabaseFunctionsUrl,
+} from "@/integrations/supabase/client";
 import type { PostgrestError } from "@supabase/supabase-js";
 import type {
   MatchmakingResponse,
@@ -191,6 +198,187 @@ export class TournamentFeatureUnavailableError extends Error {
     this.name = "TournamentFeatureUnavailableError";
   }
 }
+
+const SYNC_TOURNAMENTS_FUNCTION_PATH = "sync-tournaments";
+const SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE =
+  "La fonction 'sync-tournaments' n'est pas accessible (CORS/404). Déployez l'edge function correspondante sur Supabase.";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const normaliseSupabaseFunctionsBase = () => {
+  const configuredBase = supabaseFunctionsUrl ?? supabaseDiagnostics.functionsUrl ?? null;
+  if (configuredBase && configuredBase.trim().length > 0) {
+    return configuredBase;
+  }
+
+  const projectId = supabaseDiagnostics.resolvedProjectId;
+  if (typeof projectId === "string" && projectId.trim().length > 0) {
+    return `https://${projectId.trim()}.functions.supabase.co`;
+  }
+
+  return null;
+};
+
+const resolveSupabaseFunctionsEndpoint = (path: string) => {
+  const explicit = resolveSupabaseFunctionUrl(path);
+  if (explicit) {
+    return explicit;
+  }
+
+  const base = normaliseSupabaseFunctionsBase();
+  if (!base) {
+    return null;
+  }
+
+  const trimmedBase = base.replace(/\/+$/, "");
+  const trimmedPath = path.replace(/^\/+/, "");
+
+  return trimmedPath ? `${trimmedBase}/${trimmedPath}` : trimmedBase;
+};
+
+const isFetchNetworkError = (error: unknown): error is TypeError => {
+  if (!(error instanceof TypeError)) {
+    return false;
+  }
+
+  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  return message.includes("fetch") || message.includes("network") || message.includes("failed");
+};
+
+const readFunctionErrorPayload = async (response: Response): Promise<unknown> => {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  try {
+    const text = await response.text();
+    return text;
+  } catch (_error) {
+    return null;
+  }
+};
+
+const normaliseFunctionErrorMessage = (payload: unknown): string => {
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    return trimmed.length > 0 ? trimmed : "";
+  }
+
+  if (!isRecord(payload)) {
+    return "";
+  }
+
+  const candidates: unknown[] = [
+    payload.error,
+    payload.message,
+    payload.msg,
+    payload.detail,
+    payload.hint,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+
+    if (isRecord(candidate)) {
+      const nested = normaliseFunctionErrorMessage(candidate);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return "";
+};
+
+const extractFunctionErrorCode = (payload: unknown): string | undefined => {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const { code } = payload;
+  if (typeof code === "string" && code.trim().length > 0) {
+    return code.trim().toLowerCase();
+  }
+
+  if (typeof code === "number" && Number.isFinite(code)) {
+    return String(code);
+  }
+
+  return undefined;
+};
+
+const invokeSyncTournamentsViaDirectFetch = async (
+  supabaseClient: ReturnType<typeof requireTournamentSupabase>,
+): Promise<void> => {
+  const endpoint = resolveSupabaseFunctionsEndpoint(SYNC_TOURNAMENTS_FUNCTION_PATH);
+  if (!endpoint) {
+    throw new TournamentFeatureUnavailableError(SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE);
+  }
+
+  const headers = new Headers({ "Content-Type": "application/json" });
+
+  if (supabaseAnonKey) {
+    headers.set("apikey", supabaseAnonKey);
+  }
+
+  let accessToken: string | null | undefined;
+  try {
+    const { data } = await supabaseClient.auth.getSession();
+    accessToken = data.session?.access_token;
+  } catch (_error) {
+    accessToken = undefined;
+  }
+
+  const bearerToken =
+    typeof accessToken === "string" && accessToken.trim().length > 0
+      ? accessToken
+      : typeof supabaseAnonKey === "string" && supabaseAnonKey.trim().length > 0
+        ? supabaseAnonKey
+        : undefined;
+
+  if (bearerToken) {
+    headers.set("Authorization", `Bearer ${bearerToken}`);
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({}),
+  });
+
+  if (response.ok) {
+    return;
+  }
+
+  const payload = await readFunctionErrorPayload(response);
+  const message = normaliseFunctionErrorMessage(payload);
+
+  if (response.status === 404) {
+    throw new TournamentFeatureUnavailableError(SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE);
+  }
+
+  const code = extractFunctionErrorCode(payload);
+  if (response.status === 503 && code === "feature_unavailable") {
+    throw new TournamentFeatureUnavailableError(
+      message || "La synchronisation des tournois n'est pas disponible. Vérifiez votre déploiement Supabase.",
+    );
+  }
+
+  if (message) {
+    throw new Error(message);
+  }
+
+  throw new Error(`La fonction 'sync-tournaments' a renvoyé le statut ${response.status}.`);
+};
 
 const requireTournamentSupabase = () => {
   if (!supabase) {
@@ -478,10 +666,25 @@ export const syncTournaments = async () => {
       throw new Error(message || "Impossible de synchroniser les tournois");
     }
   } catch (unknownError) {
-    if (unknownError instanceof TypeError && unknownError.message.toLowerCase().includes("fetch")) {
-      throw new TournamentFeatureUnavailableError(
-        "La fonction 'sync-tournaments' n'est pas accessible (CORS/404). Déployez l'edge function correspondante sur Supabase.",
-      );
+    if (isFetchNetworkError(unknownError)) {
+      try {
+        await invokeSyncTournamentsViaDirectFetch(supabaseClient);
+        return;
+      } catch (fallbackError) {
+        if (fallbackError instanceof TournamentFeatureUnavailableError) {
+          throw fallbackError;
+        }
+
+        if (isFetchNetworkError(fallbackError)) {
+          throw new TournamentFeatureUnavailableError(SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE);
+        }
+
+        if (fallbackError instanceof Error) {
+          throw fallbackError;
+        }
+
+        throw new Error("Impossible de synchroniser les tournois");
+      }
     }
 
     if (unknownError instanceof TournamentFeatureUnavailableError) {

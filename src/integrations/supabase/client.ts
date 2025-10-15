@@ -301,6 +301,23 @@ export type { SupabaseDiagnostics };
 
 export const isSupabaseConfigured = supabase !== null;
 export const supabaseEnvProblems = supabaseDiagnostics.problems;
+export const supabaseAnonKey = SUPABASE_ANON_KEY ?? null;
+export const supabaseFunctionsUrl = SUPABASE_FUNCTIONS_URL ?? null;
+
+export const resolveSupabaseFunctionUrl = (path: string): string | null => {
+  if (!SUPABASE_FUNCTIONS_URL) {
+    return null;
+  }
+
+  const trimmedBase = SUPABASE_FUNCTIONS_URL.replace(/\/+$/, "");
+  const trimmedPath = path.replace(/^\/+/, "");
+
+  if (!trimmedPath) {
+    return trimmedBase;
+  }
+
+  return `${trimmedBase}/${trimmedPath}`;
+};
 
 export function requireSupabaseClient(): SupabaseClient<Database> {
   if (!supabase) {
