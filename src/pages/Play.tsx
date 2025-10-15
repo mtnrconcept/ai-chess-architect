@@ -865,6 +865,7 @@ const Play = () => {
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
+  const [isUserNearCoachBottom, setIsUserNearCoachBottom] = useState(true);
 
   useEffect(() => {
     if (gameState.moveHistory.length === 0) {
@@ -1317,13 +1318,32 @@ const Play = () => {
 
   useEffect(() => {
     const container = chatContainerRef.current;
-    if (container && coachMessages.length > 0) {
+    if (container && coachMessages.length > 0 && isUserNearCoachBottom) {
       // Scroll vers le bas pour afficher les deux derniers messages
       requestAnimationFrame(() => {
         container.scrollTop = container.scrollHeight;
       });
     }
-  }, [coachMessages]);
+  }, [coachMessages, isUserNearCoachBottom]);
+
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      setIsUserNearCoachBottom(distanceFromBottom <= 80);
+    };
+
+    handleScroll();
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
 
   useEffect(() => {
     if (!coachEnabled) {
