@@ -78,8 +78,45 @@ const Generator = () => {
 
       if (error) throw error;
 
-      if (data.rule) {
-        const { rule, issues } = analyzeRuleLogic(data.rule);
+      if (data?.error) {
+        const details = Array.isArray(data.details)
+          ? data.details
+              .map(detail => {
+                if (!detail) return null;
+                if (typeof detail === 'string') return detail;
+                if (typeof detail === 'object' && detail !== null) {
+                  const maybeMessage = 'message' in detail ? detail.message : null;
+                  const maybePath = 'path' in detail ? detail.path : null;
+                  if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
+                    return maybePath ? `${maybePath}: ${maybeMessage}` : maybeMessage;
+                  }
+                }
+                return null;
+              })
+              .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+              .join(' — ')
+          : undefined;
+
+        const fallbackMessage = typeof data.error === 'string'
+          ? data.error
+          : "La génération de la règle a échoué.";
+
+        throw new Error(details?.length ? details : fallbackMessage);
+      }
+
+      if (data?.rule) {
+        let rawRule: unknown = data.rule;
+
+        if (typeof rawRule === 'string') {
+          try {
+            rawRule = JSON.parse(rawRule);
+          } catch (parseError) {
+            console.warn('[generator] Impossible de parser la règle renvoyée sous forme de chaîne.', parseError);
+            throw new Error("La règle générée est invalide (JSON non parsable).");
+          }
+        }
+
+        const { rule, issues } = analyzeRuleLogic(rawRule);
         const normalizedRule: ChessRule = {
           ...rule,
           tags: Array.isArray(rule.tags)
