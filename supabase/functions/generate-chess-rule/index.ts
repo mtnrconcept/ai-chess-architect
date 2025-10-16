@@ -119,6 +119,54 @@ const ruleSchema = z.object({
   }).default({ allowedWith: [], conflictsWith: [], requiredState: {} }),
 });
 
+const normaliseUnicodeJson = (input: string) =>
+  input
+    .replace(/\u2018|\u2019/g, "'")
+    .replace(/\u201C|\u201D/g, '"')
+    .replace(/\u2013|\u2014/g, '-')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\u2028|\u2029/g, '');
+
+const repairSingleQuotedJson = (input: string) => {
+  let output = input;
+
+  output = output.replace(/([\{\[,]\s*)'([^'\n\r]+?)'\s*:/g, (_match, prefix: string, key: string) => {
+    const escapedKey = key.replace(/"/g, '\\"');
+    return `${prefix}"${escapedKey}":`;
+  });
+
+  output = output.replace(/:\s*'([^'\n\r]*?)'/g, (_match, value: string) => {
+    const escapedValue = value.replace(/"/g, '\\"');
+    return `: "${escapedValue}"`;
+  });
+
+  output = output.replace(/'([^'\n\r]*?)'(?=\s*([,\]]))/g, (_match, value: string, suffix: string) => {
+    const escapedValue = value.replace(/"/g, '\\"');
+    return `"${escapedValue}"${suffix ?? ''}`;
+  });
+
+  return output;
+};
+
+const parseModelJson = (raw: string) => {
+  const primary = normaliseUnicodeJson(raw);
+
+  try {
+    return JSON.parse(primary);
+  } catch (_primaryError) {
+    const looseBase = normaliseUnicodeJson(
+      primary.replace(/,\s*([}\]])/g, '$1').replace(/\s+$/g, ''),
+    );
+
+    try {
+      return JSON.parse(looseBase);
+    } catch (_looseError) {
+      const repaired = repairSingleQuotedJson(looseBase);
+      return JSON.parse(repaired);
+    }
+  }
+};
+
 const verificationSystemPrompt =
   "Tu es un contrôleur qualité chargé de vérifier que la règle JSON fournie répond exactement au besoin décrit. " +
   "Analyse la cohérence, la correspondance du thème, des conditions et des effets. Réponds STRICTEMENT au format JSON suivant: " +
@@ -229,7 +277,7 @@ RÈGLES IMPORTANTES :
     }
 
     const cleanedJson = ruleJson.slice(firstBrace, lastBrace + 1);
-    const parsedRule = JSON.parse(cleanedJson);
+    const parsedRule = parseModelJson(cleanedJson);
 
     const normalizedRuleInput = {
       ...parsedRule,
