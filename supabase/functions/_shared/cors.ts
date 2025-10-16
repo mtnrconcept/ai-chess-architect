@@ -1,99 +1,129 @@
-// Minimal, robuste, et sans dépendances externes
-export const ALLOWED_ORIGINS = [
-  "https://preview--ai-chess-architect.lovable.app",
-  "https://ai-chess-architect.lovable.app",
-  "https://id-preview--1e794698-feca-4fca-ab3b-11990c0b270d.lovable.app",
-  "https://1e794698-feca-4fca-ab3b-11990c0b270d.lovableproject.com",
-  "http://localhost:5173",
-  "http://localhost:3000",
+// supabase/functions/_shared/cors.ts
+// CORS utilities robustes pour Edge Functions Supabase (Deno)
+
+type CorsOptions = {
+  methods?: string[]; // ex: ["GET","POST"]
+  allowCredentials?: boolean;
+  maxAgeSeconds?: number;
+  extraAllowedHeaders?: string[]; // headers additionnels à whitelister
+};
+
+const DEFAULT_METHODS = ["GET", "POST", "OPTIONS"];
+const DEFAULT_MAX_AGE = 86400;
+
+// Liste blanche minimale pour Supabase + fetch navigateur
+const BASE_ALLOWED_HEADERS = [
+  "Content-Type",
+  "Authorization",
+  "apikey",
+  "x-client-info",
+  "X-Requested-With",
+  "Prefer",
+  "x-csrf-token",
+  "Range",
+  "Accept",
+  "Accept-Language",
+  "Accept-Encoding",
+  "Origin",
 ];
 
-export function getOrigin(request: Request): string {
-  return request.headers.get("origin") ?? "";
-}
-
-export function resolveAllowOrigin(request: Request): string {
-  const origin = getOrigin(request);
-  if (origin && ALLOWED_ORIGINS.includes(origin)) return origin;
-  // Par défaut on peut mettre '*' si tu n’envoies pas de credentials.
-  // Ici on préfère être strict.
-  return "https://preview--ai-chess-architect.lovable.app";
-}
-
-export function corsHeaders(request: Request): HeadersInit {
-  const allowOrigin = resolveAllowOrigin(request);
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
-  };
-}
-
-export function okPreflight(request: Request): Response {
-  return new Response("ok", { headers: corsHeaders(request) });
-}
-
-export function withCors(request: Request, init?: ResponseInit): ResponseInit {
-  return {
-    ...(init ?? {}),
-    headers: {
-      ...(init?.headers ?? {}),
-      ...corsHeaders(request),
-    },
-  };
-}
-
-
-export type PreflightOptions = {
-  methods?: readonly string[];
-  headers?: readonly string[];
-  status?: number;
-};
-
-const ensureHeaderList = (values: readonly string[] | undefined, fallback: string) => {
-  if (!values || values.length === 0) return fallback;
-  const cleaned = Array.from(new Set(values.map(value => value.trim()).filter(Boolean)));
-  return cleaned.length > 0 ? cleaned.join(',') : fallback;
-};
-
-export function handleOptions(request: Request, options?: PreflightOptions): Response {
-  const headers = { ...corsHeaders(request) } as Record<string, string>;
-  headers['Access-Control-Allow-Methods'] = ensureHeaderList(
-    options?.methods,
-    headers['Access-Control-Allow-Methods'] ?? 'GET,POST,OPTIONS',
-  );
-  if (options?.headers) {
-    headers['Access-Control-Allow-Headers'] = ensureHeaderList(
-      options.headers,
-      headers['Access-Control-Allow-Headers'] ?? 'authorization, x-client-info, apikey, content-type',
+function normalizeHeaderList(list: string[]): string {
+  // Unifie + déduplique en conservant la casse canonique
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of list) {
+    const key = h.trim();
+    if (!key) continue;
+    const lc = key.toLowerCase();
+    if (seen.has(lc)) continue;
+    seen.add(lc);
+    // Capitalisation naïve (cosmétique)
+    out.push(
+      key
+        .split("-")
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join("-"),
     );
   }
-  const status = typeof options?.status === 'number' ? options.status : 204;
-  return new Response(null, { status, headers });
+  return out.join(", ");
+}
+
+function buildCorsHeaders(req: Request, opts?: CorsOptions): Headers {
+  const origin = req.headers.get("Origin") ?? "*";
+  const requestedHeaders =
+    req.headers.get("Access-Control-Request-Headers") ?? "";
+
+  const allowed = [
+    ...BASE_ALLOWED_HEADERS,
+    ...(opts?.extraAllowedHeaders ?? []),
+    // On **reflète** proprement les headers demandés par le navigateur
+    ...requestedHeaders
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean),
+  ];
+
+  const hdrs = new Headers();
+  hdrs.set("Access-Control-Allow-Origin", origin);
+  hdrs.set(
+    "Access-Control-Allow-Methods",
+    (opts?.methods ?? DEFAULT_METHODS).join(", "),
+  );
+  hdrs.set("Access-Control-Allow-Headers", normalizeHeaderList(allowed));
+  hdrs.set(
+    "Access-Control-Allow-Credentials",
+    String(opts?.allowCredentials ?? true),
+  );
+  hdrs.set(
+    "Access-Control-Max-Age",
+    String(opts?.maxAgeSeconds ?? DEFAULT_MAX_AGE),
+  );
+  // Pour caches/proxies : les réponses varient selon ces en-têtes
+  hdrs.append("Vary", "Origin");
+  hdrs.append("Vary", "Access-Control-Request-Headers");
+
+  // Sécurité/anti-cache
+  hdrs.set("Cache-Control", "no-store");
+
+  return hdrs;
+}
+
+export function handleOptions(
+  req: Request,
+  opts?: CorsOptions,
+): Response {
+  // Toujours répondre 204 **sans corps** pour preflight
+  const headers = buildCorsHeaders(req, opts);
+  return new Response(null, { status: 204, headers });
 }
 
 export function corsResponse(
-  request: Request,
-  body: BodyInit | null = null,
+  req: Request,
+  body: BodyInit | null,
   init?: ResponseInit,
+  opts?: CorsOptions,
 ): Response {
-  const responseInit = withCors(request, init);
-  return new Response(body, responseInit);
+  const base = init ?? {};
+  const headers = buildCorsHeaders(req, opts);
+  // Content-Type si on renvoie du texte
+  if (typeof body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "text/plain; charset=utf-8");
+  }
+  return new Response(body, { ...base, headers });
 }
 
 export function jsonResponse(
-  request: Request,
-  body: unknown,
+  req: Request,
+  data: unknown,
   init?: ResponseInit,
+  opts?: CorsOptions,
 ): Response {
-  const responseInit = withCors(request, init);
-  const headers = new Headers(responseInit.headers ?? {});
-  if (!headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
-  }
-  const payload = body === undefined ? undefined : JSON.stringify(body);
-  return new Response(payload, { ...responseInit, headers });
+  const headers = buildCorsHeaders(req, opts);
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(data), {
+    status: init?.status ?? 200,
+    headers,
+  });
 }
+
+export type { CorsOptions };
