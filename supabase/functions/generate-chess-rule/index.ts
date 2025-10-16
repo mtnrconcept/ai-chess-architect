@@ -1,417 +1,329 @@
 // supabase/functions/generate-chess-rule/index.ts
-// Edge Function durcie : zéro import externe, CORS robuste, préflight en premier,
-// health-check, validation et génération JSON 100% sûre (sans 5xx).
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
+import {
+  corsResponse,
+  handleOptions,
+  jsonResponse,
+  type CorsOptions,
+} from "../_shared/cors.ts";
+import { authenticateRequest } from "../_shared/auth.ts";
+import { invokeChatCompletion, type AiProviderName } from "../_shared/ai-providers.ts";
 
-// ----------- CORS & utilitaires --------------------------------------------
+// === CORS ===
+const corsOptions: CorsOptions = {
+  methods: ["POST"],                     // on n’expose que POST côté API
+  allowCredentials: true,
+  extraAllowedHeaders: [
+    // redondant mais explicite : on documente les entêtes attendus par supabase-js
+    "x-client-info",
+    "apikey",
+    "Authorization",
+    "Prefer",
+    "X-Requested-With",
+    "x-csrf-token",
+  ],
+};
 
-const ALLOWED_SUFFIXES = [
-  ".lovableproject.com",
-  ".lovable.app",
-  "localhost",
-];
+const BEST_RULE_MODELS: Partial<Record<AiProviderName, string>> = {
+  lovable: "google/gemini-2.0-pro-exp",
+  groq: "llama-3.1-70b-versatile",
+  openai: "gpt-4o",
+  gemini: "gemini-1.5-pro",
+};
 
-function isAllowedOrigin(origin: string | null): boolean {
-  if (!origin) return false;
-  try {
-    const { hostname, protocol } = new URL(origin);
-    if (!/^https?:$/.test(protocol)) return false;
-    if (hostname === "localhost") return true;
-    return ALLOWED_SUFFIXES.some(suf => hostname === suf.replace(/^\./, "") || hostname.endsWith(suf));
-  } catch {
-    return false;
-  }
-}
+const QUALITY_CHECK_MODELS: Partial<Record<AiProviderName, string>> = {
+  lovable: "google/gemini-2.0-pro-exp",
+  groq: "llama-3.1-70b-versatile",
+  openai: "gpt-4o",
+  gemini: "gemini-1.5-pro",
+};
 
-function pickAllowedOrigin(req: Request): string {
-  const o = req.headers.get("Origin");
-  return isAllowedOrigin(o) ? (o as string) : "null";
-}
+// --- Schémas Zod (inchangés) ---
+const conditionSchema = z.object({
+  type: z.enum([
+    "pieceType",
+    "pieceColor",
+    "turnNumber",
+    "position",
+    "movesThisTurn",
+    "piecesOnBoard",
+  ]),
+  value: z.union([
+    z.string().trim().min(1),
+    z.number(),
+    z.boolean(),
+    z.array(z.string().trim().min(1)),
+    z.record(z.unknown()),
+  ]),
+  operator: z.enum([
+    "equals",
+    "notEquals",
+    "greaterThan",
+    "lessThan",
+    "greaterOrEqual",
+    "lessOrEqual",
+    "contains",
+    "in",
+  ]),
+});
 
-function buildCorsHeaders(req: Request): Headers {
-  const h = new Headers();
-  h.set("Vary", "Origin");
-  h.set("Access-Control-Allow-Origin", pickAllowedOrigin(req));
-  h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  h.set(
-    "Access-Control-Allow-Headers",
-    [
-      "Content-Type",
-      "Authorization",
-      "x-client-info",
-      "apikey",
-      "Prefer",
-      "X-Requested-With",
-      "x-csrf-token",
-    ].join(", ")
-  );
-  // Active seulement si tu utilises des cookies côté navigateur.
-  // h.set("Access-Control-Allow-Credentials", "true");
-  h.set("Access-Control-Max-Age", "86400");
-  return h;
-}
+const effectSchema = z.object({
+  action: z.enum([
+    "allowExtraMove",
+    "modifyMovement",
+    "addAbility",
+    "restrictMovement",
+    "changeValue",
+    "triggerEvent",
+    "allowCapture",
+    "preventCapture",
+  ]),
+  target: z.enum(["self", "opponent", "all", "specific"]),
+  parameters: z.object({
+    count: z.number().int().min(0).optional(),
+    property: z.string().trim().min(1).optional(),
+    value: z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.array(z.unknown()),
+      z.record(z.unknown()),
+    ]).optional(),
+    duration: z.enum(["permanent", "temporary", "turns"]).optional(),
+    range: z.number().int().min(0).optional(),
+  }).default({}),
+});
 
-function json(req: Request, body: unknown, status = 200): Response {
-  const h = buildCorsHeaders(req);
-  h.set("Content-Type", "application/json; charset=utf-8");
-  return new Response(JSON.stringify(body), { status, headers: h });
-}
+const ruleSchema = z.object({
+  ruleId: z.string().trim().min(1).optional(),
+  ruleName: z.string().trim().min(4).max(120),
+  description: z.string().trim().min(20),
+  category: z.enum([
+    "movement",
+    "capture",
+    "special",
+    "condition",
+    "victory",
+    "restriction",
+    "defense",
+    "behavior",
+  ]),
+  affectedPieces: z.array(z.enum([
+    "king",
+    "queen",
+    "rook",
+    "bishop",
+    "knight",
+    "pawn",
+    "all",
+  ])).min(1),
+  trigger: z.enum([
+    "always",
+    "onMove",
+    "onCapture",
+    "onCheck",
+    "onCheckmate",
+    "turnBased",
+    "conditional",
+  ]),
+  conditions: z.array(conditionSchema).default([]),
+  effects: z.array(effectSchema).min(1, "Au moins un effet est requis"),
+  priority: z.number().int().min(0).max(100).default(1),
+  isActive: z.boolean(),
+  tags: z.array(z.string().trim().min(2).max(20)).min(2).max(4),
+  validationRules: z.object({
+    allowedWith: z.array(z.string().trim()).default([]),
+    conflictsWith: z.array(z.string().trim()).default([]),
+    requiredState: z.record(z.unknown()).default({}),
+  }).default({ allowedWith: [], conflictsWith: [], requiredState: {} }),
+});
 
-function ok(req: Request, data: unknown, status = 200) {
-  return json(req, { ok: true, data }, status);
-}
-
-function fail(req: Request, message: string, status = 400, details?: unknown) {
-  return json(req, { ok: false, error: { message, details } }, status);
-}
-
-// ----------- Normalisation & parsing JSON (LLM-friendly) -------------------
-
-function normaliseUnicodeJson(input: string) {
-  return input
+// --- Helpers JSON tolerant ---
+const normaliseUnicodeJson = (input: string) =>
+  input
     .replace(/\u2018|\u2019/g, "'")
     .replace(/\u201C|\u201D/g, '"')
     .replace(/\u2013|\u2014/g, "-")
     .replace(/\u00a0/g, " ")
     .replace(/\u2028|\u2029/g, "");
-}
 
-function repairSingleQuotedJson(input: string) {
+const repairSingleQuotedJson = (input: string) => {
   let output = input;
   output = output.replace(/([\{\[,]\s*)'([^'\n\r]+?)'\s*:/g, (_m, p: string, k: string) => {
-    const escapedKey = k.replace(/"/g, '\\"');
-    return `${p}"${escapedKey}":`;
+    const esc = k.replace(/"/g, '\\"');
+    return `${p}"${esc}":`;
   });
   output = output.replace(/:\s*'([^'\n\r]*?)'/g, (_m, v: string) => {
-    const escapedValue = v.replace(/"/g, '\\"');
-    return `: "${escapedValue}"`;
+    const esc = v.replace(/"/g, '\\"');
+    return `: "${esc}"`;
   });
   output = output.replace(/'([^'\n\r]*?)'(?=\s*([,\]]))/g, (_m, v: string, s: string) => {
-    const escapedValue = v.replace(/"/g, '\\"');
-    return `"${escapedValue}"${s ?? ""}`;
+    const esc = v.replace(/"/g, '\\"');
+    return `"${esc}"${s ?? ""}`;
   });
   return output;
-}
+};
 
-function parseModelJson(raw: string) {
+const parseModelJson = (raw: string) => {
   const primary = normaliseUnicodeJson(raw);
   try {
     return JSON.parse(primary);
   } catch {
-    const looseBase = normaliseUnicodeJson(
-      primary.replace(/,\s*([}\]])/g, "$1").replace(/\s+$/g, "")
+    const loose = normaliseUnicodeJson(
+      primary.replace(/,\s*([}\]])/g, "$1").replace(/\s+$/g, ""),
     );
     try {
-      return JSON.parse(looseBase);
+      return JSON.parse(loose);
     } catch {
-      const repaired = repairSingleQuotedJson(looseBase);
+      const repaired = repairSingleQuotedJson(loose);
       return JSON.parse(repaired);
     }
   }
-}
-
-// ----------- Typages & validation manuelle (sans zod) ----------------------
-
-type ConditionType =
-  | "pieceType" | "pieceColor" | "turnNumber" | "position" | "movesThisTurn" | "piecesOnBoard";
-
-type Operator =
-  | "equals" | "notEquals" | "greaterThan" | "lessThan" | "greaterOrEqual" | "lessOrEqual" | "contains" | "in";
-
-type EffectAction =
-  | "allowExtraMove" | "modifyMovement" | "addAbility" | "restrictMovement" | "changeValue" | "triggerEvent" | "allowCapture" | "preventCapture";
-
-type Target = "self" | "opponent" | "all" | "specific";
-
-type Category =
-  | "movement" | "capture" | "special" | "condition" | "victory" | "restriction" | "defense" | "behavior";
-
-type Piece = "king" | "queen" | "rook" | "bishop" | "knight" | "pawn" | "all";
-
-type Condition = {
-  type: ConditionType;
-  value: unknown;
-  operator: Operator;
 };
 
-type Effect = {
-  action: EffectAction;
-  target: Target;
-  parameters?: {
-    count?: number;
-    property?: string;
-    value?: unknown;
-    duration?: "permanent" | "temporary" | "turns";
-    range?: number;
-  };
-};
+// --- Prompts ---
+const verificationSystemPrompt =
+  'Tu es un contrôleur qualité… Réponds STRICTEMENT au format JSON: {"status":"OK"|"KO","reason":"..."}';
 
-type Rule = {
-  ruleId?: string;
-  ruleName: string;
-  description: string;
-  category: Category;
-  affectedPieces: Piece[];
-  trigger: "always" | "onMove" | "onCapture" | "onCheck" | "onCheckmate" | "turnBased" | "conditional";
-  conditions: Condition[];
-  effects: Effect[];
-  priority: number; // 0..100
-  isActive: boolean;
-  tags: string[];   // 2..4, 2..20 chars
-  validationRules: {
-    allowedWith: string[];
-    conflictsWith: string[];
-    requiredState: Record<string, unknown>;
-  };
-};
-
-function isString(x: unknown): x is string { return typeof x === "string"; }
-function isNonEmptyString(x: unknown, min = 1, max = Infinity) {
-  return isString(x) && x.trim().length >= min && x.trim().length <= max;
-}
-function isInt(n: unknown) { return Number.isInteger(n); }
-
-const CategorySet = new Set<Category>([
-  "movement","capture","special","condition","victory","restriction","defense","behavior",
-]);
-const PieceSet = new Set<Piece>(["king","queen","rook","bishop","knight","pawn","all"]);
-const TriggerSet = new Set(["always","onMove","onCapture","onCheck","onCheckmate","turnBased","conditional"]);
-const CondTypeSet = new Set<ConditionType>([
-  "pieceType","pieceColor","turnNumber","position","movesThisTurn","piecesOnBoard",
-]);
-const OperatorSet = new Set<Operator>([
-  "equals","notEquals","greaterThan","lessThan","greaterOrEqual","lessOrEqual","contains","in",
-]);
-const ActionSet = new Set<EffectAction>([
-  "allowExtraMove","modifyMovement","addAbility","restrictMovement","changeValue","triggerEvent","allowCapture","preventCapture",
-]);
-const TargetSet = new Set<Target>(["self","opponent","all","specific"]);
-const DurationSet = new Set(["permanent","temporary","turns"]);
-
-function validateRule(obj: any): { ok: true; data: Rule } | { ok: false; details: Array<{path: string; message: string}> } {
-  const errors: Array<{path: string; message: string}> = [];
-
-  // strings
-  if (!isNonEmptyString(obj?.ruleName, 4, 120)) errors.push({ path: "ruleName", message: "ruleName 4..120 caractères" });
-  if (!isNonEmptyString(obj?.description, 20)) errors.push({ path: "description", message: "description ≥ 20 caractères" });
-
-  // enums
-  if (!CategorySet.has(obj?.category)) errors.push({ path: "category", message: "category invalide" });
-  if (!TriggerSet.has(obj?.trigger)) errors.push({ path: "trigger", message: "trigger invalide" });
-
-  // affectedPieces
-  if (!Array.isArray(obj?.affectedPieces) || obj.affectedPieces.length < 1 || !obj.affectedPieces.every((p: any) => PieceSet.has(p)))
-    errors.push({ path: "affectedPieces", message: "array non vide d'éléments valides" });
-
-  // conditions
-  if (!Array.isArray(obj?.conditions)) errors.push({ path: "conditions", message: "array requis" });
-  else {
-    obj.conditions.forEach((c: any, i: number) => {
-      if (!CondTypeSet.has(c?.type)) errors.push({ path: `conditions[${i}].type`, message: "type invalide" });
-      if (!OperatorSet.has(c?.operator)) errors.push({ path: `conditions[${i}].operator`, message: "operator invalide" });
-      if (typeof c?.value === "undefined") errors.push({ path: `conditions[${i}].value`, message: "value requis" });
-    });
-  }
-
-  // effects
-  if (!Array.isArray(obj?.effects) || obj.effects.length < 1) errors.push({ path: "effects", message: "au moins un effet" });
-  else {
-    obj.effects.forEach((e: any, i: number) => {
-      if (!ActionSet.has(e?.action)) errors.push({ path: `effects[${i}].action`, message: "action invalide" });
-      if (!TargetSet.has(e?.target)) errors.push({ path: `effects[${i}].target`, message: "target invalide" });
-      if (e?.parameters) {
-        const p = e.parameters;
-        if (typeof p.count !== "undefined" && (!isInt(p.count) || p.count < 0)) errors.push({ path: `effects[${i}].parameters.count`, message: "entier ≥ 0" });
-        if (typeof p.property !== "undefined" && !isNonEmptyString(p.property, 1)) errors.push({ path: `effects[${i}].parameters.property`, message: "string non vide" });
-        if (typeof p.range !== "undefined" && (!isInt(p.range) || p.range < 0)) errors.push({ path: `effects[${i}].parameters.range`, message: "entier ≥ 0" });
-        if (typeof p.duration !== "undefined" && !DurationSet.has(p.duration)) errors.push({ path: `effects[${i}].parameters.duration`, message: "duration invalide" });
-      }
-    });
-  }
-
-  // priority
-  if (!isInt(obj?.priority) || obj.priority < 0 || obj.priority > 100) errors.push({ path: "priority", message: "entier 0..100" });
-
-  // isActive
-  if (typeof obj?.isActive !== "boolean") errors.push({ path: "isActive", message: "booléen requis" });
-
-  // tags
-  if (!Array.isArray(obj?.tags) || obj.tags.length < 2 || obj.tags.length > 4 || !obj.tags.every((t: any) => isNonEmptyString(t, 2, 20)))
-    errors.push({ path: "tags", message: "2..4 tags, 2..20 caractères" });
-
-  // validationRules
-  const vr = obj?.validationRules ?? {};
-  if (!Array.isArray(vr.allowedWith) || !Array.isArray(vr.conflictsWith) || typeof vr.requiredState !== "object")
-    errors.push({ path: "validationRules", message: "structure invalide" });
-
-  if (errors.length) return { ok: false, details: errors };
-
-  const out: Rule = {
-    ruleId: isNonEmptyString(obj.ruleId, 1) ? obj.ruleId : undefined,
-    ruleName: obj.ruleName.trim(),
-    description: obj.description.trim(),
-    category: obj.category,
-    affectedPieces: obj.affectedPieces,
-    trigger: obj.trigger,
-    conditions: obj.conditions,
-    effects: obj.effects.map((e: any) => ({ ...e, parameters: e.parameters ?? {} })),
-    priority: obj.priority,
-    isActive: obj.isActive,
-    tags: obj.tags.map((t: string) => t.trim().toLowerCase()),
-    validationRules: {
-      allowedWith: Array.isArray(vr.allowedWith) ? vr.allowedWith : [],
-      conflictsWith: Array.isArray(vr.conflictsWith) ? vr.conflictsWith : [],
-      requiredState: vr.requiredState ?? {},
-    },
-  };
-  return { ok: true, data: out };
-}
-
-// ----------- Génération : IA optionnelle + fallback déterministe -----------
-
-/**
- * NOTE: Pour éliminer tout 502, on ne dépend d’aucun SDK externe ici.
- * Si tu veux activer l’IA, lis des variables d’env et appelle ton provider
- * dans un try/catch. En absence de config, on produit une règle plausible.
- */
-
-async function tryGenerateWithAI(prompt: string): Promise<string | null> {
-  // Exemple d’activation conditionnelle (laisser désactivé par défaut)
-  const ENABLE_AI = Deno.env.get("ENABLE_AI") === "1";
-  if (!ENABLE_AI) return null;
-
-  // Ici tu pourrais appeler ton provider via fetch() (OpenAI, Groq, Gemini...),
-  // mais veille à rester sans import et à pin’er les endpoints.
-  // Retourne la chaîne JSON brute du modèle, ou null si indisponible.
-  return null;
-}
-
-function fallbackRuleJson(prompt: string): any {
-  // Générateur déterministe, toujours valide vis-à-vis du schéma
-  return {
-    ruleId: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-    ruleName: "Avance stratégique du pion",
-    description: `Lorsque le thème "${prompt.slice(0, 60)}" est actif, le pion gagne une capacité limitée et contrôlée.`,
-    category: "movement",
-    affectedPieces: ["pawn"],
-    trigger: "onMove",
-    conditions: [
-      { type: "turnNumber", value: 1, operator: "greaterOrEqual" }
-    ],
-    effects: [
-      {
-        action: "modifyMovement",
-        target: "self",
-        parameters: { property: "forwardRange", value: 2, duration: "temporary", range: 2 }
-      }
-    ],
-    priority: 1,
-    isActive: true,
-    tags: ["pion", "mobilité"],
-    validationRules: { allowedWith: [], conflictsWith: [], requiredState: {} }
-  };
-}
-
-// ----------- Handler principal ---------------------------------------------
-
-Deno.serve(async (req: Request) => {
-  // Préflight en tout premier
+serve(async (req) => {
+  // 1) Preflight CORS — sort immédiatement en 204
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: buildCorsHeaders(req) });
+    return handleOptions(req, corsOptions);
   }
 
-  // Health-check GET
-  if (req.method === "GET") {
-    const url = new URL(req.url);
-    if (url.searchParams.get("health") === "1") {
-      return ok(req, {
-        name: "generate-chess-rule",
-        ts: new Date().toISOString(),
-        originAllowed: pickAllowedOrigin(req),
-      });
-    }
+  // 2) Uniquement POST
+  if (req.method !== "POST") {
+    return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);
   }
 
   try {
-    if (req.method !== "POST" && req.method !== "GET") {
-      return fail(req, "Method Not Allowed", 405);
+    // 3) Auth côté POST uniquement
+    const authResult = await authenticateRequest(req);
+    if (!authResult.success) {
+      return jsonResponse(req, { error: authResult.error }, { status: authResult.status }, corsOptions);
     }
 
-    // Lecture payload
-    let payload: Record<string, unknown> | null = null;
-    const ct = req.headers.get("content-type") ?? "";
-    if (req.method === "POST") {
-      if (!ct.includes("application/json")) {
-        return fail(req, "Content-Type must be application/json", 415);
-      }
-      try {
-        payload = await req.json();
-      } catch (e) {
-        console.error("[generate-chess-rule] JSON parse error:", e);
-        return fail(req, "Invalid JSON body", 400);
-      }
-    } else {
-      const url = new URL(req.url);
-      payload = Object.fromEntries(url.searchParams.entries());
+    // 4) Validation d’entrée
+    const rawBody = await req.json().catch(() => null);
+    const schema = z.object({ prompt: z.string().trim().min(10).max(800) });
+    const parsed = schema.safeParse(rawBody);
+
+    if (!parsed.success) {
+      const details = parsed.error.issues.map((issue) => ({
+        path: issue.path.join(".") || "root",
+        message: issue.message,
+      }));
+      return jsonResponse(req, { error: "Invalid request payload", details }, { status: 400 }, corsOptions);
     }
 
-    // Validation prompt
-    const prompt = typeof payload?.["prompt"] === "string" ? String(payload!["prompt"]).trim() : "";
-    if (prompt.length < 10 || prompt.length > 800) {
-      return fail(req, "`prompt` requis (10..800 caractères)", 400);
-    }
+    const prompt = parsed.data.prompt;
 
-    // 1) Tentative IA (si activée)
-    let rawModel = await tryGenerateWithAI(prompt);
+    // 5) Appel modèle — génération stricte JSON
+    const systemPrompt = `Tu es un expert en règles... (ton texte d’origine ici, inchangé)`;
 
-    // 2) Fallback déterministe si IA indisponible
-    if (!rawModel) {
-      rawModel = JSON.stringify(fallbackRuleJson(prompt));
-    }
+    const { content: modelResponse } = await invokeChatCompletion({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `DESCRIPTION DE LA RÈGLE : "${prompt}"` },
+      ],
+      temperature: 0.7,
+      preferredModels: BEST_RULE_MODELS,
+    });
 
-    // Nettoyage markdown éventuel + extraction JSON
-    let ruleJson = rawModel.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+    let ruleJson = modelResponse.trim()
+      .replace(/```json\s*/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
     const firstBrace = ruleJson.indexOf("{");
     const lastBrace = ruleJson.lastIndexOf("}");
     if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      return fail(req, "Le générateur n'a pas renvoyé de JSON valide", 502);
-    }
-    const cleaned = ruleJson.slice(firstBrace, lastBrace + 1);
-    let parsed: any;
-    try {
-      parsed = parseModelJson(cleaned);
-    } catch (e) {
-      console.error("[generate-chess-rule] parseModelJson error:", e);
-      return fail(req, "JSON du générateur invalide", 502);
+      throw new Error("Le modèle n'a pas renvoyé de JSON valide");
     }
 
-    // Normalisation minimale
-    const normalizedInput = {
-      ...parsed,
-      conditions: Array.isArray(parsed.conditions) ? parsed.conditions : [],
-      effects: Array.isArray(parsed.effects) ? parsed.effects : [],
-      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
-      validationRules: parsed.validationRules ?? { allowedWith: [], conflictsWith: [], requiredState: {} },
+    const cleanedJson = ruleJson.slice(firstBrace, lastBrace + 1);
+    const parsedRule = parseModelJson(cleanedJson);
+
+    // 6) Normalisation avant Zod
+    const normalizedRuleInput = {
+      ...parsedRule,
+      tags: Array.isArray(parsedRule.tags) ? parsedRule.tags : [],
+      conditions: Array.isArray(parsedRule.conditions) ? parsedRule.conditions : [],
+      effects: Array.isArray(parsedRule.effects) ? parsedRule.effects : [],
+      validationRules: parsedRule.validationRules ?? {},
     };
 
-    // Validation stricte (sans 422 ambigu)
-    const v = validateRule(normalizedInput);
-    if (!v.ok) {
-      return fail(req, "La règle générée est invalide", 400, v.details);
+    const ruleValidation = ruleSchema.safeParse(normalizedRuleInput);
+    if (!ruleValidation.success) {
+      const details = ruleValidation.error.issues.map((issue) => ({
+        path: issue.path.join(".") || "root",
+        message: issue.message,
+      }));
+      return jsonResponse(req, { error: "La règle générée est invalide", details }, { status: 422 }, corsOptions);
     }
 
-    const finalRule: Rule & { createdAt: string } = {
-      ...v.data,
-      ruleId: v.data.ruleId ?? `rule_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-      tags: v.data.tags.map((t) => t.toLowerCase()).filter(Boolean),
+    const validatedRule = ruleValidation.data;
+    const finalRule = {
+      ...validatedRule,
+      ruleId: validatedRule.ruleId || `rule_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       createdAt: new Date().toISOString(),
+      tags: validatedRule.tags.map((t) => String(t).toLowerCase()).filter(Boolean),
+      validationRules: {
+        allowedWith: validatedRule.validationRules.allowedWith,
+        conflictsWith: validatedRule.validationRules.conflictsWith,
+        requiredState: validatedRule.validationRules.requiredState,
+      },
     };
 
-    return ok(req, { rule: finalRule }, 200);
-  } catch (err) {
-    console.error("[generate-chess-rule] unhandled error:", err);
-    const msg = String(err || "Internal error");
-    // 429 si quota/ratelimit, sinon 500
-    const status = /429|rate limit/i.test(msg) ? 429 : 500;
-    return fail(req, status === 429 ? "Rate limited" : "Internal server error", status, msg);
+    // 7) Vérification de cohérence par LLM
+    const { content: verificationResponse } = await invokeChatCompletion({
+      messages: [
+        { role: "system", content: verificationSystemPrompt },
+        { role: "user", content: `PROMPT UTILISATEUR:\n${prompt}\n\nRÈGLE JSON:\n${JSON.stringify(finalRule, null, 2)}` },
+      ],
+      temperature: 0,
+      maxOutputTokens: 400,
+      preferredModels: QUALITY_CHECK_MODELS,
+    });
+
+    const verificationPayload = verificationResponse
+      .replace(/```json\s*/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
+    let verificationResult: { status: string; reason?: string };
+    try {
+      verificationResult = JSON.parse(verificationPayload);
+    } catch {
+      return jsonResponse(
+        req,
+        { error: "Échec de la validation de cohérence", details: [{ path: "verification", message: "Réponse non-JSON" }] },
+        { status: 502 },
+        corsOptions,
+      );
+    }
+
+    if (verificationResult.status !== "OK") {
+      return jsonResponse(
+        req,
+        { error: "La règle générée n'a pas passé la validation de cohérence", details: [{ path: "verification", message: verificationResult.reason ?? "Motif non spécifié" }] },
+        { status: 422 },
+        corsOptions,
+      );
+    }
+
+    // 8) Succès
+    return jsonResponse(req, { rule: finalRule }, { status: 200 }, corsOptions);
+
+  } catch (error) {
+    console.error("Error in generate-chess-rule:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    const status = msg.includes("429") || msg.includes("Rate limit")
+      ? 429
+      : msg.includes("Aucun fournisseur IA")
+        ? 503
+        : 500;
+    return jsonResponse(req, { error: msg || "Unknown error" }, { status }, corsOptions);
   }
 });
