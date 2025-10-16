@@ -27,3 +27,24 @@ dist-ssr
 # Environment overrides
 .env.local
 .env.*.local
+
+# Environment variables (CRITICAL)
+.env
+.env.local
+.env.*.local
+.env.preview
+.env.production
+
+# Supabase local
+supabase/.env.local
+supabase/.branches/
+
+# Secrets
+secrets/
+*.pem
+*.key
+
+# Database dumps
+*.sql.gz
+*.dump
+
