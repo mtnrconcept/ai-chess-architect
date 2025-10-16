@@ -540,7 +540,7 @@ const TournamentPage = () => {
     setJoiningTournamentId(tournamentId);
     try {
       const displayName = resolveUserDisplayName(user);
-      const response: MatchmakingResponse = await requestTournamentMatch(tournamentId, displayName);
+      const response: MatchmakingResponse = await requestTournamentMatch(tournamentId, { displayName });
       if (response.match?.status === "pending") {
         toast({ title: "Salle créée", description: "Nous attendons un adversaire pour démarrer la partie." });
       } else if (response.match?.status === "playing") {

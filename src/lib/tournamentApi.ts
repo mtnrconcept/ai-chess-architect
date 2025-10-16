@@ -819,15 +819,26 @@ export const registerForTournament = async (
   }
 };
 
+export type RequestTournamentMatchOptions = {
+  displayName?: string;
+  forceAiFallback?: boolean;
+};
+
 export const requestTournamentMatch = async (
   tournamentId: string,
-  displayName?: string,
+  options?: RequestTournamentMatchOptions,
 ): Promise<MatchmakingResponse> => {
   const supabaseClient = requireTournamentSupabase();
 
   const { data, error } = await supabaseClient.functions.invoke<MatchmakingResponse>(
     "tournament-matchmaking",
-    { body: { tournamentId, displayName } },
+    {
+      body: {
+        tournamentId,
+        displayName: options?.displayName,
+        forceAiFallback: options?.forceAiFallback === true,
+      },
+    },
   );
 
   if (error) {

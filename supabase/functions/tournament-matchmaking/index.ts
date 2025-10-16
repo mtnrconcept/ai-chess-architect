@@ -99,11 +99,13 @@ type AiAttachmentContext = {
   nowIso: string;
 };
 
-const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
+const ensureAiOpponentForMatch = async (context: AiAttachmentContext, options: { force?: boolean } = {}) => {
   if (!supabase) return false;
 
+  const force = options.force === true;
+
   const preliminaryHumanCount = await countHumanRegistrations(context.tournamentId);
-  if (preliminaryHumanCount > 1) {
+  if (!force && preliminaryHumanCount > 1) {
     const { data: availableHumans, error: availableError } = await supabase
       .from("tournament_registrations")
       .select("id")
@@ -239,6 +241,7 @@ serve(async req => {
     }
     const tournamentId = typeof body?.tournamentId === "string" ? body.tournamentId : null;
     const requestedName = typeof body?.displayName === "string" ? body.displayName : null;
+    const forceAiFallback = body?.forceAiFallback === true;
 
     if (!tournamentId) {
       return jsonResponse(req, { error: "tournamentId is required" }, { status: 400 }, corsOptions);
@@ -301,8 +304,47 @@ serve(async req => {
     }
 
     if (registration.current_match_id) {
-      const match = await getMatchDetails(registration.current_match_id);
-      return jsonResponse(req, { match, registration }, { status: 200 }, corsOptions);
+      let match = await getMatchDetails(registration.current_match_id);
+      let currentRegistration = registration;
+
+      if (
+        forceAiFallback &&
+        match &&
+        match.status === "pending" &&
+        !match.player2_id &&
+        !match.is_ai_match &&
+        (!match.player1_id || match.player1_id === user.id)
+      ) {
+        const forced = await ensureAiOpponentForMatch(
+          {
+            tournamentId,
+            matchId: match.id,
+            lobbyId: match.lobby_id ?? null,
+            humanRegistrationId: registration.id,
+            nowIso,
+          },
+          { force: true },
+        );
+
+        if (forced) {
+          const refreshedMatch = await getMatchDetails(match.id);
+          if (refreshedMatch) {
+            match = refreshedMatch;
+          }
+
+          const { data: refreshedRegistration } = await supabase
+            .from("tournament_registrations")
+            .select("id, tournament_id, user_id, current_match_id, is_waiting, wins, losses, draws, points")
+            .eq("id", registration.id)
+            .single();
+
+          if (refreshedRegistration) {
+            currentRegistration = refreshedRegistration;
+          }
+        }
+      }
+
+      return jsonResponse(req, { match, registration: currentRegistration }, { status: 200 }, corsOptions);
     }
 
     const { data: waitingMatches, error: waitingError } = await supabase
@@ -433,20 +475,8 @@ serve(async req => {
         .eq("tournament_id", tournamentId)
         .eq("user_id", user.id);
 
-      const attachedAi = await ensureAiOpponentForMatch({
-        tournamentId,
-        matchId: createdMatch.id,
-        lobbyId: lobby.id,
-        humanRegistrationId: registration.id,
-        nowIso,
-      });
-
-      if (attachedAi) {
-        registrationIsWaiting = false;
-        aiOpponentAttached = true;
-      } else {
-        registrationIsWaiting = true;
-      }
+      registrationIsWaiting = true;
+      aiOpponentAttached = false;
 
       matchResult = { ...createdMatch, lobby } as Record<string, unknown>;
     }

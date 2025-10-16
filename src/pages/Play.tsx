@@ -37,7 +37,7 @@ import {
   serializeBoardState,
 } from '@/lib/postGameAnalysis';
 import { saveCompletedGame } from '@/lib/gameStorage';
-import { fetchTournamentMatch } from '@/lib/tournamentApi';
+import { fetchTournamentMatch, requestTournamentMatch } from '@/lib/tournamentApi';
 
 const createChatMessageId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -315,6 +315,7 @@ const Play = () => {
   const routeMatchId = typeof params.matchId === 'string' ? params.matchId : undefined;
   const stateMatchId = typeof locationState?.matchId === 'string' ? locationState.matchId : undefined;
   const matchId = stateMatchId ?? routeMatchId;
+  const tournamentId = typeof locationState?.tournamentId === 'string' ? locationState.tournamentId : undefined;
   const initialMatchStatus = typeof locationState?.matchStatus === 'string' ? locationState.matchStatus : null;
 
   const [currentLobbyRole, setCurrentLobbyRole] = useState<typeof initialLobbyRole>(initialLobbyRole);
@@ -348,7 +349,6 @@ const Play = () => {
   const playerDisplayName = playerName ?? 'Vous';
   const opponentDisplayName = currentOpponentName
     ?? (opponentType === 'ai' ? 'Cyber IA' : opponentType === 'local' ? 'Joueur local' : 'Adversaire inconnu');
-
   const playerElo = typeof locationState?.playerElo === 'number' ? locationState.playerElo : 1500;
   const opponentElo = typeof locationState?.opponentElo === 'number'
     ? locationState.opponentElo
@@ -363,6 +363,23 @@ const Play = () => {
   const initialTimeSeconds = timeControlSettings.initialSeconds;
 
   const { toast } = useToast();
+  const triggerAiFallback = useCallback(async () => {
+    if (!tournamentId) return;
+    try {
+      await requestTournamentMatch(tournamentId, {
+        displayName: playerDisplayName,
+        forceAiFallback: true,
+      });
+    } catch (error) {
+      console.error('[play] unable to attach AI fallback', error);
+      toast({
+        title: 'Matchmaking',
+        description: "Impossible de lancer la partie contre l'IA.",
+        variant: 'destructive',
+      });
+    }
+  }, [playerDisplayName, toast, tournamentId]);
+
 
   useEffect(() => {
     if (!matchId) return;
@@ -504,6 +521,8 @@ const Play = () => {
     };
   }, []);
 
+  const aiFallbackTriggeredRef = useRef(false);
+  const aiFallbackTimeoutRef = useRef<number | null>(null);
   const selectionTimestampRef = useRef<number | null>(null);
   const gameSavedRef = useRef(false);
   const gameStartTimeRef = useRef<number>(Date.now());
@@ -2315,6 +2334,33 @@ const Play = () => {
 
   const showWaitingOverlay = opponentType === 'player' && waitingForOpponent;
 
+  useEffect(() => {
+    if (!showWaitingOverlay || currentLobbyRole !== 'creator' || !tournamentId || !matchId) {
+      if (aiFallbackTimeoutRef.current) {
+        window.clearTimeout(aiFallbackTimeoutRef.current);
+        aiFallbackTimeoutRef.current = null;
+      }
+      aiFallbackTriggeredRef.current = false;
+      return;
+    }
+
+    if (aiFallbackTriggeredRef.current) {
+      return;
+    }
+
+    aiFallbackTriggeredRef.current = true;
+    aiFallbackTimeoutRef.current = window.setTimeout(() => {
+      void triggerAiFallback();
+    }, 5000);
+
+    return () => {
+      if (aiFallbackTimeoutRef.current) {
+        window.clearTimeout(aiFallbackTimeoutRef.current);
+        aiFallbackTimeoutRef.current = null;
+      }
+      aiFallbackTriggeredRef.current = false;
+    };
+  }, [showWaitingOverlay, currentLobbyRole, tournamentId, matchId, triggerAiFallback]);
   const headerBadges = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       <Badge className="border-cyan-500/40 bg-black/50 text-[0.65rem] uppercase tracking-[0.25em] text-cyan-200">
@@ -2636,8 +2682,8 @@ const Play = () => {
         {showWaitingOverlay && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm">
             <Loader2 className="h-9 w-9 animate-spin text-cyan-200" />
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-100">En attente de joueur</p>
-            <p className="text-xs text-cyan-100/70">Nous te connectons à un adversaire dès qu’il rejoint la table.</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-100">Recherche de joueur disponible</p>
+            <p className="text-xs text-cyan-100/70">Connexion à un adversaire humain... bascule automatiquement vers l'IA si personne ne se présente.</p>
           </div>
         )}
         <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 sm:px-8 sm:py-10 lg:px-12">
