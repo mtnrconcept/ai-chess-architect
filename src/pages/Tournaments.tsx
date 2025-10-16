@@ -94,6 +94,29 @@ const computeTimeInfo = (tournament: TournamentOverview) => {
   return `Terminé le ${formatDateTime(tournament.ends_at)}`;
 };
 
+const isTournamentOngoing = (tournament: TournamentOverview, referenceNow = Date.now()) => {
+  const start = new Date(tournament.starts_at).getTime();
+  const end = new Date(tournament.ends_at).getTime();
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return false;
+  }
+
+  if (end <= referenceNow) {
+    return false;
+  }
+
+  if (tournament.status === "cancelled" || tournament.status === "completed") {
+    return false;
+  }
+
+  if (referenceNow >= start) {
+    return true;
+  }
+
+  return tournament.status === "active";
+};
+
 const resolveUserDisplayName = (user: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
   if (!user) return "Joueur";
   const metadata = user.user_metadata ?? {};
@@ -213,27 +236,30 @@ const TournamentPage = () => {
     myRegistrations,
   ]);
 
-  const inWindowTournaments = useMemo(() => {
-    const now = Date.now();
-    return tournaments.filter(tournament => new Date(tournament.ends_at).getTime() > now);
-  }, [tournaments]);
 
   const activeTournaments = useMemo(() => {
     const now = Date.now();
-    return inWindowTournaments.filter(tournament => {
-      const start = new Date(tournament.starts_at).getTime();
-      const end = new Date(tournament.ends_at).getTime();
-      return tournament.status === "active" && start <= now && end > now;
-    });
-  }, [inWindowTournaments]);
+    return tournaments.filter(tournament => isTournamentOngoing(tournament, now));
+  }, [tournaments]);
+
 
   const upcomingTournaments = useMemo(() => {
     const now = Date.now();
     return tournaments.filter(tournament => {
       const start = new Date(tournament.starts_at).getTime();
-      return ["draft", "scheduled"].includes(tournament.status) && start > now;
+      if (!Number.isFinite(start)) {
+        return false;
+      }
+      if (isTournamentOngoing(tournament, now)) {
+        return false;
+      }
+      if (["cancelled", "completed"].includes(tournament.status)) {
+        return false;
+      }
+      return start > now;
     });
   }, [tournaments]);
+
 
   const completedTournaments = useMemo(() => {
     const now = Date.now();
@@ -863,10 +889,7 @@ const TournamentPage = () => {
                 const isUserRegistered = Boolean(registration);
                 const isLoadingJoin = joiningTournamentId === tournament.id;
                 const isLoadingRegister = registeringTournamentId === tournament.id;
-                const canJoin =
-                  isUserRegistered &&
-                  tournament.status === "active" &&
-                  new Date(tournament.starts_at).getTime() <= Date.now();
+                const canJoin = isUserRegistered && isTournamentOngoing(tournament);
                 const Icon = tournament.status === "completed" ? Swords : Trophy;
 
                 return (
