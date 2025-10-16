@@ -200,6 +200,7 @@ serve(async (req) => {
       return jsonResponse(
         req,
         {
+         console.error('Model response:', modelResponse);
           error: "Le modèle n’a pas renvoyé de JSON exploitable après coercition",
           details: [{ path: "modelResponse", message: redactForLog(candidate) }],
         },
@@ -209,6 +210,7 @@ serve(async (req) => {
     }
 
     // 5) Parsing tolérant
+    
     const parsedRule = parseModelJson(jsonSlice);
 
     // 6) Normalisation + Validation Zod
