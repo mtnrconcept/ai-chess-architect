@@ -1,289 +1,262 @@
-// supabase/functions/generate-chess-rule/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// /supabase/functions/generate-chess-rule/index.ts
+// Deno Deploy (Supabase Edge Functions)
+
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { corsResponse, handleOptions, jsonResponse, type CorsOptions } from "../_shared/cors.ts";
-import { authenticateRequest } from "../_shared/auth.ts";
-import { invokeChatCompletion, type AiProviderName } from "../_shared/ai-providers.ts";
+import { withCors, preflightIfOptions } from "../_shared/cors.ts";
+import { json } from "../_shared/http.ts";
 
-// --- CORS options (identiques à ma version précédente) ---
-const corsOptions: CorsOptions = {
-  methods: ["POST"],
-  allowCredentials: true,
-  extraAllowedHeaders: ["x-client-info", "apikey", "Authorization", "Prefer", "X-Requested-With", "x-csrf-token"],
-};
+// —— Config runtime ——
+const MODEL_TIMEOUT_MS = 45000; // < 60s pour rester sous limite CF/Supabase
+const BODY_LIMIT_BYTES = 256 * 1024; // 256 KB, protège contre payloads énormes
 
-const BEST_RULE_MODELS: Partial<Record<AiProviderName, string>> = {
-  lovable: "google/gemini-2.0-pro-exp",
-  groq: "llama-3.1-70b-versatile",
-  openai: "gpt-4o",
-  gemini: "gemini-1.5-pro",
-};
-
-const QUALITY_CHECK_MODELS: Partial<Record<AiProviderName, string>> = {
-  lovable: "google/gemini-2.0-pro-exp",
-  groq: "llama-3.1-70b-versatile",
-  openai: "gpt-4o",
-  gemini: "gemini-1.5-pro",
-};
-
-// --- Schémas (identiques) ---
-const conditionSchema = z.object({
-  type: z.enum(["pieceType", "pieceColor", "turnNumber", "position", "movesThisTurn", "piecesOnBoard"]),
-  value: z.union([z.string().trim().min(1), z.number(), z.boolean(), z.array(z.string().trim().min(1)), z.record(z.unknown())]),
-  operator: z.enum(["equals", "notEquals", "greaterThan", "lessThan", "greaterOrEqual", "lessOrEqual", "contains", "in"]),
+// —— Schémas d’entrées/sorties ——
+const RulePromptSchema = z.object({
+  prompt: z.string().min(3).max(2000),
+  locale: z.enum(["fr", "en"]).optional().default("fr"),
+  temperature: z.number().min(0).max(2).optional().default(0.4),
+  // context facultatif (état du jeu, presets, etc.)
+  context: z.record(z.any()).optional(),
 });
 
-const effectSchema = z.object({
-  action: z.enum(["allowExtraMove", "modifyMovement", "addAbility", "restrictMovement", "changeValue", "triggerEvent", "allowCapture", "preventCapture"]),
-  target: z.enum(["self", "opponent", "all", "specific"]),
-  parameters: z.object({
-    count: z.number().int().min(0).optional(),
-    property: z.string().trim().min(1).optional(),
-    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.unknown()), z.record(z.unknown())]).optional(),
-    duration: z.enum(["permanent", "temporary", "turns"]).optional(),
-    range: z.number().int().min(0).optional(),
-  }).default({}),
+const EngineRuleSchema = z.object({
+  ruleId: z.string().min(3),
+  ruleName: z.string().min(1),
+  description: z.string().min(5),
+  // Contrat minimum attendu par ton moteur (adapte si besoin)
+  visuals: z
+    .object({
+      icon: z.string().optional(),
+      color: z.string().optional(),
+      animations: z.array(z.string()).optional(),
+    })
+    .optional(),
+  effects: z
+    .array(
+      z.object({
+        type: z.string().min(1),
+        triggers: z.array(z.string()).optional(),
+        payload: z.record(z.any()).optional(),
+      }),
+    )
+    .min(1),
+  engineAdapters: z
+    .object({
+      // clés pour brancher le moteur : hooks & handlers
+      onSelect: z.string().optional(),
+      onSpecialAction: z.string().optional(),
+      onTick: z.string().optional(),
+      validate: z.string().optional(),
+      resolveConflicts: z.string().optional(),
+    })
+    .partial(),
 });
 
-const ruleSchema = z.object({
-  ruleId: z.string().trim().min(1).optional(),
-  ruleName: z.string().trim().min(4).max(120),
-  description: z.string().trim().min(20),
-  category: z.enum(["movement", "capture", "special", "condition", "victory", "restriction", "defense", "behavior"]),
-  affectedPieces: z.array(z.enum(["king", "queen", "rook", "bishop", "knight", "pawn", "all"])).min(1),
-  trigger: z.enum(["always", "onMove", "onCapture", "onCheck", "onCheckmate", "turnBased", "conditional"]),
-  conditions: z.array(conditionSchema).default([]),
-  effects: z.array(effectSchema).min(1, "Au moins un effet est requis"),
-  priority: z.number().int().min(0).max(100).default(1),
-  isActive: z.boolean(),
-  tags: z.array(z.string().trim().min(2).max(20)).min(2).max(4),
-  validationRules: z.object({
-    allowedWith: z.array(z.string().trim()).default([]),
-    conflictsWith: z.array(z.string().trim()).default([]),
-    requiredState: z.record(z.unknown()).default({}),
-  }).default({ allowedWith: [], conflictsWith: [], requiredState: {} }),
-});
+type EngineRule = z.infer<typeof EngineRuleSchema>;
 
-// --- Helpers JSON tolerant (identiques) ---
-const normaliseUnicodeJson = (input: string) =>
-  input
-    .replace(/\u2018|\u2019/g, "'")
-    .replace(/\u201C|\u201D/g, '"')
-    .replace(/\u2013|\u2014/g, "-")
-    .replace(/\u00a0/g, " ")
-    .replace(/\u2028|\u2029/g, "");
+// —— Accès modèle (OpenAI/Groq/…): stub interchangeable ——
+const PROVIDER = Deno.env.get("PROVIDER") ?? "openai";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+const MODEL = Deno.env.get("MODEL") ?? "gpt-4o-mini";
 
-const repairSingleQuotedJson = (input: string) => {
-  let output = input;
-  output = output.replace(/([\{\[,]\s*)'([^'\n\r]+?)'\s*:/g, (_m, p: string, k: string) => `${p}"${k.replace(/"/g, '\\"')}":`);
-  output = output.replace(/:\s*'([^'\n\r]*?)'/g, (_m, v: string) => `: "${v.replace(/"/g, '\\"')}"`);
-  output = output.replace(/'([^'\n\r]*?)'(?=\s*([,\]]))/g, (_m, v: string, s: string) => `"${v.replace(/"/g, '\\"')}"${s ?? ""}`);
-  return output;
-};
-
-const parseModelJson = (raw: string) => {
-  const primary = normaliseUnicodeJson(raw);
-  try {
-    return JSON.parse(primary);
-  } catch {
-    const loose = normaliseUnicodeJson(primary.replace(/,\s*([}\]])/g, "$1").replace(/\s+$/g, ""));
-    try {
-      return JSON.parse(loose);
-    } catch {
-      const repaired = repairSingleQuotedJson(loose);
-      return JSON.parse(repaired);
+// Utilitaire: appel modèle qui renvoie TOUJOURS une string JSON (ou lance une erreur contrôlée)
+async function callModelJSON(
+  prompt: string,
+  temperature: number,
+  signal: AbortSignal,
+): Promise<string> {
+  if (PROVIDER === "openai") {
+    if (!OPENAI_API_KEY) {
+      throw new Error("Missing OPENAI_API_KEY");
     }
-  }
-};
-
-// --- Prompts ---
-const verificationSystemPrompt =
-  'Tu es un contrôleur qualité. Réponds STRICTEMENT {"status":"OK"|"KO","reason":"..."}';
-
-const systemPrompt =
-  `Tu es un expert en règles d'échecs... (le bloc détaillé que tu avais déjà).
-RÈGLES IMPORTANTES :
-- Réponds UNIQUEMENT avec le JSON, rien d'autre
-- Pas de backticks, pas de markdown
-- Le JSON doit être parfaitement valide
-- Tags FR, 2–4 éléments, etc.`;
-
-// --- Fallback: normaliser une sortie non-JSON en JSON strict ---
-async function coerceToJsonWithLLM(nonJson: string, expectedShapeHint: string): Promise<string> {
-  const { content } = await invokeChatCompletion({
-    forceJson: true,                            // << important
-    temperature: 0,
-    maxOutputTokens: 600,
-    preferredModels: BEST_RULE_MODELS,
-    messages: [
-      { role: "system", content: "Transforme le contenu suivant en un UNIQUE objet JSON valide conforme à la structure donnée. Réponds strictement en JSON." },
-      { role: "user", content: `STRUCTURE ATTENDUE:\n${expectedShapeHint}\n\nCONTENU A CONVERTIR:\n${nonJson}` },
-    ],
-  });
-  return content.trim();
-}
-
-function extractJsonSlice(text: string): string | null {
-  // Tente d’extraire la première et dernière accolade équilibrées
-  const start = text.indexOf("{");
-  const end   = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  return text.slice(start, end + 1);
-}
-
-function redactForLog(s: string, max = 800): string {
-  const t = s.replace(/\s+/g, " ");
-  return t.length > max ? `${t.slice(0, max)}…[truncated]` : t;
-}
-
-serve(async (req) => {
-  if (req.method === "OPTIONS") return handleOptions(req, corsOptions);
-  if (req.method !== "POST") return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);
-
-  try {
-    // Auth
-    const authResult = await authenticateRequest(req);
-    if (!authResult.success) {
-      return jsonResponse(req, { error: authResult.error }, { status: authResult.status }, corsOptions);
-    }
-
-    // Input
-    const rawBody = await req.json().catch(() => null);
-    const schema = z.object({ prompt: z.string().trim().min(10).max(800) });
-    const parsed = schema.safeParse(rawBody);
-    if (!parsed.success) {
-      const details = parsed.error.issues.map((i) => ({ path: i.path.join(".") || "root", message: i.message }));
-      return jsonResponse(req, { error: "Invalid request payload", details }, { status: 400 }, corsOptions);
-    }
-    const prompt = parsed.data.prompt;
-
-    // 1) Appel LLM en JSON-mode
-    const { content: modelResponse } = await invokeChatCompletion({
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `DESCRIPTION DE LA RÈGLE : "${prompt}"` },
-      ],
-      temperature: 0.7,
-      maxOutputTokens: 900,
-      preferredModels: BEST_RULE_MODELS,
-      forceJson: true,                         // << NEW
-    });
-
-    // 2) Extraction/Nettoyage
-    let candidate = modelResponse.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-    let jsonSlice = extractJsonSlice(candidate);
-
-    // 3) Fallback 1: si aucune accolade trouvée, on re-demande une conversion stricte
-    if (!jsonSlice) {
-      console.warn("[generate-chess-rule] No braces in primary modelResponse. Sample:", redactForLog(candidate));
-      const shape = `{
-  "ruleId": "rule_<slug>_v1",
-  "ruleName": "string",
-  "description": "string",
-  "category": "movement|capture|special|condition|victory|restriction|defense|behavior",
-  "affectedPieces": ["king|queen|rook|bishop|knight|pawn|all"],
-  "trigger": "always|onMove|onCapture|onCheck|onCheckmate|turnBased|conditional",
-  "conditions": [ { "type": "...", "value": "...", "operator": "..." } ],
-  "effects": [ { "action": "...", "target": "...", "parameters": {} } ],
-  "priority": 1,
-  "isActive": true,
-  "tags": ["a","b"],
-  "validationRules": { "allowedWith": [], "conflictsWith": [], "requiredState": {} }
-}`;
-      const coerced = await coerceToJsonWithLLM(candidate, shape);
-      candidate = coerced;
-      jsonSlice = extractJsonSlice(candidate);
-    }
-
-    // 4) Fallback 2: dernière chance — si toujours rien, répondre 502 explicite
-    if (!jsonSlice) {
-      return jsonResponse(
-        req,
-        {
-         console.error('Model response:', modelResponse);
-          error: "Le modèle n’a pas renvoyé de JSON exploitable après coercition",
-          details: [{ path: "modelResponse", message: redactForLog(candidate) }],
-        },
-        { status: 502 },
-        corsOptions,
-      );
-    }
-
-    // 5) Parsing tolérant
-    
-    const parsedRule = parseModelJson(jsonSlice);
-
-    // 6) Normalisation + Validation Zod
-    const normalizedRuleInput = {
-      ...parsedRule,
-      tags: Array.isArray(parsedRule.tags) ? parsedRule.tags : [],
-      conditions: Array.isArray(parsedRule.conditions) ? parsedRule.conditions : [],
-      effects: Array.isArray(parsedRule.effects) ? parsedRule.effects : [],
-      validationRules: parsedRule.validationRules ?? {},
-    };
-
-    const ruleValidation = ruleSchema.safeParse(normalizedRuleInput);
-    if (!ruleValidation.success) {
-      const details = ruleValidation.error.issues.map((i) => ({ path: i.path.join(".") || "root", message: i.message }));
-      return jsonResponse(req, { error: "La règle générée est invalide", details }, { status: 422 }, corsOptions);
-    }
-
-    const validatedRule = ruleValidation.data;
-    const finalRule = {
-      ...validatedRule,
-      ruleId: validatedRule.ruleId || `rule_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-      createdAt: new Date().toISOString(),
-      tags: validatedRule.tags.map((t) => String(t).toLowerCase()).filter(Boolean),
-      validationRules: {
-        allowedWith: validatedRule.validationRules.allowedWith,
-        conflictsWith: validatedRule.validationRules.conflictsWith,
-        requiredState: validatedRule.validationRules.requiredState,
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      signal,
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
       },
-    };
-
-    // 7) Vérif de cohérence
-    const { content: verificationResponse } = await invokeChatCompletion({
-      messages: [
-        { role: "system", content: verificationSystemPrompt },
-        { role: "user", content: `PROMPT UTILISATEUR:\n${prompt}\n\nRÈGLE JSON:\n${JSON.stringify(finalRule, null, 2)}` },
-      ],
-      temperature: 0,
-      maxOutputTokens: 300,
-      preferredModels: QUALITY_CHECK_MODELS,
-      forceJson: true, // le validateur doit aussi parler JSON
+      body: JSON.stringify({
+        model: MODEL,
+        temperature,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Tu es un compilateur de règles de jeu d’échecs variantes. Réponds STRICTEMENT en JSON unique conforme au schéma demandé, sans texte avant/après.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
     });
 
-    let ver = verificationResponse.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-    const verSlice = extractJsonSlice(ver) ?? ver;
-    let verificationResult: { status: string; reason?: string };
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`ProviderError ${res.status}: ${text.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (typeof raw !== "string" || raw.trim().length === 0) {
+      throw new Error("EmptyModelResponse");
+    }
+    return raw;
+  }
+
+  // Ajoute ici d’autres providers si besoin
+  throw new Error(`Unsupported provider: ${PROVIDER}`);
+}
+
+// —— Utilitaires sécurité / robustesse ——
+async function readBodyWithLimit(
+  req: Request,
+  limitBytes: number,
+): Promise<Uint8Array> {
+  const reader = req.body?.getReader();
+  if (!reader) return new Uint8Array();
+  let received = 0;
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value?.length ?? 0;
+    if (received > limitBytes) {
+      throw new Error("PayloadTooLarge");
+    }
+    chunks.push(value);
+  }
+  return chunks.length ? concatenate(chunks) : new Uint8Array();
+}
+
+function concatenate(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
+// —— Serve ——
+serve(async (rawReq) => {
+  // Preflight CORS
+  const preflight = preflightIfOptions(rawReq);
+  if (preflight) return preflight;
+
+  try {
+    // Sécurise taille payload
+    const bodyBytes = await readBodyWithLimit(rawReq, BODY_LIMIT_BYTES);
+    const bodyText = new TextDecoder().decode(bodyBytes) || "{}";
+
+    // Validation input
+    const parsedInput = RulePromptSchema.safeParse(JSON.parse(bodyText));
+    if (!parsedInput.success) {
+      return withCors(
+        json(
+          {
+            ok: false,
+            error: "InvalidInput",
+            details: parsedInput.error.flatten(),
+          },
+          400,
+        ),
+      );
+    }
+    const { prompt, temperature, locale, context } = parsedInput.data;
+
+    // Timeout contrôlé
+    const aborter = new AbortController();
+    const timer = setTimeout(
+      () => aborter.abort("ModelTimeout"),
+      MODEL_TIMEOUT_MS,
+    );
+
+    // Construit un prompt canonique pour forcer un JSON conforme
+    const instruction = `
+Génère une règle pour mon moteur de variantes d'échecs à partir du prompt utilisateur ci-dessous.
+Renvoie UNIQUEMENT un JSON conforme au schéma "EngineRuleSchema" (pas de Markdown ni d'explications).
+Contraintes:
+- Fournir "ruleId" unique (ex: "rule_${Date.now()}").
+- "effects" doit décrire l'action (ex: "placeMine", "explodeMine", "freezeMissile", "teleport", etc.) avec payload minimal utile.
+- Si spécial (bouton d'action), renseigner "engineAdapters.onSpecialAction" avec le nom d'un handler (string).
+- Ne crée pas de texte hors JSON.
+
+Schema attendu (typescript):
+${EngineRuleSchema.toString()}
+
+Prompt utilisateur (locale=${locale}):
+${prompt}
+
+Contexte (optionnel):
+${JSON.stringify(context ?? {}, null, 2)}
+`.trim();
+
+    let rawJSON = "";
     try {
-      verificationResult = JSON.parse(verSlice);
-    } catch {
-      return jsonResponse(
-        req,
-        { error: "Échec de la validation de cohérence", details: [{ path: "verification", message: redactForLog(ver) }] },
-        { status: 502 },
-        corsOptions,
+      rawJSON = await callModelJSON(instruction, temperature, aborter.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // Parfois les modèles renvoient des « fences » ```json … ```
+    const sanitized = rawJSON
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
+    // Parse + validate
+    let candidate: unknown;
+    try {
+      candidate = JSON.parse(sanitized);
+    } catch (e) {
+      // Dernier filet: tente d’extraire le premier objet JSON équilibré
+      const match = sanitized.match(/\{[\s\S]*\}$/);
+      if (!match) {
+        throw new Error("ModelReturnedNonJSON");
+      }
+      candidate = JSON.parse(match[0]);
+    }
+
+    const checked = EngineRuleSchema.safeParse(candidate);
+    if (!checked.success) {
+      return withCors(
+        json(
+          {
+            ok: false,
+            error: "InvalidModelJSON",
+            details: checked.error.flatten(),
+            raw: sanitized.slice(0, 2000),
+          },
+          422,
+        ),
       );
     }
 
-    if (verificationResult.status !== "OK") {
-      return jsonResponse(
-        req,
-        { error: "La règle générée n'a pas passé la validation de cohérence", details: [{ path: "verification", message: verificationResult.reason ?? "Motif non spécifié" }] },
-        { status: 422 },
-        corsOptions,
-      );
-    }
+    const rule: EngineRule = checked.data;
 
-    return jsonResponse(req, { rule: finalRule }, { status: 200 }, corsOptions);
+    // Succès
+    return withCors(json({ ok: true, rule }, 200));
+  } catch (err) {
+    // Journalisation contrôlée (évite 502)
+    const code =
+      err?.message === "ModelTimeout"
+        ? 504
+        : err?.message === "PayloadTooLarge"
+          ? 413
+          : 500;
 
-  } catch (error) {
-    console.error("Error in generate-chess-rule:", error);
-    const msg = error instanceof Error ? error.message : "Unknown error";
-    const status =
-      msg.includes("429") || msg.includes("Rate limit") ? 429 :
-      msg.includes("Aucun fournisseur IA") ? 503 : 500;
-    return jsonResponse(req, { error: msg || "Unknown error" }, { status }, corsOptions);
+    const safe = {
+      ok: false,
+      error: "GenerateRuleFailed",
+      reason: String(err?.message ?? err),
+    };
+
+    // Toujours répondre JSON (jamais laisser planter)
+    return withCors(json(safe, code));
   }
 });
