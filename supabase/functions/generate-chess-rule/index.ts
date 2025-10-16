@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { authenticateRequest } from "../_shared/auth.ts";
@@ -168,9 +168,9 @@ const parseModelJson = (raw: string) => {
 };
 
 const verificationSystemPrompt =
-  "Tu es un contrôleur qualité chargé de vérifier que la règle JSON fournie répond exactement au besoin décrit. " +
-  "Analyse la cohérence, la correspondance du thème, des conditions et des effets. Réponds STRICTEMENT au format JSON suivant: " +
-  '{"status":"OK"|"KO","reason":"Explication concise en français"}. Si la règle ne correspond pas, explique pourquoi dans "reason".';
+  "Tu es un contrÃ´leur qualitÃ© chargÃ© de vÃ©rifier que la rÃ¨gle JSON fournie rÃ©pond exactement au besoin dÃ©crit. " +
+  "Analyse la cohÃ©rence, la correspondance du thÃ¨me, des conditions et des effets. RÃ©ponds STRICTEMENT au format JSON suivant: " +
+  '{"status":"OK"|"KO","reason":"Explication concise en franÃ§ais"}. Si la rÃ¨gle ne correspond pas, explique pourquoi dans "reason".';
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -207,14 +207,14 @@ serve(async (req) => {
     const prompt = parsed.data.prompt;
 
     const systemPrompt =
-      `Tu es un expert en règles d'échecs et en génération de configurations JSON pour un moteur de jeu d'échecs personnalisable.
+      `Tu es un expert en rÃ¨gles d'Ã©checs et en gÃ©nÃ©ration de configurations JSON pour un moteur de jeu d'Ã©checs personnalisable.
 
-Tu dois générer un objet JSON PARFAITEMENT structuré et exécutable. Voici la structure EXACTE :
+Tu dois gÃ©nÃ©rer un objet JSON PARFAITEMENT structurÃ© et exÃ©cutable. Voici la structure EXACTE :
 
 {
   "ruleId": "rule_[timestamp_unique]",
   "ruleName": "Nom Court et Descriptif",
-  "description": "Description détaillée de ce que fait la règle",
+  "description": "Description dÃ©taillÃ©e de ce que fait la rÃ¨gle",
   "category": "movement|capture|special|condition|victory|restriction|defense|behavior",
   "affectedPieces": ["king"|"queen"|"rook"|"bishop"|"knight"|"pawn"|"all"],
   "trigger": "always|onMove|onCapture|onCheck|onCheckmate|turnBased|conditional",
@@ -248,17 +248,17 @@ Tu dois générer un objet JSON PARFAITEMENT structuré et exécutable. Voici la
   }
 }
 
-RÈGLES IMPORTANTES :
-- Réponds UNIQUEMENT avec le JSON, rien d'autre
+RÃˆGLES IMPORTANTES :
+- RÃ©ponds UNIQUEMENT avec le JSON, rien d'autre
 - Pas de backticks, pas de markdown
-- Le JSON doit être parfaitement valide
-- Génère entre 2 et 4 tags courts en français pour décrire la règle
-- Sois créatif mais logique`;
+- Le JSON doit Ãªtre parfaitement valide
+- GÃ©nÃ¨re entre 2 et 4 tags courts en franÃ§ais pour dÃ©crire la rÃ¨gle
+- Sois crÃ©atif mais logique`;
 
     const { content: modelResponse } = await invokeChatCompletion({
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `DESCRIPTION DE LA RÈGLE : "${prompt}"` },
+        { role: "user", content: `DESCRIPTION DE LA RÃˆGLE : "${prompt}"` },
       ],
       temperature: 0.7,
       preferredModels: BEST_RULE_MODELS,
@@ -273,7 +273,7 @@ RÈGLES IMPORTANTES :
     const lastBrace = ruleJson.lastIndexOf("}");
 
     if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      throw new Error("Le modèle n'a pas renvoyé de JSON valide");
+      throw new Error("Le modÃ¨le n'a pas renvoyÃ© de JSON valide");
     }
 
     const cleanedJson = ruleJson.slice(firstBrace, lastBrace + 1);
@@ -296,7 +296,7 @@ RÈGLES IMPORTANTES :
       }));
       return jsonResponse(
         req,
-        { error: "La règle générée est invalide", details },
+        { error: "La rÃ¨gle gÃ©nÃ©rÃ©e est invalide", details },
         { status: 422 },
         corsOptions,
       );
@@ -322,7 +322,7 @@ RÈGLES IMPORTANTES :
       { role: "system", content: verificationSystemPrompt },
       {
         role: "user",
-        content: `PROMPT UTILISATEUR:\n${prompt}\n\nRÈGLE JSON:\n${JSON.stringify(finalRule, null, 2)}`,
+        content: `PROMPT UTILISATEUR:\n${prompt}\n\nRÃˆGLE JSON:\n${JSON.stringify(finalRule, null, 2)}`,
       },
     ];
 
@@ -346,11 +346,11 @@ RÈGLES IMPORTANTES :
       return jsonResponse(
         req,
         {
-          error: "Échec de la validation de cohérence",
+          error: "Ã‰chec de la validation de cohÃ©rence",
           details: [
             {
               path: "verification",
-              message: "La réponse du vérificateur n'est pas un JSON valide",
+              message: "La rÃ©ponse du vÃ©rificateur n'est pas un JSON valide",
             },
           ],
         },
@@ -363,11 +363,11 @@ RÈGLES IMPORTANTES :
       return jsonResponse(
         req,
         {
-          error: "La règle générée n'a pas passé la validation de cohérence",
+          error: "La rÃ¨gle gÃ©nÃ©rÃ©e n'a pas passÃ© la validation de cohÃ©rence",
           details: [
             {
               path: "verification",
-              message: verificationResult.reason || "Motif non spécifié",
+              message: verificationResult.reason || "Motif non spÃ©cifiÃ©",
             },
           ],
         },
@@ -389,3 +389,4 @@ RÈGLES IMPORTANTES :
     return jsonResponse(req, { error: normalizedMessage }, { status }, corsOptions);
   }
 });
+
