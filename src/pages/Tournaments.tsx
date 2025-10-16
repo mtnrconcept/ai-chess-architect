@@ -239,25 +239,28 @@ const TournamentPage = () => {
 
   const activeTournaments = useMemo(() => {
     const now = Date.now();
-    return tournaments.filter(tournament => isTournamentOngoing(tournament, now));
+    return tournaments.filter(tournament => isTournamentOngoing(tournament, now)).slice(0, 10);
   }, [tournaments]);
 
 
   const upcomingTournaments = useMemo(() => {
     const now = Date.now();
-    return tournaments.filter(tournament => {
-      const start = new Date(tournament.starts_at).getTime();
-      if (!Number.isFinite(start)) {
-        return false;
-      }
-      if (isTournamentOngoing(tournament, now)) {
-        return false;
-      }
-      if (["cancelled", "completed"].includes(tournament.status)) {
-        return false;
-      }
-      return start > now;
-    });
+    return tournaments
+      .filter(tournament => {
+        const start = new Date(tournament.starts_at).getTime();
+        if (!Number.isFinite(start)) {
+          return false;
+        }
+        if (isTournamentOngoing(tournament, now)) {
+          return false;
+        }
+        if (["cancelled", "completed"].includes(tournament.status)) {
+          return false;
+        }
+        const maxStart = now + 1000 * 60 * 60 * 2;
+        return start > now && start <= maxStart;
+      })
+      .slice(0, 10);
   }, [tournaments]);
 
 

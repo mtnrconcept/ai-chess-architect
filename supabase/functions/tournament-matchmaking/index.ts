@@ -104,7 +104,32 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext) => {
 
   const preliminaryHumanCount = await countHumanRegistrations(context.tournamentId);
   if (preliminaryHumanCount > 1) {
-    return false;
+    const { data: availableHumans, error: availableError } = await supabase
+      .from("tournament_registrations")
+      .select("id")
+      .eq("tournament_id", context.tournamentId)
+      .eq("is_waiting", false)
+      .is("current_match_id", null)
+      .neq("id", context.humanRegistrationId)
+      .limit(1);
+
+    if (availableError) {
+      console.warn(
+        "[tournament-matchmaking] Unable to inspect available opponents:",
+        availableError.message,
+      );
+      await logFunctionError("ai_attach_available_humans_failed", {
+        tournamentId: context.tournamentId,
+        matchId: context.matchId,
+        error: availableError.message,
+        code: availableError.code,
+      });
+      return false;
+    }
+
+    if (availableHumans && availableHumans.length > 0) {
+      return false;
+    }
   }
 
   const { error: updateMatchError } = await supabase
