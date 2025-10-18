@@ -19,52 +19,78 @@ type FxProviderProps = PropsWithChildren<{
 export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) => {
   const [runtime, setRuntime] = useState<FxRuntime | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const appRef = useRef<PIXI.Application | null>(null);
 
   useEffect(() => {
     if (!boardRef.current) return;
-    const container = document.createElement("div");
-    container.style.position = "absolute";
-    container.style.top = "0";
-    container.style.left = "0";
-    container.style.right = "0";
-    container.style.bottom = "0";
-    container.style.pointerEvents = "none";
-    container.style.zIndex = "8";
-    overlayRef.current = container;
-    boardRef.current.appendChild(container);
+    
+    let cancelled = false;
+    
+    const initPixi = async () => {
+      const container = document.createElement("div");
+      container.style.position = "absolute";
+      container.style.top = "0";
+      container.style.left = "0";
+      container.style.right = "0";
+      container.style.bottom = "0";
+      container.style.pointerEvents = "none";
+      container.style.zIndex = "8";
+      overlayRef.current = container;
+      boardRef.current!.appendChild(container);
 
-    const app = new PIXI.Application({
-      backgroundAlpha: 0,
-      resizeTo: boardRef.current,
-      antialias: true,
-      autoDensity: true,
-    });
+      try {
+        // Pixi v8 utilise init() pour initialiser l'application
+        const app = new PIXI.Application();
+        await app.init({
+          backgroundAlpha: 0,
+          resizeTo: boardRef.current!,
+          antialias: true,
+          resolution: window.devicePixelRatio || 1,
+        });
 
-    // Pixi v8 utilise app.canvas au lieu de app.view
-    const canvas = (app as any).canvas || (app as any).view;
-    if (canvas && canvas instanceof HTMLCanvasElement) {
-      container.appendChild(canvas);
-    } else {
-      console.error('[FxProvider] Unable to access Pixi canvas');
-      return;
-    }
+        if (cancelled) {
+          app.destroy(true);
+          return;
+        }
 
-    const ctx: FxContext = {
-      app,
-      layer: { ui: boardRef.current },
-      toCellPos,
+        appRef.current = app;
+
+        // Accéder au canvas via app.canvas (Pixi v8)
+        if (app.canvas) {
+          container.appendChild(app.canvas);
+        } else {
+          console.error('[FxProvider] Canvas not available');
+          return;
+        }
+
+        const ctx: FxContext = {
+          app,
+          layer: { ui: boardRef.current! },
+          toCellPos,
+        };
+
+        const trigger = async (intents: FxIntent[] | undefined, payload?: FxPayload) => {
+          await runFxIntents(intents, ctx, payload ?? {});
+        };
+
+        setRuntime({ ctx, trigger });
+      } catch (error) {
+        console.error('[FxProvider] Failed to initialize Pixi', error);
+      }
     };
 
-    const trigger = async (intents: FxIntent[] | undefined, payload?: FxPayload) => {
-      await runFxIntents(intents, ctx, payload ?? {});
-    };
-
-    setRuntime({ ctx, trigger });
+    initPixi();
 
     return () => {
-      app.destroy(true, { children: true });
-      container.remove();
-      overlayRef.current = null;
+      cancelled = true;
+      if (appRef.current) {
+        appRef.current.destroy(true, { children: true });
+        appRef.current = null;
+      }
+      if (overlayRef.current) {
+        overlayRef.current.remove();
+        overlayRef.current = null;
+      }
       setRuntime(null);
     };
   }, [boardRef, toCellPos]);
