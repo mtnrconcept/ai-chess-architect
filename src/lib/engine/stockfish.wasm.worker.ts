@@ -1,13 +1,14 @@
-import StockfishFactory from "stockfish";
+// Stockfish worker disabled for compatibility
+// import StockfishFactory from "stockfish";
 
 let engine: any = null;
 
 async function ensureEngine() {
   if (!engine) {
-    engine = await StockfishFactory();
-    engine.postMessage("uci");
-    engine.postMessage("setoption name Threads value 2");
-    engine.postMessage("setoption name MultiPV value 2");
+    // Stockfish disabled for compatibility
+    // engine = await StockfishFactory();
+    console.warn('Stockfish engine not available');
+    return null;
   }
   return engine;
 }

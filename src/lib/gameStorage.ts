@@ -76,7 +76,7 @@ export const saveCompletedGame = async ({
     capturedPiece: move.capturedPiece ?? null,
   }));
 
-  const { error } = await supabase.from('user_games').insert({
+  const { error } = await supabase.from('user_games').insert([{
     user_id: userId,
     opponent_name: opponentName ?? null,
     opponent_type: opponentType,
@@ -84,14 +84,14 @@ export const saveCompletedGame = async ({
     variant_name: variantName ?? null,
     time_control: timeControl ?? null,
     player_color: playerColor,
-    move_history: sanitizedMoves,
-    analysis_overview: overview,
-    starting_board: analysis.startingBoard,
+    move_history: sanitizedMoves as any,
+    analysis_overview: overview as any,
+    starting_board: analysis.startingBoard as any,
     accuracy: analysis.accuracy,
     total_moves: analysis.totalMoves,
     duration_seconds: durationSeconds ?? null,
-    metadata: metadata ?? null,
-  });
+    metadata: (metadata ?? null) as any,
+  }]);
 
   if (error) {
     throw error;
@@ -115,8 +115,8 @@ export const fetchUserGames = async (userId: string): Promise<StoredGameRecord[]
 
   return data.map(record => ({
     ...record,
-    analysis_overview: record.analysis_overview as AnalysisOverviewPayload,
-    move_history: record.move_history as StoredAnalyzedMove[],
-    starting_board: record.starting_board as PostGameAnalysisResult['startingBoard'],
+    analysis_overview: record.analysis_overview as unknown as AnalysisOverviewPayload,
+    move_history: record.move_history as unknown as StoredAnalyzedMove[],
+    starting_board: record.starting_board as unknown as PostGameAnalysisResult['startingBoard'],
   }));
 };

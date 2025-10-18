@@ -85,7 +85,7 @@ const RuleCard = ({
           radius: number;
           countdown: number;
           damage: number;
-          freezeTurns?: number;
+          freezeTurns: number | undefined;
         } => summary !== null)
     : [];
 

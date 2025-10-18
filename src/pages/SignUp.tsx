@@ -115,10 +115,10 @@ const SignUp = () => {
         return;
       }
 
-      credentials = parsed.data;
+      credentials = parsed.data as { email: string; password: string };
     }
 
-    if (!credentials) {
+    if (!credentials || !credentials.email || !credentials.password) {
       return;
     }
 

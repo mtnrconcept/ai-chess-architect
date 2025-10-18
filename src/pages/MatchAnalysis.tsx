@@ -53,6 +53,8 @@ const buildReplayState = (snapshot: SerializedBoardState): GameState => ({
   movesThisTurn: 0,
   selectedPiece: null,
   validMoves: [],
+  specialAttacks: [],
+  visualEffects: [],
   gameStatus: 'active',
   capturedPieces: [],
   moveHistory: [],
@@ -255,7 +257,8 @@ const MatchAnalysis = () => {
       return { moves: [] as any[], points: [] as Array<{ ply: number; delta_ep: number; quality: string }> };
     }
     const moves = coachReport.moves.map(move => {
-      let comment = move.coach_json;
+      const moveData = move as any;
+      let comment = moveData.coach_json;
       if (typeof comment === 'string') {
         try {
           comment = JSON.parse(comment);
@@ -263,7 +266,7 @@ const MatchAnalysis = () => {
           comment = null;
         }
       }
-      return { ...move, coach_json: comment };
+      return { ...moveData, coach_json: comment };
     });
     const points = moves.map(move => ({
       ply: Number(move.ply ?? 0),
@@ -274,7 +277,7 @@ const MatchAnalysis = () => {
   }, [coachReport]);
 
   const coachKeyMoments = useMemo(() => {
-    const raw = coachReport?.report?.key_moments;
+    const raw = (coachReport?.report as any)?.key_moments;
     let values: unknown = raw;
     if (typeof raw === 'string') {
       try {
@@ -305,9 +308,9 @@ const MatchAnalysis = () => {
   }, [coachData.moves, activeCoachPly]);
 
   const coachLoadingAnalysis = Boolean(coachStatus && ['queued', 'running'].includes(coachStatus.status));
-  const coachSummary = coachReport?.report?.summary_md ?? '';
-  const coachAccuracyWhite = coachReport?.report?.accuracy_white ?? null;
-  const coachAccuracyBlack = coachReport?.report?.accuracy_black ?? null;
+  const coachSummary = (coachReport?.report as any)?.summary_md ?? '';
+  const coachAccuracyWhite = (coachReport?.report as any)?.accuracy_white ?? null;
+  const coachAccuracyBlack = (coachReport?.report as any)?.accuracy_black ?? null;
   const coachStatusLabel = coachStatus?.status ?? (coachData.moves.length ? 'done' : coachGameId ? 'queued' : 'idle');
   const coachStatusFriendly = useMemo(() => {
     switch (coachStatusLabel) {

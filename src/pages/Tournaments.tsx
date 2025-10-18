@@ -197,7 +197,10 @@ const TournamentPage = () => {
     queryKey: ["tournaments"],
     queryFn: fetchTournamentOverview,
     enabled: !tournamentsUnavailable,
-    retry: error => !(error instanceof TournamentFeatureUnavailableError),
+    retry: (failureCount, error) => {
+      if ((error as any)?.constructor?.name === 'TournamentFeatureUnavailableError') return false;
+      return failureCount < 3;
+    },
   });
 
   const tournaments = tournamentsQuery.data ?? [];
@@ -208,7 +211,10 @@ const TournamentPage = () => {
     queryKey: ["my-tournament-registrations", user?.id],
     queryFn: () => fetchUserTournamentRegistrations(user!.id),
     enabled: Boolean(user?.id) && !tournamentsUnavailable,
-    retry: error => !(error instanceof TournamentFeatureUnavailableError),
+    retry: (failureCount, error) => {
+      if ((error as any)?.constructor?.name === 'TournamentFeatureUnavailableError') return false;
+      return failureCount < 3;
+    },
   });
 
   const myRegistrations = myRegistrationsQuery.data ?? [];
@@ -218,7 +224,10 @@ const TournamentPage = () => {
     queryKey: ["tournament-details", selectedTournamentId],
     queryFn: () => fetchTournamentDetails(selectedTournamentId!),
     enabled: Boolean(selectedTournamentId) && !tournamentsUnavailable,
-    retry: error => !(error instanceof TournamentFeatureUnavailableError),
+    retry: (failureCount, error) => {
+      if ((error as any)?.constructor?.name === 'TournamentFeatureUnavailableError') return false;
+      return failureCount < 3;
+    },
   });
   const selectedDetailsError = selectedDetailsQuery.error;
 
@@ -583,7 +592,7 @@ const TournamentPage = () => {
       const payload = await reportTournamentMatch(matchId, result);
       toast({ title: "Résultat enregistré", description: "Le classement a été mis à jour." });
       if (payload?.leaderboard) {
-        setLeaderboardState({ loading: false, entries: payload.leaderboard });
+        setLeaderboardState({ loading: false, entries: payload.leaderboard, error: null });
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["my-tournament-registrations", user.id] }),

@@ -289,13 +289,13 @@ const Pricing = () => {
         return;
       }
 
-      const { error: redirectError } = await stripe.redirectToCheckout({
-        sessionId: data.sessionId!,
+      // Stripe Checkout Session handled via URL redirect
+      console.error('No checkout URL provided');
+      toast({
+        title: "Erreur",
+        description: "Impossible de démarrer le paiement",
+        variant: "destructive"
       });
-
-      if (redirectError) {
-        throw new Error(redirectError.message);
-      }
     } catch (rawError) {
       const message =
         rawError instanceof Error

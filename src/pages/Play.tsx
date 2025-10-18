@@ -702,11 +702,12 @@ const Play = () => {
       });
 
       if (outcome.success) {
-        const countdownInfo = outcome.trigger === 'countdown'
-          ? `Détonation programmée dans ${outcome.countdown} tour${outcome.countdown > 1 ? 's' : ''}.`
-          : `Charge posée sur ${outcome.coordinate}.`;
+        const outcomeData = outcome as any;
+        const countdownInfo = outcomeData.trigger === 'countdown'
+          ? `Détonation programmée dans ${outcomeData.countdown} tour${outcomeData.countdown > 1 ? 's' : ''}.`
+          : `Charge posée sur ${outcomeData.coordinate}.`;
         toast({
-          title: `${outcome.abilityLabel} activée`,
+          title: `${outcomeData.abilityLabel} activée`,
           description: countdownInfo,
         });
       } else {

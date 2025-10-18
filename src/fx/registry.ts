@@ -1,12 +1,10 @@
 import gsap from "gsap";
 import {
   Application,
-  BLEND_MODES,
   Container,
   Graphics,
   Sprite,
   Texture,
-  filters,
 } from "pixi.js";
 import type { FxContext, FxIntent, FxPayload } from "./types";
 
@@ -27,14 +25,8 @@ const ensureParticleTexture = (() => {
 })();
 
 const buildGlowFilter = () => {
-  const glow = new filters.GlowFilter({
-    distance: 25,
-    outerStrength: 2,
-    innerStrength: 0,
-    color: 0x76e0ff,
-    quality: 0.2,
-  });
-  return glow;
+  // Glow filter temporarily disabled for compatibility
+  return null;
 };
 
 function toPixel(ctx: FxContext, cell?: string) {
@@ -59,7 +51,7 @@ function spawnMine(ctx: FxContext, payload: FxPayload, style?: any) {
   if (style?.holo) {
     const holo = new Graphics();
     holo.lineStyle(1, 0x76e0ff, 0.65).drawCircle(0, 0, 20);
-    holo.filters = [buildGlowFilter()];
+    // holo.filters = [buildGlowFilter()];
     group.addChild(holo);
     gsap.to(holo, { rotation: Math.PI * 2, repeat: -1, duration: 6, ease: "linear" });
   }
@@ -96,20 +88,19 @@ function explosionFx(ctx: FxContext, payload: FxPayload, power: "small" | "mediu
   ctx.app.stage.addChild(root);
 
   const burst = new Graphics();
-  burst.blendMode = BLEND_MODES.ADD;
+  burst.alpha = 0.3;
   root.addChild(burst);
 
   const radius = power === "large" ? 80 : power === "medium" ? 58 : 42;
   const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0xff6a00;
 
-  gsap.fromTo(
-    { val: 0 },
-    {
+  const animData = { val: 0 };
+  gsap.to(animData, {
       val: radius,
       duration: 0.5,
       ease: "power2.out",
-      onUpdate(self) {
-        const r = self.targets()[0].val;
+      onUpdate() {
+        const r = animData.val;
         burst.clear();
         burst.beginFill(color, 0.12).drawCircle(0, 0, r * 0.6).endFill();
         burst.lineStyle(4, color, 0.9).drawCircle(0, 0, r);
@@ -160,15 +151,14 @@ function warpFx(ctx: FxContext, payload: FxPayload, style?: any) {
 
   const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x76e0ff;
 
-  gsap.fromTo(
-    { radius: 5 },
-    {
+  const ringData = { radius: 5 };
+  gsap.to(ringData, {
       radius: 48,
       duration: 0.35,
       ease: "expo.out",
-      onUpdate(self) {
+      onUpdate() {
         ring.clear();
-        ring.lineStyle(4, color, 1).drawCircle(0, 0, self.targets()[0].radius);
+        ring.lineStyle(4, color, 1).drawCircle(0, 0, ringData.radius);
       },
     },
   );
@@ -190,7 +180,7 @@ function hologramFx(ctx: FxContext, payload: FxPayload, style?: any) {
   holo.position.set(x, y);
   holo.lineStyle(1, style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x00f1ff, 0.65);
   holo.drawRoundedRect(-24, -24, 48, 48, 8);
-  holo.filters = [buildGlowFilter()];
+  // holo.filters = [buildGlowFilter()];
   ctx.app.stage.addChild(holo);
   gsap.to(holo, { alpha: 0.35, duration: 0.4, yoyo: true, repeat: 4, ease: "sine.inOut" });
   gsap.delayedCall(2.2, () => holo.destroy());
@@ -224,10 +214,10 @@ export async function resolveFx(intent: FxIntent, ctx: FxContext, payload: FxPay
       if (intent.kind === "mine") spawnMine(ctx, payload, intent.style);
       break;
     case "area.hazard":
-      if (intent.kind === "mine-radius") areaHazard(ctx, payload, intent.radius, intent.style);
+      if (intent.kind === "mine-radius") areaHazard(ctx, payload, Number(intent.radius) || 1, intent.style);
       break;
     case "combat.explosion":
-      explosionFx(ctx, payload, intent.power ?? "medium", intent.style);
+      explosionFx(ctx, payload, (intent.power as "large" | "medium" | "small") ?? "medium", intent.style);
       break;
     case "space.warp":
       warpFx(ctx, payload, intent.style);
