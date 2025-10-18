@@ -219,6 +219,11 @@ serve(async (rawReq) => {
 Tu es un compilateur de règles de jeu d'échecs variantes.
 Génère UNIQUEMENT un objet JSON valide conforme au format RuleJSON ci-dessous.
 
+🚨 RÈGLE CRITIQUE ABSOLUE 🚨
+TOUS les IDs d'actions UI dans "ui.actions[].id" DOIVENT OBLIGATOIREMENT commencer par le préfixe "special_"
+Exemples valides : "special_place_mine", "special_freeze_ray", "special_jump", "special_explode"
+Le "when" dans logic.effects doit référencer "ui.special_xxx" (avec le préfixe) pour correspondre à l'action UI.
+
 **FORMAT OBLIGATOIRE RuleJSON** :
 {
   "meta": {
@@ -237,7 +242,7 @@ Génère UNIQUEMENT un objet JSON valide conforme au format RuleJSON ci-dessous.
   "ui": {
     "actions": [                        // Actions disponibles dans l'interface
       {
-        "id": "action_id",              // ID unique de l'action
+        "id": "special_action_id",      // ⚠️ OBLIGATOIRE : ID doit commencer par "special_"
         "label": "Label bouton",        // Texte du bouton
         "hint": "Tooltip",              // Description au survol
         "icon": "🎯",                   // Emoji ou icône
@@ -263,7 +268,7 @@ Génère UNIQUEMENT un objet JSON valide conforme au format RuleJSON ci-dessous.
     "effects": [                        // Effets déclenchés par des événements
       {
         "id": "effect_id",              // ID unique de l'effet
-        "when": "ui.action_id",         // Événement déclencheur
+        "when": "ui.special_action_id", // ⚠️ IMPORTANT : Correspond à l'ID de l'action UI (avec "special_")
         "if": [                         // Conditions (tableau ou string unique)
           "cooldown.ready",
           "ctx.hasTargetTile",
@@ -315,6 +320,10 @@ Génère UNIQUEMENT un objet JSON valide conforme au format RuleJSON ci-dessous.
   }
 }
 
+⚠️ RÈGLE CRITIQUE : Tous les IDs d'actions UI ("ui.actions[].id") DOIVENT obligatoirement commencer par "special_"
+Exemples d'IDs valides : "special_place_mine", "special_freeze_ray", "special_jump", "special_explode"
+Le "when" dans logic.effects doit référencer "ui.special_xxx" pour correspondre à l'action UI.
+
 **ACTIONS DISPONIBLES** (pour "do") :
 • Tuiles : tile.setTrap, tile.clearTrap, tile.hasTrap, tile.trapMetadata, tile.isEmpty
 • Pièces : piece.move, piece.spawn, piece.capture, piece.remove, piece.hasStatus, piece.isType, piece.transform, piece.damage
@@ -356,7 +365,7 @@ provider.jumpOverAny            → Cases après un saut par-dessus pièce
 provider.enemyNeighbors         → Pièces ennemies adjacentes
 
 **ÉVÉNEMENTS LIFECYCLE** (pour "when") :
-ui.ACTION_ID                    → Déclenché par action utilisateur (définie dans ui.actions)
+ui.special_ACTION_ID            → Déclenché par action utilisateur (définie dans ui.actions avec préfixe "special_")
 lifecycle.onMoveCommitted       → Après validation d'un mouvement ($from, $to, $pieceId)
 lifecycle.onEnterTile           → Quand une pièce entre sur une case ($to, $enteringPieceId)
 lifecycle.onTurnStart           → Au début d'un tour ($side, $pieceId pour chaque pièce)
@@ -399,7 +408,7 @@ EXEMPLE 1 : Piège avec déclenchement automatique (Mine complète)
   },
   "ui": {
     "actions": [{
-      "id": "place_mine",
+      "id": "special_place_mine",
       "label": "Poser mine",
       "hint": "Place une mine sur une case voisine",
       "icon": "💣",
@@ -421,13 +430,13 @@ EXEMPLE 1 : Piège avec déclenchement automatique (Mine complète)
     "effects": [
       {
         "id": "effect_place_mine",
-        "when": "ui.place_mine",
+        "when": "ui.special_place_mine",
         "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
         "do": [
           {"action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "mine", "sprite": "mine_icon", "metadata": {"ownerSide": "$piece.side"}}},
           {"action": "vfx.play", "params": {"sprite": "place_trap", "tile": "$targetTile"}},
           {"action": "audio.play", "params": {"id": "place_mine"}},
-          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "place_mine", "turns": 4}},
+          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "special_place_mine", "turns": 4}},
           {"action": "ui.toast", "params": {"message": "Mine posée !", "variant": "success"}},
           {"action": "turn.end"}
         ],
@@ -496,7 +505,7 @@ EXEMPLE 2 : Modification de mouvement (Pion sauteur)
   },
   "ui": {
     "actions": [{
-      "id": "pawn_jump",
+      "id": "special_pawn_jump",
       "label": "Sauter",
       "hint": "Saute par-dessus une pièce adjacente",
       "icon": "🦘",
@@ -517,13 +526,13 @@ EXEMPLE 2 : Modification de mouvement (Pion sauteur)
   "logic": {
     "effects": [{
       "id": "effect_pawn_jump",
-      "when": "ui.pawn_jump",
+      "when": "ui.special_pawn_jump",
       "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
       "do": [
         {"action": "piece.move", "params": {"pieceId": "$pieceId", "targetTile": "$targetTile"}},
         {"action": "vfx.play", "params": {"sprite": "jump_arc", "tile": "$targetTile"}},
         {"action": "audio.play", "params": {"id": "jump"}},
-        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "pawn_jump", "turns": 2}},
+        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "special_pawn_jump", "turns": 2}},
         {"action": "ui.toast", "params": {"message": "Saut effectué !", "variant": "info"}},
         {"action": "turn.end"}
       ],
@@ -608,7 +617,7 @@ EXEMPLE 4 : Ciblage de pièce (Rayon gelant)
   },
   "ui": {
     "actions": [{
-      "id": "freeze_ray",
+      "id": "special_freeze_ray",
       "label": "Geler",
       "hint": "Gèle une pièce ennemie en ligne de vue",
       "icon": "❄️",
@@ -629,13 +638,13 @@ EXEMPLE 4 : Ciblage de pièce (Rayon gelant)
   "logic": {
     "effects": [{
       "id": "effect_freeze",
-      "when": "ui.freeze_ray",
+      "when": "ui.special_freeze_ray",
       "if": ["cooldown.ready", "ctx.hasTargetPiece", "target.isEnemy"],
       "do": [
         {"action": "status.add", "params": {"pieceId": "$targetPieceId", "statusId": "frozen", "duration": 2, "icon": "🧊"}},
         {"action": "vfx.play", "params": {"sprite": "ice_blast", "tile": "$targetTile"}},
         {"action": "audio.play", "params": {"id": "freeze"}},
-        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "freeze_ray", "turns": 3}},
+        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "special_freeze_ray", "turns": 3}},
         {"action": "ui.toast", "params": {"message": "Cible gelée !", "variant": "info"}}
       ],
       "else": [
@@ -676,7 +685,7 @@ EXEMPLE 5 : Explosion de zone (Sacrifice avec AOE)
   },
   "ui": {
     "actions": [{
-      "id": "tower_explode",
+      "id": "special_tower_explode",
       "label": "Exploser",
       "hint": "Détruit la tour et toutes les pièces alentour",
       "icon": "💥",
@@ -696,7 +705,7 @@ EXEMPLE 5 : Explosion de zone (Sacrifice avec AOE)
   "logic": {
     "effects": [{
       "id": "effect_explode",
-      "when": "ui.tower_explode",
+      "when": "ui.special_tower_explode",
       "if": [],
       "do": [
         {"action": "vfx.play", "params": {"sprite": "big_explosion", "tile": "$piece.position"}},
@@ -739,7 +748,7 @@ EXEMPLE 6 : Transformation temporaire (Métamorphose)
   },
   "ui": {
     "actions": [{
-      "id": "bishop_morph",
+      "id": "special_bishop_morph",
       "label": "Se transformer",
       "hint": "Devient un cavalier pendant 3 tours",
       "icon": "🦎",
@@ -759,13 +768,13 @@ EXEMPLE 6 : Transformation temporaire (Métamorphose)
   "logic": {
     "effects": [{
       "id": "effect_morph_start",
-      "when": "ui.bishop_morph",
+      "when": "ui.special_bishop_morph",
       "if": ["cooldown.ready"],
       "do": [
         {"action": "piece.transform", "params": {"pieceId": "$pieceId", "newType": "knight", "duration": 3}},
         {"action": "vfx.play", "params": {"sprite": "morph_effect", "tile": "$piece.position"}},
         {"action": "audio.play", "params": {"id": "transform"}},
-        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "bishop_morph", "turns": 5}},
+        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "special_bishop_morph", "turns": 5}},
         {"action": "ui.toast", "params": {"message": "Transformation réussie !", "variant": "success"}}
       ],
       "else": [
@@ -806,7 +815,7 @@ EXEMPLE 7 : Statut avec expiration (Poison temporisé)
   },
   "ui": {
     "actions": [{
-      "id": "apply_poison",
+      "id": "special_apply_poison",
       "label": "Empoisonner",
       "hint": "Empoisonne une pièce ennemie adjacente",
       "icon": "☠️",
@@ -828,13 +837,13 @@ EXEMPLE 7 : Statut avec expiration (Poison temporisé)
     "effects": [
       {
         "id": "effect_apply_poison",
-        "when": "ui.apply_poison",
+        "when": "ui.special_apply_poison",
         "if": ["cooldown.ready", "ctx.hasTargetPiece", "target.isEnemy"],
         "do": [
           {"action": "status.add", "params": {"pieceId": "$targetPieceId", "statusId": "poisoned", "duration": 3, "icon": "🤢", "damagePerTurn": 1}},
           {"action": "vfx.play", "params": {"sprite": "poison_cloud", "tile": "$targetTile"}},
           {"action": "audio.play", "params": {"id": "poison_apply"}},
-          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "apply_poison", "turns": 4}},
+          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "special_apply_poison", "turns": 4}},
           {"action": "ui.toast", "params": {"message": "Cible empoisonnée !", "variant": "success"}}
         ],
         "else": [
@@ -888,7 +897,7 @@ EXEMPLE 8 : Condition composite complexe (Mine intelligente)
   },
   "ui": {
     "actions": [{
-      "id": "place_smart_mine",
+      "id": "special_place_smart_mine",
       "label": "Poser mine intelligente",
       "hint": "Mine qui cible les pièces majeures",
       "icon": "🎯",
@@ -910,13 +919,13 @@ EXEMPLE 8 : Condition composite complexe (Mine intelligente)
     "effects": [
       {
         "id": "effect_place_smart_mine",
-        "when": "ui.place_smart_mine",
+        "when": "ui.special_place_smart_mine",
         "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
         "do": [
           {"action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "smart_mine", "sprite": "smart_mine_icon", "metadata": {"ownerSide": "$piece.side"}}},
           {"action": "vfx.play", "params": {"sprite": "place_trap", "tile": "$targetTile"}},
           {"action": "audio.play", "params": {"id": "place_mine"}},
-          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "place_smart_mine", "turns": 5}},
+          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "special_place_smart_mine", "turns": 5}},
           {"action": "ui.toast", "params": {"message": "Mine intelligente posée !", "variant": "info"}},
           {"action": "turn.end"}
         ],
