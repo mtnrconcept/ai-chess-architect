@@ -172,7 +172,7 @@ const Generator = () => {
 
       if (!res.ok) {
         const description = getSupabaseFunctionErrorMessage(
-          res.error,
+          (res as { ok: false; error: Error }).error,
           'Erreur lors de la génération de la règle'
         );
         toast({ title: 'Erreur', description, variant: 'destructive' });
@@ -192,9 +192,9 @@ const Generator = () => {
         return;
       }
 
-      if (data?.error) {
+      if ((data as any)?.error) {
         // Cas où la fonction renvoie { error, details? }
-        const detailsJoined = Array.isArray(data.details)
+        const detailsJoined = Array.isArray((data as any).details)
           ? data.details
               .map((d: any) => {
                 if (!d) return null;
@@ -210,7 +210,7 @@ const Generator = () => {
               .join(' — ')
           : undefined;
 
-        throw new Error(detailsJoined?.length ? detailsJoined : String(data.error));
+        throw new Error(detailsJoined?.length ? detailsJoined : String((data as any).error));
       }
 
       let rawRule: unknown = ruleEnvelope;

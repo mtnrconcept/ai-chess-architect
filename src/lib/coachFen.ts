@@ -1,5 +1,8 @@
-import type { SerializedBoardState } from '@/lib/postGameAnalysis';
 import type { PieceColor, PieceType } from '@/types/chess';
+
+export type SerializedBoardState = {
+  pieces: Array<{ type: PieceType; color: PieceColor; row: number; col: number }>;
+};
 
 const PIECE_SYMBOLS: Record<PieceColor, Record<PieceType, string>> = {
   white: {

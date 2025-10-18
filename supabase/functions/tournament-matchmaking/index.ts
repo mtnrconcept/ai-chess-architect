@@ -229,7 +229,7 @@ serve(async (req) => {
   const user = authData.user;
 
   try {
-    let body: unknown;
+    let body: Record<string, unknown> = {};
     try {
       body = await req.json();
     } catch (parseError) {

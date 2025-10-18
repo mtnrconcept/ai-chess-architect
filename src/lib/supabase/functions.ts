@@ -152,8 +152,8 @@ export async function invokeGenerateRule(body: {
         throw new Error(message);
       }
 
-      if (!data?.ok) {
-        const reason = data?.error ?? "UnknownError";
+      if (!data || !data.ok) {
+        const reason = (data as any)?.error ?? "UnknownError";
         throw new Error(`FunctionError: ${reason}`);
       }
 

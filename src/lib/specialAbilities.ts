@@ -27,8 +27,6 @@ export interface SpecialAbilityMetadata {
   activation: SpecialAbilityActivation;
   defaultFreezeTurns?: number;
   allowOccupied?: boolean;
-  defaultFreezeTurns?: number;
-  allowOccupied?: boolean;
 }
 
 export interface NormalizedSpecialAbilityParameters {
@@ -39,9 +37,6 @@ export interface NormalizedSpecialAbilityParameters {
   trigger: SpecialAbilityTrigger;
   animation: string;
   sound: string;
-  activation: SpecialAbilityActivation;
-  freezeTurns?: number;
-  allowOccupied?: boolean;
   activation: SpecialAbilityActivation;
   freezeTurns?: number;
   allowOccupied?: boolean;

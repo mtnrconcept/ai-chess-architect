@@ -52,6 +52,8 @@ export interface CooldownAPI {
   set(pieceId: PieceID, actionId: string, turns: number): void;
   isReady(pieceId: PieceID, actionId: string): boolean;
   tickAll(): void;
+  serialize(): string;
+  deserialize(payload: string): void;
 }
 
 export interface PersistenceAPI {

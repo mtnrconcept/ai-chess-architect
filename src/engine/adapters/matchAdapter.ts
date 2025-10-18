@@ -1,7 +1,8 @@
-import { MatchAPI, Side } from '../types';
+import { Side } from '../types';
 
-export class MatchAdapter implements MatchAPI {
+export class MatchAdapter {
   private currentTurn: Side;
+  private ply: number = 1;
   private turnEndCallback?: () => void;
 
   constructor(currentTurn: Side) {
@@ -20,7 +21,19 @@ export class MatchAdapter implements MatchAPI {
     this.currentTurn = side;
   }
 
+  get() {
+    return {
+      ply: this.ply,
+      turnSide: this.currentTurn
+    };
+  }
+
+  setTurn(side: Side): void {
+    this.currentTurn = side;
+  }
+
   endTurn(): void {
+    this.ply++;
     if (this.turnEndCallback) {
       this.turnEndCallback();
     }

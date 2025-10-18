@@ -161,52 +161,68 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
 
   const [{ count: completedToClosed = 0 }, { count: scheduledToActive = 0 }, { count: futureNormalised = 0 }] = await Promise.all([
     (async () => {
-      const { error, count } = await admin
+      const { error } = await admin
         .from("tournaments")
         .update({ status: "completed" })
         .lt("ends_at", nowIso)
-        .neq("status", "completed")
-        .select("id", { count: "exact", head: true } as any);
+        .neq("status", "completed");
 
       if (error) {
         console.warn("[sync-tournaments] Unable to mark completed tournaments:", error.message);
         return { count: 0 };
       }
 
+      const { count } = await admin
+        .from("tournaments")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "completed")
+        .lt("ends_at", nowIso);
+
       return { count: count ?? 0 };
     })(),
     (async () => {
-      const { error, count } = await admin
+      const { error } = await admin
         .from("tournaments")
         .update({ status: "active" })
         .lte("starts_at", nowIso)
         .gt("ends_at", nowIso)
         .neq("status", "active")
         .neq("status", "cancelled")
-        .neq("status", "completed")
-        .select("id", { count: "exact", head: true } as any);
+        .neq("status", "completed");
 
       if (error) {
         console.warn("[sync-tournaments] Unable to promote tournaments to active:", error.message);
         return { count: 0 };
       }
 
+      const { count } = await admin
+        .from("tournaments")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "active")
+        .lte("starts_at", nowIso)
+        .gt("ends_at", nowIso);
+
       return { count: count ?? 0 };
     })(),
     (async () => {
-      const { error, count } = await admin
+      const { error } = await admin
         .from("tournaments")
         .update({ status: "scheduled" })
         .gt("starts_at", nowIso)
         .neq("status", "scheduled")
         .neq("status", "cancelled")
-        .neq("status", "completed")
-        .select("id", { count: "exact", head: true } as any);
+        .neq("status", "completed");
 
       if (error) {
         console.warn("[sync-tournaments] Unable to normalise future tournaments:", error.message);
         return { count: 0 };
       }
+
+      const { count } = await admin
+        .from("tournaments")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "scheduled")
+        .gt("starts_at", nowIso);
 
       return { count: count ?? 0 };
     })(),
