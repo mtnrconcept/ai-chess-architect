@@ -1,17 +1,18 @@
+// src/pages/Play.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateCcw, Send,
-  Sparkles, Target, User, Volume2, VolumeX
+  ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateCcw,
+  Send, Sparkles, Target, User, Volume2, VolumeX
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import ChessBoard from '@/components/ChessBoard';
 import { ChessEngine } from '@/lib/chessEngine';
 import {
-  GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove, SpecialAttackInstance,
-  PieceType, VisualEffect
+  GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove,
+  SpecialAttackInstance, PieceType, VisualEffect
 } from '@/types/chess';
 import { allPresetRules } from '@/lib/presetRules';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,7 @@ import { getCategoryColor } from '@/lib/ruleCategories';
 import { supabase } from '@/integrations/supabase/client';
 import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors';
 import { buildCoachFallbackMessage } from '@/lib/coachFallback';
-import { useToast } from '@/hooks/use-toast';
+// import { useToast } from '@/hooks/use-toast'; // ⚠️ NE PLUS UTILISER DIRECTEMENT
 import { cn } from '@/lib/utils';
 import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
@@ -49,10 +50,25 @@ import { useRuleEngine } from '@/hooks/useRuleEngine';
 import { FxProvider, useFxTrigger } from '@/fx/context';
 import type { RuleJSON } from '@/engine/types';
 
+/* -------------------------------------------------------------------------- */
+/*                               Helpers locaux                               */
+/* -------------------------------------------------------------------------- */
+
+/** Garantit que le toast s’affiche après le commit React (pas pendant le render) */
+import { useToast } from '@/hooks/use-toast';
+function useSafeToast() {
+  const { toast } = useToast();
+  return useCallback(
+    (opts: Parameters<typeof toast>[0]) => {
+      // rAF décale la mise à jour du Toaster après le commit
+      requestAnimationFrame(() => toast(opts));
+    },
+    [toast]
+  );
+}
+
 const createChatMessageId = () => {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return Math.random().toString(36).slice(2);
 };
 
@@ -76,47 +92,28 @@ const isCarnivorousPlantRule = (rule: ChessRule): boolean => {
 };
 
 const FILES = 'abcdefgh';
-
 const AI_COLOR: PieceColor = 'black';
 const HUMAN_COLOR: PieceColor = 'white';
+
 const PIECE_WEIGHTS: Record<ChessPiece['type'], number> = {
-  king: 20000,
-  queen: 900,
-  rook: 500,
-  bishop: 330,
-  knight: 320,
-  pawn: 100
+  king: 20000, queen: 900, rook: 500, bishop: 330, knight: 320, pawn: 100
 };
-
 const PIECE_TYPES: PieceType[] = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
-
 const PIECE_TYPE_LABELS: Record<PieceType, string> = {
-  king: 'le roi',
-  queen: 'la reine',
-  rook: 'la tour',
-  bishop: 'le fou',
-  knight: 'le cavalier',
-  pawn: 'le pion',
+  king: 'le roi', queen: 'la reine', rook: 'la tour', bishop: 'le fou', knight: 'le cavalier', pawn: 'le pion',
 };
-
-const isPieceType = (value: unknown): value is PieceType => {
-  return typeof value === 'string' && PIECE_TYPES.includes(value as PieceType);
-};
+const isPieceType = (v: unknown): v is PieceType => typeof v === 'string' && PIECE_TYPES.includes(v as PieceType);
 
 const formatPieceList = (pieces: PieceType[]): string => {
   if (pieces.length === 0) return '';
-  const labels = pieces.map(piece => PIECE_TYPE_LABELS[piece]);
+  const labels = pieces.map(p => PIECE_TYPE_LABELS[p]);
   if (labels.length === 1) return labels[0];
   const head = labels.slice(0, -1).join(', ');
   const tail = labels[labels.length - 1];
   return `${head} et ${tail}`;
 };
 
-type FreezeApplication = {
-  color: PieceColor;
-  positions: Position[];
-  turns: number;
-};
+type FreezeApplication = { color: PieceColor; positions: Position[]; turns: number };
 
 const collectPiecesWithinRadius = (
   board: (ChessPiece | null)[][],
@@ -131,9 +128,7 @@ const collectPiecesWithinRadius = (
       const dCol = Math.abs(col - center.col);
       if (Math.max(dRow, dCol) > radius) continue;
       const target = ChessEngine.getPieceAt(board, { row, col });
-      if (target && target.color === color) {
-        affected.push({ row, col });
-      }
+      if (target && target.color === color) affected.push({ row, col });
     }
   }
   return affected;
@@ -145,35 +140,19 @@ const mergeFreezeEffects = (
   applications: FreezeApplication[],
 ): GameState['freezeEffects'] => {
   if (applications.length === 0) return current;
-
-  const updated = current.map(effect => ({ ...effect }));
-
+  const updated = current.map(e => ({ ...e }));
   applications.forEach(({ color, positions, turns }) => {
     positions.forEach(position => {
       const target = ChessEngine.getPieceAt(board, position);
       if (!target || target.color !== color) return;
-
-      const existingIndex = updated.findIndex(effect =>
-        effect.color === color && effect.position.row === position.row && effect.position.col === position.col
-      );
-
-      if (existingIndex >= 0) {
-        if (updated[existingIndex].remainingTurns < turns) {
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            remainingTurns: turns,
-          };
-        }
+      const idx = updated.findIndex(e => e.color === color && e.position.row === position.row && e.position.col === position.col);
+      if (idx >= 0) {
+        if (updated[idx].remainingTurns < turns) updated[idx] = { ...updated[idx], remainingTurns: turns };
       } else {
-        updated.push({
-          color,
-          position: { ...position },
-          remainingTurns: turns,
-        });
+        updated.push({ color, position: { ...position }, remainingTurns: turns });
       }
     });
   });
-
   return updated;
 };
 
@@ -185,68 +164,34 @@ const AI_MOVE_DELAY_RANGES: Record<TimeControlOption, { min: number; max: number
 };
 
 type AIDifficulty = 'novice' | 'standard' | 'expert';
-
 const AI_DIFFICULTY_LEVELS: Record<
   AIDifficulty,
   { depth: number; label: string; description: string; selectionRange: number }
 > = {
-  novice: {
-    depth: 1,
-    label: 'Débutant',
-    description: 'Vision limitée et choix parfois aventureux pour un entraînement détendu.',
-    selectionRange: 3
-  },
-  standard: {
-    depth: 2,
-    label: 'Intermédiaire',
-    description: 'Équilibre entre temps de réflexion et précision stratégique.',
-    selectionRange: 2
-  },
-  expert: {
-    depth: 3,
-    label: 'Maître',
-    description: 'Recherche profonde et coups optimisés pour un vrai défi.',
-    selectionRange: 1
-  }
+  novice: { depth: 1, label: 'Débutant', description: 'Vision limitée et choix parfois aventureux pour un entraînement détendu.', selectionRange: 3 },
+  standard: { depth: 2, label: 'Intermédiaire', description: 'Équilibre entre temps de réflexion et précision stratégique.', selectionRange: 2 },
+  expert: { depth: 3, label: 'Maître', description: 'Recherche profonde et coups optimisés pour un vrai défi.', selectionRange: 1 }
 };
-
-const isAIDifficulty = (value: string): value is AIDifficulty => value in AI_DIFFICULTY_LEVELS;
+const isAIDifficulty = (v: string): v is AIDifficulty => v in AI_DIFFICULTY_LEVELS;
 
 type AiMoveResolver = (state: GameState) => { from: Position; to: Position } | null;
 
 const CAPTURED_PIECE_SYMBOLS: Record<ChessPiece['type'], { white: string; black: string }> = {
-  king: { white: '♔', black: '♚' },
-  queen: { white: '♕', black: '♛' },
-  rook: { white: '♖', black: '♜' },
-  bishop: { white: '♗', black: '♝' },
-  knight: { white: '♘', black: '♞' },
-  pawn: { white: '♙', black: '♟' }
+  king: { white: '♔', black: '♚' }, queen: { white: '♕', black: '♛' }, rook: { white: '♖', black: '♜' },
+  bishop: { white: '♗', black: '♝' }, knight: { white: '♘', black: '♞' }, pawn: { white: '♙', black: '♟' }
 };
 
-const ABILITY_ICON_MAP: Record<string, LucideIcon> = {
-  bomb: Bomb,
-  target: Target,
-};
+const ABILITY_ICON_MAP: Record<string, LucideIcon> = { bomb: Bomb, target: Target };
 
 const SPECIAL_SOUND_EFFECTS: readonly SoundEffect[] = ['explosion', 'quantum-explosion', 'mine-detonation'] as const;
-
-const toSoundEffect = (value: unknown, fallback: SoundEffect): SoundEffect => {
-  if (typeof value !== 'string') return fallback;
-  return (SPECIAL_SOUND_EFFECTS as readonly string[]).includes(value) ? (value as SoundEffect) : fallback;
+const toSoundEffect = (v: unknown, fb: SoundEffect): SoundEffect =>
+  typeof v === 'string' && (SPECIAL_SOUND_EFFECTS as readonly string[]).includes(v) ? (v as SoundEffect) : fb;
+const toPositiveNumber = (v: unknown, fb: number): number => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const parsed = Number.parseFloat(String(v ?? ''));
+  return Number.isFinite(parsed) ? parsed : fb;
 };
-
-const toPositiveNumber = (value: unknown, fallback: number): number => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return fallback;
-};
-
-const toAnimationName = (value: unknown, fallback: string): string => {
-  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
-};
+const toAnimationName = (v: unknown, fb: string): string => (typeof v === 'string' && v.trim().length > 0 ? v : fb);
 
 const ruleTargetsPiece = (rule: ChessRule, piece: ChessPiece | null): boolean => {
   if (!piece) return false;
@@ -275,34 +220,19 @@ interface SpecialAbilityOption {
 }
 
 type DeployResult =
-  | {
-      success: true;
-      coordinate: string;
-      trigger: SpecialAbilityTrigger;
-      countdown: number;
-      abilityLabel: string;
-    }
-  | {
-      success: false;
-      reason: 'state' | 'occupied' | 'duplicate' | 'invalid';
-    };
+  | { success: true; coordinate: string; trigger: SpecialAbilityTrigger; countdown: number; abilityLabel: string }
+  | { success: false; reason: 'state' | 'occupied' | 'duplicate' | 'invalid' };
 
-function samePos(a: Position, b: Position) {
-  return a.row === b.row && a.col === b.col;
-}
-function inRadius(center: Position, p: Position, r: number) {
-  return Math.max(Math.abs(center.row - p.row), Math.abs(center.col - p.col)) <= r;
-}
+/* -------------------------------------------------------------------------- */
+/*                                    Page                                    */
+/* -------------------------------------------------------------------------- */
 
 const Play = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
-  const { toast } = useToast();
-
-  const fx = useFxTrigger();
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const { play: playSfx } = useSoundEffects(soundEnabled);
+  const safeToast = useSafeToast();
+  const { play: playSfx } = useSoundEffects();
 
   const locationState = location.state as {
     customRules?: ChessRule[];
@@ -324,10 +254,9 @@ const Play = () => {
   const params = useParams<{ matchId?: string }>();
 
   const opponentType = locationState?.opponentType === 'player'
-    ? 'player'
-    : locationState?.opponentType === 'local'
-      ? 'local'
-      : 'ai';
+    ? 'player' : locationState?.opponentType === 'local'
+    ? 'local' : 'ai';
+
   const lobbyId = typeof locationState?.lobbyId === 'string' ? locationState.lobbyId : undefined;
   const initialLobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent' ? locationState.role : undefined;
   const initialLobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
@@ -365,13 +294,10 @@ const Play = () => {
   const playerElo = typeof locationState?.playerElo === 'number' ? locationState.playerElo : 1500;
   const opponentElo = typeof locationState?.opponentElo === 'number'
     ? locationState.opponentElo
-    : opponentType === 'ai'
-      ? 1800
-      : 1500;
+    : opponentType === 'ai' ? 1800 : 1500;
 
   const timeControl: TimeControlOption = isTimeControlOption(locationState?.timeControl)
-    ? locationState.timeControl
-    : 'untimed';
+    ? locationState.timeControl : 'untimed';
   const timeControlSettings = TIME_CONTROL_SETTINGS[timeControl];
   const initialTimeSeconds = timeControlSettings.initialSeconds;
 
@@ -384,17 +310,16 @@ const Play = () => {
       });
     } catch (error) {
       console.error('[play] unable to attach AI fallback', error);
-      toast({
+      safeToast({
         title: 'Matchmaking',
         description: "Impossible de lancer la partie contre l'IA.",
         variant: 'destructive',
       });
     }
-  }, [playerDisplayName, toast, tournamentId]);
+  }, [playerDisplayName, safeToast, tournamentId]);
 
   useEffect(() => {
     if (!matchId) return;
-
     let cancelled = false;
     const fallbackHost = initialLobbyRole === 'creator';
 
@@ -406,7 +331,6 @@ const Play = () => {
         setMatchStatus(details.status ?? null);
 
         if (details.lobby?.name) setCurrentLobbyName(details.lobby.name);
-
         if (details.is_ai_match) {
           setCurrentOpponentName(details.ai_opponent_label ?? 'Voltus AI');
         } else if (details.lobby?.opponent_name) {
@@ -420,9 +344,7 @@ const Play = () => {
 
         const hostId = details.player1_id ?? null;
         const isHost = user?.id ? user.id === hostId : fallbackHost;
-        if (opponentType === 'player') {
-          setWaitingForOpponent((details.status ?? null) === 'pending' && !!isHost);
-        }
+        if (opponentType === 'player') setWaitingForOpponent((details.status ?? null) === 'pending' && !!isHost);
       } catch (error) {
         console.error('[play] unable to synchroniser le match', error);
       }
@@ -432,32 +354,30 @@ const Play = () => {
 
     const channel = supabase
       .channel(`tournament-match-${matchId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tournament_matches', filter: `id=eq.${matchId}` }, payload => {
-        const updated = payload.new as {
-          status?: string; player1_id?: string; player2_id?: string;
-          is_ai_match?: boolean | null; ai_opponent_label?: string | null;
-        };
-        const updatedStatus = updated?.status ?? null;
-        setMatchStatus(updatedStatus);
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'tournament_matches', filter: `id=eq.${matchId}` },
+        payload => {
+          const updated = payload.new as {
+            status?: string; player1_id?: string; player2_id?: string;
+            is_ai_match?: boolean | null; ai_opponent_label?: string | null;
+          };
+          const updatedStatus = updated?.status ?? null;
+          setMatchStatus(updatedStatus);
 
-        if (user?.id) {
-          if (updated?.player1_id === user.id) setCurrentLobbyRole('creator');
-          else if (updated?.player2_id === user.id) setCurrentLobbyRole('opponent');
-        }
+          if (user?.id) {
+            if (updated?.player1_id === user.id) setCurrentLobbyRole('creator');
+            else if (updated?.player2_id === user.id) setCurrentLobbyRole('opponent');
+          }
 
-        const isHost = user?.id ? updated?.player1_id === user.id : fallbackHost;
-        if (opponentType === 'player') {
-          setWaitingForOpponent(updatedStatus === 'pending' && !!isHost);
-        }
+          const isHost = user?.id ? updated?.player1_id === user.id : fallbackHost;
+          if (opponentType === 'player') setWaitingForOpponent(updatedStatus === 'pending' && !!isHost);
 
-        if (updated?.is_ai_match && updated.ai_opponent_label) {
-          setCurrentOpponentName(updated.ai_opponent_label);
-        }
+          if (updated?.is_ai_match && updated.ai_opponent_label) setCurrentOpponentName(updated.ai_opponent_label);
 
-        if (updatedStatus === 'playing' || updatedStatus === 'finished') {
-          void syncMatchDetails();
+          if (updatedStatus === 'playing' || updatedStatus === 'finished') void syncMatchDetails();
         }
-      })
+      )
       .subscribe();
 
     return () => {
@@ -477,7 +397,10 @@ const Play = () => {
     return preset.filter((ruleId): ruleId is string => typeof ruleId === 'string' && ruleId.length > 0);
   }, [locationState]);
 
-  const analyzedCustomRules = useMemo(() => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule), [rawCustomRules]);
+  const analyzedCustomRules = useMemo(
+    () => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule),
+    [rawCustomRules]
+  );
 
   const [dbLoadedRules, setDbLoadedRules] = useState<ChessRule[]>([]);
   const [dbRulesLoaded, setDbRulesLoaded] = useState(false);
@@ -540,15 +463,12 @@ const Play = () => {
     }
     return 'standard';
   });
-
   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
 
-  const [isDesktop, setIsDesktop] = useState(() => {
-    if (typeof window !== 'undefined') return window.innerWidth >= 1024;
-    return false;
-  });
+  const [isDesktop, setIsDesktop] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1024 : false));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [coachEnabled, setCoachEnabled] = useState(true);
   const [pendingAbility, setPendingAbility] = useState<SpecialAbilityOption | null>(null);
 
@@ -596,16 +516,11 @@ const Play = () => {
   });
 
   const initialBoardSnapshotRef = useRef(serializeBoardState(gameState.board));
-
-  const [timeRemaining, setTimeRemaining] = useState(() => ({
-    white: initialTimeSeconds,
-    black: initialTimeSeconds,
-  }));
+  const [timeRemaining, setTimeRemaining] = useState(() => ({ white: initialTimeSeconds, black: initialTimeSeconds }));
 
   const capturedPiecesByColor = useMemo(() => {
     const grouped: Record<PieceColor, ChessPiece[]> = { white: [], black: [] };
     for (const piece of gameState.capturedPieces) grouped[piece.color].push(piece);
-
     return {
       white: [...grouped.white].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type]),
       black: [...grouped.black].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type])
@@ -619,7 +534,6 @@ const Play = () => {
     gameState.activeRules.forEach(rule => {
       const ruleAsAny = rule as any;
       const originalJson = ruleAsAny.__originalRuleJson;
-
       if (!originalJson?.ui?.actions) return;
 
       originalJson.ui.actions.forEach((uiAction: any, index: number) => {
@@ -641,7 +555,7 @@ const Play = () => {
           label,
           description: uiAction.hint || label,
           icon,
-          trigger: 'instant' as SpecialAbilityTrigger,
+          trigger: 'instant' as SpecialAbilityTrigger, // sera normé au moment du déploiement si besoin
           radius: 1,
           countdown: cooldown,
           damage: 100,
@@ -658,30 +572,29 @@ const Play = () => {
     return options;
   }, [gameState.activeRules]);
 
-  // ---------- Déploiement capacité (corrigé)
+  /* ------------------------------------------------------------------------ */
+  /*      Déploiement d’aptitude spéciale — pas de toast dans setState        */
+  /* ------------------------------------------------------------------------ */
+
   const deploySpecialAttack = useCallback(
-    (
-      ability: SpecialAbilityOption,
-      position: Position,
-      options?: { allowOccupied?: boolean; clearSelection?: boolean }
-    ): DeployResult => {
-      let outcome: DeployResult = { success: false, reason: 'state' };
+    (ability: SpecialAbilityOption, position: Position, options?: { allowOccupied?: boolean; clearSelection?: boolean }): DeployResult => {
+      let result: DeployResult = { success: false, reason: 'state' };
 
       setGameState(prev => {
         if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(prev.gameStatus)) {
-          outcome = { success: false, reason: 'state' };
+          result = { success: false, reason: 'state' };
           return prev;
         }
 
         if (!ChessEngine.isValidPosition(position)) {
-          outcome = { success: false, reason: 'invalid' };
+          result = { success: false, reason: 'invalid' };
           return prev;
         }
 
         const allowOccupied = ability.allowOccupied || options?.allowOccupied || false;
         const occupant = ChessEngine.getPieceAt(prev.board, position);
         if (occupant && !allowOccupied) {
-          outcome = { success: false, reason: 'occupied' };
+          result = { success: false, reason: 'occupied' };
           return prev;
         }
 
@@ -689,351 +602,284 @@ const Play = () => {
           a => a.position.row === position.row && a.position.col === position.col
         );
         if (alreadyArmed) {
-          outcome = { success: false, reason: 'duplicate' };
+          result = { success: false, reason: 'duplicate' };
           return prev;
         }
 
         const attackId = `${ability.ability}-${Date.now()}`;
-        const owner: PieceColor = prev.currentPlayer;
-
-        const newAttack: SpecialAttackInstance = {
-          id: attackId,
-          position: { ...position },
-          radius: ability.radius ?? 1,
-          trigger: ability.trigger,            // 'instant' | 'onEnter' | etc.
-          countdown: Math.max(0, ability.countdown ?? 0),
-          owner,
-          damage: ability.damage ?? 100,
-          meta: {
-            ruleId: ability.ruleId,
-            label: ability.label,
-          },
-        };
-
-        const armVfx: VisualEffect = {
-          id: `arm-${attackId}`,
-          name: toAnimationName(ability.animation, 'explosion'),
-          position: { ...position },
-          ttl: 900,
-        };
-
         const next: GameState = {
           ...prev,
-          specialAttacks: [...prev.specialAttacks, newAttack],
-          visualEffects: [...prev.visualEffects, armVfx],
+          specialAttacks: [
+            ...prev.specialAttacks,
+            {
+              id: attackId,
+              ability: ability.ability,
+              position: { ...position },
+              radius: Math.max(1, ability.radius || 1),
+              trigger: ability.trigger === 'countdown' || ability.trigger === 'contact' ? ability.trigger : 'countdown',
+              countdown: Math.max(0, ability.countdown ?? 0),
+              remaining: Math.max(0, ability.countdown ?? 0),
+              damage: Math.max(1, ability.damage || 1),
+              animation: ability.animation || 'explosion',
+              sound: ability.sound || 'explosion',
+              owner: prev.currentPlayer,
+              armedAtTurn: prev.turnNumber,
+            } satisfies SpecialAttackInstance,
+          ],
         };
 
-        // Consommer le tour quand on déploie la capacité
-        next.currentPlayer = prev.currentPlayer === 'white' ? 'black' : 'white';
-        next.turnNumber = prev.currentPlayer === 'black' ? prev.turnNumber + 1 : prev.turnNumber;
-        next.movesThisTurn = 0;
-
-        outcome = {
+        const colLetter = FILES[position.col] ?? '?';
+        const coordinate = `${colLetter}${8 - position.row}`;
+        result = {
           success: true,
-          coordinate: ChessEngine.toAlgebraic(position),
-          trigger: ability.trigger,
-          countdown: newAttack.countdown,
-          abilityLabel: ability.label,
+          coordinate,
+          trigger: next.specialAttacks[next.specialAttacks.length - 1].trigger,
+          countdown: next.specialAttacks[next.specialAttacks.length - 1].remaining,
+          abilityLabel: ability.label ?? 'Aptitude',
         };
 
         return next;
       });
 
-      if (outcome.success) {
-        fx?.({ type: 'vfx', name: toAnimationName(ability.animation, 'explosion'), position });
-        playSfx(toSoundEffect(ability.sound, 'explosion'));
-        queueMicrotask(() => {
-          toast({
-            title: ability.label,
-            description:
-              outcome.trigger === 'instant'
-                ? `Capacité déployée en ${outcome.coordinate}.`
-                : `Capacité armée en ${outcome.coordinate} (déclenchement : ${outcome.trigger}).`,
-          });
+      // ⚠️ Les toasts et SFX sont déclenchés **après** l’update, jamais dans l’updater
+      if (result.success) {
+        if (soundEnabled) playSfx(toSoundEffect(ability.sound, 'explosion'));
+        safeToast({
+          title: 'Aptitude déployée',
+          description:
+            result.trigger === 'countdown'
+              ? `${result.abilityLabel} sur ${result.coordinate} — explosion dans ${result.countdown} tours.`
+              : `${result.abilityLabel} sur ${result.coordinate} — explosion au contact.`,
         });
-        if (options?.clearSelection) selectionTimestampRef.current = Date.now();
       } else {
-        queueMicrotask(() => {
-          const reason =
-            outcome.reason === 'occupied' ? 'La case est occupée.' :
-            outcome.reason === 'duplicate' ? 'Une capacité est déjà armée ici.' :
-            outcome.reason === 'invalid'   ? 'Coordonnée invalide.' :
-                                             "Action impossible dans l'état actuel.";
-          toast({ title: 'Déploiement refusé', description: reason, variant: 'destructive' });
+        const reasonLabel =
+          result.reason === 'occupied'
+            ? 'case déjà occupée'
+            : result.reason === 'duplicate'
+            ? 'une aptitude est déjà armée ici'
+            : result.reason === 'invalid'
+            ? 'case invalide'
+            : 'état de partie incompatible';
+        safeToast({
+          title: "Impossible d'armer l'aptitude",
+          description: reasonLabel,
+          variant: 'destructive',
         });
       }
 
-      return outcome;
+      return result;
     },
-    [fx, playSfx, toast]
+    [playSfx, safeToast, soundEnabled]
   );
 
-  // ---------- Détonation / interception / tic-tac
-  const detonateAttack = useCallback((state: GameState, attack: SpecialAttackInstance, victimPos: Position): GameState => {
-    const vfx: VisualEffect = {
-      id: `boom-${attack.id}`,
-      name: 'explosion',
-      position: { ...attack.position },
-      ttl: 900,
-    };
+  /* ------------------------------------------------------------------------ */
+  /*                      Exemple: appel Supabase générateur                  */
+  /* ------------------------------------------------------------------------ */
 
-    const board = state.board.map(row => row.slice());
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const p = { row: r, col: c };
-        const piece = ChessEngine.getPieceAt(board, p);
-        if (!piece) continue;
-        if (inRadius(attack.position, p, attack.radius)) {
-          // capture brute
-          ChessEngine.setPieceAt(board, p, null);
-          state.capturedPieces.push(piece);
+  const generateRule = useCallback(
+    async (payload: { prompt: string; locale?: string; temperature?: number }) => {
+      // Validation minimale locale
+      if (typeof payload.prompt !== 'string' || payload.prompt.trim().length < 8) {
+        safeToast({
+          title: 'Requête incomplète',
+          description: 'Votre prompt doit contenir au moins 8 caractères.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke('generate-chess-rule', { body: payload });
+        if (error) {
+          const msg =
+            (error as any)?.status === 422
+              ? 'La requête envoyée est invalide pour le générateur de règle.'
+              : getSupabaseFunctionErrorMessage(error) || 'Erreur lors de la génération.';
+          safeToast({ title: 'Génération échouée', description: msg, variant: 'destructive' });
+          return;
         }
+
+        // Traiter la règle renvoyée (ex: data.rule_json)
+        safeToast({ title: 'Règle générée', description: 'Votre variante a été créée.' });
+
+        // Exemple d’intégration : convertir et ajouter aux règles custom
+        if ((data as any)?.rule_json) {
+          try {
+            const converted = convertRuleJsonToChessRule((data as any).rule_json as RuleJSON);
+            setCustomRules(prev => [converted, ...prev]);
+          } catch {
+            // Conversion non bloquante
+          }
+        }
+      } catch (e) {
+        console.error('[generateRule] unexpected error', e);
+        safeToast({
+          title: 'Génération échouée',
+          description: "Erreur inattendue lors de l'appel au générateur.",
+          variant: 'destructive',
+        });
       }
-    }
-
-    const next: GameState = {
-      ...state,
-      board,
-      visualEffects: [...state.visualEffects, vfx],
-      specialAttacks: state.specialAttacks.filter(a => a.id !== attack.id),
-    };
-
-    queueMicrotask(() => {
-      fx?.({ type: 'vfx', name: 'explosion', position: attack.position });
-      playSfx('explosion');
-      toast({ title: attack.meta?.label ?? 'Détonation', description: 'BOOM 💥' });
-    });
-
-    return next;
-  }, [fx, playSfx, toast]);
-
-  const interceptMoveWithTraps = useCallback((state: GameState, to: Position, movingColor: PieceColor) => {
-    const trigger = state.specialAttacks.find(
-      a => a.trigger !== 'instant' && samePos(a.position, to) && a.owner !== movingColor
-    );
-
-    if (!trigger) return { blocked: false, state };
-
-    // Choix : bloquer ET faire exploser
-    const after = detonateAttack(state, trigger, to);
-    queueMicrotask(() => {
-      toast({ title: 'Bloqué', description: 'Un piège bloque la case.', variant: 'destructive' });
-      fx?.({ type: 'vfx', name: 'shield_block', position: to });
-      playSfx('mine-detonation');
-    });
-    return { blocked: true, state: after };
-  }, [detonateAttack, fx, playSfx, toast]);
-
-  const applyTurnTickForAttacks = useCallback((state: GameState): GameState => {
-    if (!state.specialAttacks.length) return state;
-
-    let next = { ...state, specialAttacks: state.specialAttacks.map(a => ({ ...a })) };
-    const toDetonate: SpecialAttackInstance[] = [];
-
-    next.specialAttacks.forEach(a => {
-      if (a.countdown > 0) a.countdown -= 1;
-      if (a.countdown === 0 && a.trigger === 'instant') {
-        toDetonate.push(a);
-      }
-    });
-
-    if (toDetonate.length) {
-      toDetonate.forEach(a => {
-        next = detonateAttack(next, a, a.position);
-      });
-    }
-
-    return next;
-  }, [detonateAttack]);
-
-  // ---------- Handlers plateau
-  const handleBoardClickForAbility = useCallback(
-    (pos: Position) => {
-      if (!pendingAbility) return;
-      const res = deploySpecialAttack(pendingAbility, pos, { clearSelection: true });
-      if (res.success) setPendingAbility(null);
     },
-    [pendingAbility, deploySpecialAttack]
+    [safeToast]
   );
 
-  const handleSquareClick = useCallback((pos: Position) => {
-    // Si une capacité est en ciblage → on tente le déploiement
-    if (pendingAbility) {
-      handleBoardClickForAbility(pos);
-      return;
-    }
-
-    setGameState(prev => {
-      if (prev.gameStatus !== 'active') return prev;
-
-      const board = prev.board;
-      const clicked = ChessEngine.getPieceAt(board, pos);
-
-      // Sélection d'une pièce du joueur courant
-      if (clicked && clicked.color === prev.currentPlayer) {
-        const valid = ChessEngine.getValidMoves(board, pos, prev.currentPlayer);
-        return {
-          ...prev,
-          selectedPiece: { piece: clicked, position: pos },
-          validMoves: valid
-        };
-      }
-
-      // Déplacement si une pièce était sélectionnée
-      if (prev.selectedPiece) {
-        const { position: from } = prev.selectedPiece;
-        const isValid = prev.validMoves.some(m => samePos(m.to, pos));
-        if (!isValid) {
-          // reset sélection si clic à côté
-          return { ...prev, selectedPiece: null, validMoves: [] };
-        }
-
-        // Intercepter les pièges sur la case d'arrivée
-        const intercept = interceptMoveWithTraps(prev, pos, prev.currentPlayer);
-        if (intercept.blocked) {
-          // Annule le move et applique l’état modifié par le piège
-          return {
-            ...intercept.state,
-            selectedPiece: null,
-            validMoves: []
-          };
-        }
-
-        // Appliquer le coup
-        const after = ChessEngine.applyMove(prev, { from, to: pos });
-        after.selectedPiece = null;
-        after.validMoves = [];
-
-        // Fin de tour → tic-tac des pièges
-        after.currentPlayer = prev.currentPlayer === 'white' ? 'black' : 'white';
-        after.turnNumber = prev.currentPlayer === 'black' ? prev.turnNumber + 1 : prev.turnNumber;
-        after.movesThisTurn = 0;
-
-        const afterTick = applyTurnTickForAttacks(after);
-        return afterTick;
-      }
-
-      return prev;
-    });
-  }, [pendingAbility, handleBoardClickForAbility, interceptMoveWithTraps, applyTurnTickForAttacks]);
-
-  // ---------- UI helpers
-  const abilityButtons = (
-    <div className="flex flex-wrap gap-2">
-      {specialAbilities.map(opt => {
-        const Icon = ABILITY_ICON_MAP[opt.icon] ?? Bomb;
-        const active = pendingAbility?.id === opt.id;
-        return (
-          <Button
-            key={opt.id}
-            variant={active ? 'default' : 'secondary'}
-            size="sm"
-            onClick={() => setPendingAbility(active ? null : opt)}
-            className={cn('gap-2', active && 'ring-2 ring-offset-2')}
-            title={opt.description}
-          >
-            <Icon className="h-4 w-4" />
-            {opt.buttonLabel ?? opt.label}
-          </Button>
-        );
-      })}
-    </div>
-  );
+  /* ------------------------------------------------------------------------ */
+  /*                              Rendu de la page                             */
+  /* ------------------------------------------------------------------------ */
 
   return (
-    <div className="w-full h-full flex flex-col">
-      <div className="flex items-center justify-between p-3 border-b">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label="Retour">
-            <ArrowLeft />
+    <main className="mx-auto w-full max-w-7xl px-4 py-6">
+      <div className="mb-4 flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label="Retour">
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <h1 className="text-xl font-semibold">
+          Partie • <span className="text-primary">{variantName}</span>
+        </h1>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setSoundEnabled(v => !v)}>
+            {soundEnabled ? <Volume2 className="mr-2 h-4 w-4" /> : <VolumeX className="mr-2 h-4 w-4" />}
+            Son
           </Button>
-          <div className="text-sm text-muted-foreground">{variantName}</div>
-          {activeCustomRulesCount > 0 && (
-            <Badge variant="outline">{activeCustomRulesCount} règle{activeCustomRulesCount > 1 ? 's' : ''}</Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => setSoundEnabled(s => !s)}
-            aria-label={soundEnabled ? 'Couper le son' : 'Activer le son'}
-          >
-            {soundEnabled ? <Volume2 /> : <VolumeX />}
+          <Button variant="outline" size="sm" onClick={() => setCoachEnabled(v => !v)}>
+            <MessageSquareText className="mr-2 h-4 w-4" />
+            Coach {coachEnabled ? 'on' : 'off'}
           </Button>
         </div>
       </div>
 
-      <div className="p-3 border-b">
-        {abilityButtons}
-        {pendingAbility && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            Cliquez une case sur l’échiquier pour déployer <strong>{pendingAbility.label}</strong>…
+      {/* Zone supérieure : infos joueurs */}
+      <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-white/10 p-4">
+          <div className="flex items-center gap-3">
+            <User className="h-5 w-5 opacity-80" />
+            <div>
+              <div className="font-medium">{playerDisplayName}</div>
+              <div className="text-sm opacity-70">{playerElo} Elo</div>
+            </div>
+            <Badge variant="outline" className="ml-auto">Blancs</Badge>
           </div>
-        )}
-      </div>
+        </div>
 
-      <div className="flex-1 grid md:grid-cols-2 gap-4 p-4">
-        <div className="flex items-center justify-center">
-          {/* ⚠️ Ajustez les props si votre ChessBoard a une API différente */}
-          <ChessBoard
-            board={gameState.board}
-            selected={gameState.selectedPiece?.position ?? null}
-            validMoves={gameState.validMoves}
-            visualEffects={gameState.visualEffects}
-            onSquareClick={handleSquareClick}
-            lastMove={
-              gameState.moveHistory.length
-                ? gameState.moveHistory[gameState.moveHistory.length - 1]
-                : null
+        <div className="rounded-lg border border-white/10 p-4">
+          <div className="flex items-center gap-3">
+            <Bot className="h-5 w-5 opacity-80" />
+            <div>
+              <div className="font-medium">{opponentDisplayName}</div>
+              <div className="text-sm opacity-70">{opponentElo} Elo</div>
+            </div>
+            <Badge variant="outline" className="ml-auto">Noirs</Badge>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-white/10 p-4">
+          <div className="flex items-center gap-3">
+            <Sparkles className="h-5 w-5 opacity-80" />
+            <div>
+              <div className="font-medium">Règles actives</div>
+              <div className="text-sm opacity-70">
+                {activeCustomRulesCount > 0
+                  ? `${activeCustomRulesCount} règle${activeCustomRulesCount > 1 ? 's' : ''} perso`
+                  : appliedPresetRuleIds.size > 0
+                  ? `${appliedPresetRuleIds.size} préréglage(s)`
+                  : 'Standard'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Echiquier */}
+      <section className="mb-6">
+        <ChessBoard
+          gameState={gameState}
+          onSquareClick={(pos) => {
+            // Exemple d’usage: déploiement “manuel” si une aptitude est en attente
+            if (pendingAbility) {
+              deploySpecialAttack(pendingAbility, pos);
+              setPendingAbility(null);
+              return;
             }
-            currentPlayer={gameState.currentPlayer}
-          />
-        </div>
+            // Sinon, logique standard de clic sur case (sélection/déplacement)
+            setGameState(prev => {
+              const next = ChessEngine.handleSquareClick(prev, pos);
+              return next;
+            });
+          }}
+          onPieceClick={(piece) => {
+            setGameState(prev => ChessEngine.handlePieceClick(prev, piece));
+          }}
+        />
+      </section>
 
-        <div className="flex flex-col gap-3">
-          <div className="p-3 border rounded-md">
-            <div className="font-medium">Infos</div>
-            <div className="text-sm text-muted-foreground mt-1">
-              Joueur: {playerDisplayName} • Adversaire: {opponentDisplayName}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Tour: {gameState.turnNumber} • Trait: {gameState.currentPlayer === 'white' ? 'Blancs' : 'Noirs'}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Status: {gameState.gameStatus}
-            </div>
-          </div>
-
-          <div className="p-3 border rounded-md">
-            <div className="font-medium mb-2">Pièces capturées</div>
-            <div className="text-sm">
-              <div className="mb-1">Par Blancs:&nbsp;
-                {capturedPiecesByColor.black.map((p, i) => CAPTURED_PIECE_SYMBOLS[p.type].black).join(' ') || '—'}
-              </div>
-              <div>Par Noirs:&nbsp;
-                {capturedPiecesByColor.white.map((p, i) => CAPTURED_PIECE_SYMBOLS[p.type].white).join(' ') || '—'}
-              </div>
-            </div>
-          </div>
-
-          <div className="p-3 border rounded-md">
-            <div className="font-medium mb-2">Historique</div>
-            <div className="text-xs max-h-56 overflow-auto font-mono leading-5">
-              {gameState.moveHistory.length === 0 ? (
-                <div className="text-muted-foreground">Aucun coup joué.</div>
-              ) : (
-                gameState.moveHistory.map((m, idx) => (
-                  <div key={idx}>
-                    {idx + 1}. {formatMoveNotation(m)}
-                  </div>
-                ))
-              )}
-            </div>
+      {/* Barre d’actions */}
+      <section className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="rounded-lg border border-white/10 p-4">
+          <div className="mb-3 font-medium">Actions spéciales</div>
+          <div className="grid grid-cols-2 gap-2">
+            {specialAbilities.length === 0 && (
+              <div className="col-span-2 text-sm opacity-70">Aucune aptitude disponible.</div>
+            )}
+            {specialAbilities.map((opt) => {
+              const Icon = ABILITY_ICON_MAP[opt.icon] ?? Target;
+              return (
+                <Button
+                  key={opt.id}
+                  variant="secondary"
+                  className="justify-start"
+                  onClick={() => setPendingAbility(opt)}
+                >
+                  <Icon className="mr-2 h-4 w-4" />
+                  {opt.buttonLabel ?? opt.label}
+                </Button>
+              );
+            })}
           </div>
         </div>
-      </div>
-    </div>
+
+        <div className="rounded-lg border border-white/10 p-4">
+          <div className="mb-3 font-medium">Générateur de règle</div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget as HTMLFormElement);
+              const prompt = String(fd.get('prompt') ?? '');
+              void generateRule({ prompt, locale: 'fr', temperature: 0.4 });
+            }}
+            className="flex gap-2"
+          >
+            <Input name="prompt" placeholder="Décrivez votre règle..." />
+            <Button type="submit">
+              <Send className="mr-2 h-4 w-4" />
+              Générer
+            </Button>
+          </form>
+        </div>
+
+        <div className="rounded-lg border border-white/10 p-4">
+          <div className="mb-3 font-medium">Partie</div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setGameState(prev => ChessEngine.resetGame(prev));
+                initialBoardSnapshotRef.current = serializeBoardState(ChessEngine.initializeBoard());
+                safeToast({ title: 'Nouvelle partie', description: 'La partie a été réinitialisée.' });
+              }}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Réinitialiser
+            </Button>
+            {tournamentId && (
+              <Button variant="outline" onClick={triggerAiFallback}>
+                <Rocket className="mr-2 h-4 w-4" />
+                Forcer IA
+              </Button>
+            )}
+          </div>
+        </div>
+      </section>
+    </main>
   );
 };
 
