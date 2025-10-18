@@ -223,8 +223,12 @@ export const analyzeRuleLogic = (rule: unknown): RuleAnalysisResult => {
   const category = typeof rawCategory === 'string' && allowedCategories.includes(rawCategory as ChessRule['category'])
     ? (rawCategory as ChessRule['category'])
     : 'special';
-  if (category !== rawCategory) {
-    issues.push('Catégorie invalide remplacée par "special".');
+  // Ne pas signaler d'erreur si la catégorie est valide, même si elle a été normalisée
+  if (category !== rawCategory && typeof rawCategory === 'string' && rawCategory.trim().length > 0) {
+    // Seulement avertir si la catégorie d'origine n'était vraiment pas valide
+    if (!allowedCategories.some(cat => cat.toLowerCase() === rawCategory.toLowerCase())) {
+      console.warn(`[ruleValidation] Catégorie "${rawCategory}" normalisée vers "${category}"`);
+    }
   }
 
   const rawTrigger = getRecordValue<unknown>(rawRule, 'trigger');
