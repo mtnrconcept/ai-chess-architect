@@ -135,11 +135,13 @@ const Lobby = () => {
 
     setLoading(true);
     try {
-      // Charger les règles custom (ancien format)
+      // Charger toutes les règles de l'utilisateur depuis la table unifiée
       const { data, error } = await supabase
-        .from('custom_chess_rules')
+        .from('chess_rules')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('created_by', user.id)
+        .eq('status', 'active')
+        .in('source', ['custom', 'ai_generated'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -147,45 +149,12 @@ const Lobby = () => {
       const rows = (data ?? []) as CustomRuleRow[];
       const mappedRules = mapCustomRuleRowsToChessRules(rows);
       
-      // Charger les règles prévalidées fonctionnelles depuis preset_rules
+      // Charger les règles prévalidées fonctionnelles depuis chess_rules (preset)
       const dbPresetRules = await loadPresetRulesFromDatabase();
       setDatabasePresetRules(dbPresetRules);
       
-      // Charger les règles AI générées (nouveau format RuleJSON)
-      const { data: aiRules, error: aiError } = await supabase
-        .from('rules_lobby')
-        .select('*')
-        .eq('status', 'active')
-        .eq('created_by', user.id)
-        .order('created_at', { ascending: false });
-
-      if (!aiError && aiRules) {
-        // Convertir RuleJSON vers ChessRule pour l'affichage
-        const convertedAiRules: ChessRule[] = aiRules.map(row => {
-          const ruleJSON = row.rule_json as any;
-          return {
-            id: row.id,
-            ruleId: ruleJSON.meta?.ruleId || row.id,
-            ruleName: ruleJSON.meta?.ruleName || "Règle IA",
-            description: ruleJSON.meta?.description || "",
-            category: ruleJSON.meta?.category || "ai-generated",
-            affectedPieces: ruleJSON.scope?.affectedPieces || [],
-            trigger: "always",
-            conditions: [],
-            effects: [],
-            tags: [...(ruleJSON.meta?.tags || []), 'ai-generated'],
-            priority: 1,
-            isActive: ruleJSON.meta?.isActive !== false,
-            validationRules: { allowedWith: [], conflictsWith: [], requiredState: null },
-            userId: row.created_by,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at
-          } as ChessRule;
-        });
-        
-        mappedRules.push(...convertedAiRules);
-      }
-
+      // Les règles AI sont déjà incluses dans mappedRules
+      
       const analyses: RuleAnalysisResult[] = mappedRules.map(rule =>
         analyzeRuleLogic(rule)
       );
@@ -319,10 +288,10 @@ const Lobby = () => {
 
     try {
       const { error } = await supabase
-        .from('custom_chess_rules')
+        .from('chess_rules')
         .delete()
         .eq('rule_id', ruleId)
-        .eq('user_id', user.id);
+        .eq('created_by', user.id);
 
       if (error) throw error;
 
@@ -362,19 +331,19 @@ const Lobby = () => {
     try {
       if (isActive) {
         const { error: deactivateError } = await supabase
-          .from('custom_chess_rules')
-          .update({ is_active: false })
-          .eq('user_id', user.id)
+          .from('chess_rules')
+          .update({ status: 'archived' })
+          .eq('created_by', user.id)
           .neq('rule_id', ruleId);
 
         if (deactivateError) throw deactivateError;
       }
 
       const { error } = await supabase
-        .from('custom_chess_rules')
-        .update({ is_active: isActive })
+        .from('chess_rules')
+        .update({ status: isActive ? 'active' : 'archived' })
         .eq('rule_id', ruleId)
-        .eq('user_id', user.id);
+        .eq('created_by', user.id);
 
       if (error) throw error;
 
@@ -422,9 +391,9 @@ const Lobby = () => {
     }
 
     const { error } = await supabase
-      .from('custom_chess_rules')
-      .update({ is_active: false })
-      .eq('user_id', user.id)
+      .from('chess_rules')
+      .update({ status: 'archived' })
+      .eq('created_by', user.id)
       .in('rule_id', activeIds);
 
     if (error) throw error;
@@ -880,7 +849,7 @@ const Lobby = () => {
     if (ownedRule) return ownedRule;
 
     const { data, error } = await supabase
-      .from('custom_chess_rules')
+      .from('chess_rules')
       .select('*')
       .eq('rule_id', ruleId)
       .limit(1);

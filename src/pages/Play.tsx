@@ -487,14 +487,15 @@ const Play = () => {
         // Charger preset_rules fonctionnelles
         const presetRules = await loadPresetRulesFromDatabase();
         
-        // Charger rules_lobby actives de l'utilisateur si connecté
+        // Charger les règles AI et custom de l'utilisateur si connecté
         const aiRules: ChessRule[] = [];
         if (user?.id) {
           const { data: rulesData, error } = await supabase
-            .from('rules_lobby')
+            .from('chess_rules')
             .select('rule_json')
             .eq('status', 'active')
-            .eq('created_by', user.id);
+            .eq('created_by', user.id)
+            .in('source', ['custom', 'ai_generated']);
           
           if (!error && rulesData) {
             rulesData.forEach(row => {

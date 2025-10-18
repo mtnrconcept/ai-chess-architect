@@ -67,9 +67,11 @@ export function convertRuleJsonToChessRule(ruleJson: any): ChessRule {
 export async function loadPresetRulesFromDatabase(): Promise<ChessRule[]> {
   try {
     const { data, error } = await supabase
-      .from('preset_rules')
+      .from('chess_rules')
       .select('rule_id, rule_name, rule_json')
-      .eq('is_functional', true);
+      .eq('source', 'preset')
+      .eq('is_functional', true)
+      .eq('status', 'active');
 
     if (error) {
       console.error('[presetRulesAdapter] Error loading preset rules:', error);
@@ -95,10 +97,12 @@ export async function loadPresetRulesFromDatabase(): Promise<ChessRule[]> {
 export async function loadPresetRuleById(ruleId: string): Promise<ChessRule | null> {
   try {
     const { data, error } = await supabase
-      .from('preset_rules')
+      .from('chess_rules')
       .select('rule_json')
       .eq('rule_id', ruleId)
+      .eq('source', 'preset')
       .eq('is_functional', true)
+      .eq('status', 'active')
       .maybeSingle();
 
     if (error || !data?.rule_json) {

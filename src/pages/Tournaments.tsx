@@ -323,7 +323,7 @@ const TournamentPage = () => {
 
         if (!selectedRule) {
           const { data, error } = await supabase
-            .from("custom_chess_rules")
+            .from("chess_rules")
             .select("*")
             .eq("rule_id", ruleId)
             .limit(1);

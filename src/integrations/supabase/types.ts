@@ -56,6 +56,84 @@ export type Database = {
         }
         Relationships: []
       }
+      chess_rules: {
+        Row: {
+          affected_pieces: string[] | null
+          ai_model: string | null
+          assets: Json | null
+          category: string
+          complexity_level: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          generation_duration_ms: number | null
+          id: string
+          is_functional: boolean | null
+          priority: number | null
+          prompt: string | null
+          prompt_key: string | null
+          rule_id: string
+          rule_json: Json
+          rule_name: string
+          source: Database["public"]["Enums"]["rule_source"]
+          status: string
+          tags: string[] | null
+          updated_at: string
+          usage_count: number | null
+          validation_notes: string | null
+        }
+        Insert: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category: string
+          complexity_level?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          generation_duration_ms?: number | null
+          id?: string
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id: string
+          rule_json: Json
+          rule_name: string
+          source?: Database["public"]["Enums"]["rule_source"]
+          status?: string
+          tags?: string[] | null
+          updated_at?: string
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Update: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category?: string
+          complexity_level?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          generation_duration_ms?: number | null
+          id?: string
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id?: string
+          rule_json?: Json
+          rule_name?: string
+          source?: Database["public"]["Enums"]["rule_source"]
+          status?: string
+          tags?: string[] | null
+          updated_at?: string
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Relationships: []
+      }
       custom_chess_rules: {
         Row: {
           affected_pieces: string[]
@@ -518,6 +596,240 @@ export type Database = {
       }
     }
     Views: {
+      ai_rules_view: {
+        Row: {
+          affected_pieces: string[] | null
+          ai_model: string | null
+          assets: Json | null
+          category: string | null
+          complexity_level: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          generation_duration_ms: number | null
+          id: string | null
+          is_functional: boolean | null
+          priority: number | null
+          prompt: string | null
+          prompt_key: string | null
+          rule_id: string | null
+          rule_json: Json | null
+          rule_name: string | null
+          source: Database["public"]["Enums"]["rule_source"] | null
+          status: string | null
+          tags: string[] | null
+          updated_at: string | null
+          usage_count: number | null
+          validation_notes: string | null
+        }
+        Insert: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category?: string | null
+          complexity_level?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          generation_duration_ms?: number | null
+          id?: string | null
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id?: string | null
+          rule_json?: Json | null
+          rule_name?: string | null
+          source?: Database["public"]["Enums"]["rule_source"] | null
+          status?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Update: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category?: string | null
+          complexity_level?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          generation_duration_ms?: number | null
+          id?: string | null
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id?: string | null
+          rule_json?: Json | null
+          rule_name?: string | null
+          source?: Database["public"]["Enums"]["rule_source"] | null
+          status?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Relationships: []
+      }
+      custom_rules_view: {
+        Row: {
+          affected_pieces: string[] | null
+          ai_model: string | null
+          assets: Json | null
+          category: string | null
+          complexity_level: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          generation_duration_ms: number | null
+          id: string | null
+          is_functional: boolean | null
+          priority: number | null
+          prompt: string | null
+          prompt_key: string | null
+          rule_id: string | null
+          rule_json: Json | null
+          rule_name: string | null
+          source: Database["public"]["Enums"]["rule_source"] | null
+          status: string | null
+          tags: string[] | null
+          updated_at: string | null
+          usage_count: number | null
+          validation_notes: string | null
+        }
+        Insert: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category?: string | null
+          complexity_level?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          generation_duration_ms?: number | null
+          id?: string | null
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id?: string | null
+          rule_json?: Json | null
+          rule_name?: string | null
+          source?: Database["public"]["Enums"]["rule_source"] | null
+          status?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Update: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category?: string | null
+          complexity_level?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          generation_duration_ms?: number | null
+          id?: string | null
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id?: string | null
+          rule_json?: Json | null
+          rule_name?: string | null
+          source?: Database["public"]["Enums"]["rule_source"] | null
+          status?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Relationships: []
+      }
+      preset_rules_view: {
+        Row: {
+          affected_pieces: string[] | null
+          ai_model: string | null
+          assets: Json | null
+          category: string | null
+          complexity_level: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          generation_duration_ms: number | null
+          id: string | null
+          is_functional: boolean | null
+          priority: number | null
+          prompt: string | null
+          prompt_key: string | null
+          rule_id: string | null
+          rule_json: Json | null
+          rule_name: string | null
+          source: Database["public"]["Enums"]["rule_source"] | null
+          status: string | null
+          tags: string[] | null
+          updated_at: string | null
+          usage_count: number | null
+          validation_notes: string | null
+        }
+        Insert: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category?: string | null
+          complexity_level?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          generation_duration_ms?: number | null
+          id?: string | null
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id?: string | null
+          rule_json?: Json | null
+          rule_name?: string | null
+          source?: Database["public"]["Enums"]["rule_source"] | null
+          status?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Update: {
+          affected_pieces?: string[] | null
+          ai_model?: string | null
+          assets?: Json | null
+          category?: string | null
+          complexity_level?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          generation_duration_ms?: number | null
+          id?: string | null
+          is_functional?: boolean | null
+          priority?: number | null
+          prompt?: string | null
+          prompt_key?: string | null
+          rule_id?: string | null
+          rule_json?: Json | null
+          rule_name?: string | null
+          source?: Database["public"]["Enums"]["rule_source"] | null
+          status?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          validation_notes?: string | null
+        }
+        Relationships: []
+      }
       tournament_overview: {
         Row: {
           active_match_count: number | null
@@ -544,7 +856,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      rule_source: "preset" | "custom" | "ai_generated"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -671,6 +983,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      rule_source: ["preset", "custom", "ai_generated"],
+    },
   },
 } as const

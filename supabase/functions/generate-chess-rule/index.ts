@@ -1134,15 +1134,21 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
     const generationDuration = Date.now() - startTime;
 
     const { data: insertedRule, error: dbError } = await supabase
-      .from("rules_lobby")
+      .from("chess_rules")
       .upsert({
-        prompt,
-        prompt_key: promptKey,
+        rule_id: ruleId,
+        rule_name: (rule as any).meta?.ruleName || 'AI Generated Rule',
+        description: (rule as any).meta?.description || prompt.trim(),
+        category: (rule as any).meta?.category || 'ai-generated',
         rule_json: rule,
-        status: dryRunResult.success ? "active" : "error",
-        generation_duration_ms: generationDuration,
+        source: 'ai_generated',
+        prompt: prompt.trim(),
+        prompt_key: promptKey,
         ai_model: MODEL,
-        created_by: userId, // Associer la règle à l'utilisateur authentifié
+        generation_duration_ms: generationDuration,
+        tags: (rule as any).meta?.tags || [],
+        status: dryRunResult.success ? "active" : "draft",
+        created_by: userId,
       }, { onConflict: "prompt_key" })
       .select()
       .single();

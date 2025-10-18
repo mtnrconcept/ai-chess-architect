@@ -272,9 +272,10 @@ const Profile = () => {
 
     try {
       const { data, error } = await supabase
-        .from("custom_chess_rules")
+        .from("chess_rules")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("created_by", user.id)
+        .eq("status", "active")
         .order("created_at", { ascending: false });
 
       if (error) throw error;

@@ -310,37 +310,44 @@ const Generator = () => {
         (rulePayload as any).tags = sanitizedTags;
       }
 
-      const { error } = await supabase.from('custom_chess_rules').insert(rulePayload);
+      // Créer le payload pour chess_rules (nouveau format unifié)
+      const chessRulePayload = {
+        rule_id: generatedRule.ruleId,
+        rule_name: generatedRule.ruleName,
+        description: generatedRule.description,
+        category: generatedRule.category,
+        rule_json: {
+          meta: {
+            ruleId: generatedRule.ruleId,
+            ruleName: generatedRule.ruleName,
+            description: generatedRule.description,
+            category: generatedRule.category,
+            tags: sanitizedTags,
+          },
+          logic: {
+            effects: generatedRule.effects,
+          },
+          scope: {
+            affectedPieces: generatedRule.affectedPieces,
+          },
+        } as any, // Cast to any pour éviter les erreurs de type Json
+        source: 'custom' as const,
+        tags: sanitizedTags,
+        affected_pieces: generatedRule.affectedPieces,
+        priority: generatedRule.priority,
+        status: generatedRule.isActive ? 'active' : 'draft',
+        created_by: user.id,
+      };
 
-      let savedWithFallback = false;
+      const { error } = await supabase.from('chess_rules').insert([chessRulePayload]);
 
       if (error) {
-        const missingTagsColumn =
-          typeof error.message === 'string' &&
-          error.message.toLowerCase().includes("'tags' column");
-
-        if (missingTagsColumn && Array.isArray((rulePayload as any).tags) && (rulePayload as any).tags.length > 0) {
-          console.warn('Tags column missing in schema, retrying without tags', error);
-          const { tags: _removedTags, ...payloadWithoutTags } = rulePayload as any;
-          const { error: retryError } = await supabase
-            .from('custom_chess_rules')
-            .insert(payloadWithoutTags as Database['public']['Tables']['custom_chess_rules']['Insert']);
-
-          if (retryError) {
-            throw retryError;
-          }
-
-          savedWithFallback = true;
-        } else {
-          throw error;
-        }
+        throw error;
       }
 
       toast({
         title: 'Règle sauvegardée !',
-        description: savedWithFallback
-          ? "La règle a été ajoutée au lobby, mais les tags n'ont pas pu être enregistrés car la base de données n'est pas à jour."
-          : 'La règle a été ajoutée au lobby',
+        description: 'La règle a été ajoutée au lobby',
       });
 
       setPrompt('');
