@@ -1688,9 +1688,9 @@ const Lobby = () => {
           )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {combinedRuleEntries.map(entry => (
+            {combinedRuleEntries.map((entry, index) => (
               <RuleCard
-                key={entry.rule.ruleId}
+                key={`${entry.origin}-${entry.rule.id || entry.rule.ruleId}-${index}`}
                 rule={entry.rule}
                 onDelete={entry.origin === 'custom' ? deleteRule : undefined}
                 onToggle={entry.origin === 'custom' ? toggleRuleStatus : undefined}

@@ -1067,6 +1067,9 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
     const ajvResult = validateRuleJSON(rule);
     if (!ajvResult.valid) {
       console.error('[generate-chess-rule] AJV validation failed:', ajvResult.errors);
+      console.error('[VALIDATION DEBUG] UI actions:', JSON.stringify(rule.ui?.actions, null, 2));
+      console.error('[VALIDATION DEBUG] Logic effects when clauses:', JSON.stringify(rule.logic.effects.map(e => ({ id: e.id, when: e.when })), null, 2));
+      console.error('[VALIDATION DEBUG] Full rule JSON:', JSON.stringify(rule, null, 2));
       trackEvent("rulegen.ajv_validation_failed", { correlationId, ruleId, errors: ajvResult.errors });
       return withCors(json({
         ok: false,

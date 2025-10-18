@@ -787,9 +787,15 @@ export const fetchUserTournamentRegistrations = async (userId: string): Promise<
 
   const { data, error } = await supabaseClient
     .from("tournament_registrations")
-    .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id))")
+    .select(`
+      *,
+      tournament_matches!match_id(
+        *,
+        lobbies!lobby_id(id, name, status, mode, opponent_name, opponent_id)
+      )
+    `)
     .eq("user_id", userId)
-    .order("joined_at", { ascending: false });
+    .order("registered_at", { ascending: false });
 
   if (error) {
     if (isRelationMissing(error)) {

@@ -25,6 +25,7 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
     if (!boardRef.current) return;
     
     let cancelled = false;
+    let appInstance: PIXI.Application | null = null;
     
     const initPixi = async () => {
       const container = document.createElement("div");
@@ -39,8 +40,8 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
       boardRef.current!.appendChild(container);
 
       try {
-        // Pixi v8 utilise init() pour initialiser l'application
         const app = new PIXI.Application();
+        
         await app.init({
           backgroundAlpha: 0,
           resizeTo: boardRef.current!,
@@ -49,19 +50,22 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
         });
 
         if (cancelled) {
-          app.destroy(true);
+          app.destroy(true, { children: true });
           return;
         }
 
+        // Vérifier que le renderer et le canvas sont initialisés
+        if (!app.renderer?.view) {
+          console.error('[FxProvider] Renderer or canvas not initialized after app.init()');
+          return;
+        }
+
+        appInstance = app;
         appRef.current = app;
 
-        // Accéder au canvas via app.canvas (Pixi v8)
-        if (app.canvas) {
-          container.appendChild(app.canvas);
-        } else {
-          console.error('[FxProvider] Canvas not available');
-          return;
-        }
+        // Accéder au canvas via app.renderer.view (Pixi v8)
+        const canvas = app.renderer.view.canvas as HTMLCanvasElement;
+        container.appendChild(canvas);
 
         const ctx: FxContext = {
           app,
@@ -83,10 +87,10 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
 
     return () => {
       cancelled = true;
-      if (appRef.current) {
-        appRef.current.destroy(true, { children: true });
-        appRef.current = null;
+      if (appInstance) {
+        appInstance.destroy(true, { children: true });
       }
+      appRef.current = null;
       if (overlayRef.current) {
         overlayRef.current.remove();
         overlayRef.current = null;
