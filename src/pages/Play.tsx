@@ -2515,6 +2515,7 @@ const Play = () => {
 
   const showWaitingOverlay = opponentType === 'player' && waitingForOpponent;
 
+  // Éviter les appels toast pendant le render
   useEffect(() => {
     if (!showWaitingOverlay || currentLobbyRole !== 'creator' || !tournamentId || !matchId) {
       if (aiFallbackTimeoutRef.current) {
