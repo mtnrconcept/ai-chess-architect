@@ -10,7 +10,7 @@ import { json } from "../_shared/http.ts";
 const MODEL_TIMEOUT_MS = 45000; // < 60s pour rester sous limite CF/Supabase
 const BODY_LIMIT_BYTES = 256 * 1024; // 256 KB, protège contre payloads énormes
 
-// —— Schémas d’entrées/sorties ——
+// —— Schémas d'entrées/sorties ——
 const RulePromptSchema = z.object({
   prompt: z.string().min(3).max(2000),
   locale: z.enum(["fr", "en"]).optional().default("fr"),
@@ -54,10 +54,9 @@ const EngineRuleSchema = z.object({
 
 type EngineRule = z.infer<typeof EngineRuleSchema>;
 
-// —— Accès modèle (OpenAI/Groq/…): stub interchangeable ——
-const PROVIDER = Deno.env.get("PROVIDER") ?? "openai";
-const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
-const MODEL = Deno.env.get("MODEL") ?? "gpt-4o-mini";
+// —— Accès modèle via Lovable AI Gateway ——
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const MODEL = Deno.env.get("MODEL") ?? "google/gemini-2.5-flash";
 
 // Utilitaire: appel modèle qui renvoie TOUJOURS une string JSON (ou lance une erreur contrôlée)
 async function callModelJSON(
@@ -65,49 +64,44 @@ async function callModelJSON(
   temperature: number,
   signal: AbortSignal,
 ): Promise<string> {
-  if (PROVIDER === "openai") {
-    if (!OPENAI_API_KEY) {
-      throw new Error("Missing OPENAI_API_KEY");
-    }
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      signal,
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "Tu es un compilateur de règles de jeu d’échecs variantes. Réponds STRICTEMENT en JSON unique conforme au schéma demandé, sans texte avant/après.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`ProviderError ${res.status}: ${text.slice(0, 300)}`);
-    }
-    const data = await res.json();
-    const raw = data?.choices?.[0]?.message?.content;
-    if (typeof raw !== "string" || raw.trim().length === 0) {
-      throw new Error("EmptyModelResponse");
-    }
-    return raw;
+  if (!LOVABLE_API_KEY) {
+    throw new Error("Missing LOVABLE_API_KEY");
   }
+  
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    signal,
+    headers: {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      temperature,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Tu es un compilateur de règles de jeu d'échecs variantes. Réponds STRICTEMENT en JSON unique conforme au schéma demandé, sans texte avant/après, sans markdown.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    }),
+  });
 
-  // Ajoute ici d’autres providers si besoin
-  throw new Error(`Unsupported provider: ${PROVIDER}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`LovableAIError ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  const raw = data?.choices?.[0]?.message?.content;
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    throw new Error("EmptyModelResponse");
+  }
+  return raw;
 }
 
 // —— Utilitaires sécurité / robustesse ——
@@ -214,7 +208,7 @@ ${JSON.stringify(context ?? {}, null, 2)}
     try {
       candidate = JSON.parse(sanitized);
     } catch (e) {
-      // Dernier filet: tente d’extraire le premier objet JSON équilibré
+      // Dernier filet: tente d'extraire le premier objet JSON équilibré
       const match = sanitized.match(/\{[\s\S]*\}$/);
       if (!match) {
         throw new Error("ModelReturnedNonJSON");
@@ -241,19 +235,20 @@ ${JSON.stringify(context ?? {}, null, 2)}
 
     // Succès
     return withCors(json({ ok: true, rule }, 200));
-  } catch (err) {
+  } catch (err: unknown) {
     // Journalisation contrôlée (évite 502)
+    const errMessage = err instanceof Error ? err.message : String(err);
     const code =
-      err?.message === "ModelTimeout"
+      errMessage === "ModelTimeout"
         ? 504
-        : err?.message === "PayloadTooLarge"
+        : errMessage === "PayloadTooLarge"
           ? 413
           : 500;
 
     const safe = {
       ok: false,
       error: "GenerateRuleFailed",
-      reason: String(err?.message ?? err),
+      reason: errMessage,
     };
 
     // Toujours répondre JSON (jamais laisser planter)

@@ -1,7 +1,7 @@
 // Deno / Supabase Edge Function
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { okPreflight, withCors } from "../_shared/cors.ts";
+import { preflightIfOptions, withCors } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -130,9 +130,11 @@ const formatBlockLabel = (date: Date): string => date.toISOString().slice(0, 13)
 const handleErrorResponse = (request: Request, error: unknown, status = 500) => {
   const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
   console.error("sync-tournaments error", message);
-  return new Response(
-    JSON.stringify({ error: message }),
-    withCors(request, { status, headers: { "Content-Type": "application/json" } }),
+  return withCors(
+    new Response(JSON.stringify({ error: message }), { 
+      status, 
+      headers: { "Content-Type": "application/json" } 
+    })
   );
 };
 
@@ -164,7 +166,7 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
         .update({ status: "completed" })
         .lt("ends_at", nowIso)
         .neq("status", "completed")
-        .select("id", { count: "exact", head: true });
+        .select("id", { count: "exact", head: true } as any);
 
       if (error) {
         console.warn("[sync-tournaments] Unable to mark completed tournaments:", error.message);
@@ -182,7 +184,7 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
         .neq("status", "active")
         .neq("status", "cancelled")
         .neq("status", "completed")
-        .select("id", { count: "exact", head: true });
+        .select("id", { count: "exact", head: true } as any);
 
       if (error) {
         console.warn("[sync-tournaments] Unable to promote tournaments to active:", error.message);
@@ -199,7 +201,7 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
         .neq("status", "scheduled")
         .neq("status", "cancelled")
         .neq("status", "completed")
-        .select("id", { count: "exact", head: true });
+        .select("id", { count: "exact", head: true } as any);
 
       if (error) {
         console.warn("[sync-tournaments] Unable to normalise future tournaments:", error.message);
@@ -344,21 +346,24 @@ const ensureBlockInventory = async (
 };
 
 serve(async (request: Request): Promise<Response> => {
-  if (request.method === "OPTIONS") {
-    return okPreflight(request);
-  }
+  const preflight = preflightIfOptions(request);
+  if (preflight) return preflight;
 
   if (request.method !== "POST") {
-    return new Response(
-      JSON.stringify({ error: "Method Not Allowed" }),
-      withCors(request, { status: 405, headers: { "Content-Type": "application/json" } }),
+    return withCors(
+      new Response(JSON.stringify({ error: "Method Not Allowed" }), { 
+        status: 405, 
+        headers: { "Content-Type": "application/json" } 
+      })
     );
   }
 
   if (!admin) {
-    return new Response(
-      JSON.stringify({ error: "Server misconfiguration" }),
-      withCors(request, { status: 500, headers: { "Content-Type": "application/json" } }),
+    return withCors(
+      new Response(JSON.stringify({ error: "Server misconfiguration" }), { 
+        status: 500, 
+        headers: { "Content-Type": "application/json" } 
+      })
     );
   }
 
@@ -389,15 +394,17 @@ serve(async (request: Request): Promise<Response> => {
     cursor += upcomingSummary.created;
     blockSummaries.push(upcomingSummary);
 
-    return new Response(
-      JSON.stringify({
+    return withCors(
+      new Response(JSON.stringify({
         ok: true,
         now: now.toISOString(),
         variantPoolSize: variantPool.length,
         lifecycle,
         blocks: blockSummaries,
-      }),
-      withCors(request, { status: 200, headers: { "Content-Type": "application/json" } }),
+      }), { 
+        status: 200, 
+        headers: { "Content-Type": "application/json" } 
+      })
     );
   } catch (error) {
     return handleErrorResponse(request, error);

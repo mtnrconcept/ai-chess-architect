@@ -3,7 +3,8 @@
 
 export type AiProviderName = "openai" | "gemini" | "groq" | "lovable";
 
-type Message = { role: "system" | "user" | "assistant"; content: string };
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+type Message = ChatMessage;
 
 type InvokeArgs = {
   messages: Message[];
