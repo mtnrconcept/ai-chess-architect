@@ -174,6 +174,7 @@ const normaliseTournamentOverviewRow = (
     starts_at: startsAt,
     ends_at: endsAt,
     status: normaliseTournamentStatus(raw.status),
+    max_participants: normaliseNumber(raw.max_participants, null),
     created_at: createdAt,
     updated_at: updatedAt,
     player_count: basePlayerCount,

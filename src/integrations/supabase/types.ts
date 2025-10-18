@@ -16,39 +16,42 @@ export type Database = {
     Tables: {
       api_registry: {
         Row: {
-          active: boolean
-          category: "supabase" | "edge_function" | "coach_api" | "http"
-          config: Json
+          api_key_env: string | null
+          category: string | null
           created_at: string
+          endpoint_url: string
           id: string
-          method: string
-          notes: string | null
-          service: string
-          target: string
+          is_active: boolean | null
+          last_checked_at: string | null
+          metadata: Json | null
+          service_name: string
+          status: string | null
           updated_at: string
         }
         Insert: {
-          active?: boolean
-          category: "supabase" | "edge_function" | "coach_api" | "http"
-          config?: Json
+          api_key_env?: string | null
+          category?: string | null
           created_at?: string
+          endpoint_url: string
           id?: string
-          method?: string
-          notes?: string | null
-          service: string
-          target: string
+          is_active?: boolean | null
+          last_checked_at?: string | null
+          metadata?: Json | null
+          service_name: string
+          status?: string | null
           updated_at?: string
         }
         Update: {
-          active?: boolean
-          category?: "supabase" | "edge_function" | "coach_api" | "http"
-          config?: Json
+          api_key_env?: string | null
+          category?: string | null
           created_at?: string
+          endpoint_url?: string
           id?: string
-          method?: string
-          notes?: string | null
-          service?: string
-          target?: string
+          is_active?: boolean | null
+          last_checked_at?: string | null
+          metadata?: Json | null
+          service_name?: string
+          status?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -121,12 +124,12 @@ export type Database = {
           game_state: Json | null
           id: string
           is_active: boolean | null
-          mode: "ai" | "player"
           max_players: number | null
+          mode: string | null
           name: string
           opponent_id: string | null
           opponent_name: string | null
-          status: "waiting" | "matched" | "cancelled"
+          status: string | null
           updated_at: string
         }
         Insert: {
@@ -136,12 +139,12 @@ export type Database = {
           game_state?: Json | null
           id?: string
           is_active?: boolean | null
-          mode?: "ai" | "player"
           max_players?: number | null
+          mode?: string | null
           name: string
           opponent_id?: string | null
           opponent_name?: string | null
-          status?: "waiting" | "matched" | "cancelled"
+          status?: string | null
           updated_at?: string
         }
         Update: {
@@ -151,33 +154,30 @@ export type Database = {
           game_state?: Json | null
           id?: string
           is_active?: boolean | null
-          mode?: "ai" | "player"
           max_players?: number | null
+          mode?: string | null
           name?: string
           opponent_id?: string | null
           opponent_name?: string | null
-          status?: "waiting" | "matched" | "cancelled"
+          status?: string | null
           updated_at?: string
         }
         Relationships: []
       }
       tournament_matches: {
         Row: {
-          ai_opponent_difficulty: string | null
-          ai_opponent_label: string | null
           completed_at: string | null
           created_at: string
+          game_data: Json | null
           id: string
-          is_ai_match: boolean | null
-          lobby_id: string | null
           player1_id: string
+          player1_name: string | null
           player2_id: string | null
-          reported_by: string | null
-          result: "player1" | "player2" | "draw" | null
-          room_id: string | null
-          round: number | null
+          player2_name: string | null
+          result: string | null
+          round: number
           started_at: string | null
-          status: "pending" | "playing" | "finished" | "cancelled"
+          status: string
           table_number: number | null
           tournament_id: string
           updated_at: string
@@ -185,21 +185,18 @@ export type Database = {
           winner_id: string | null
         }
         Insert: {
-          ai_opponent_difficulty?: string | null
-          ai_opponent_label?: string | null
           completed_at?: string | null
           created_at?: string
+          game_data?: Json | null
           id?: string
-          is_ai_match?: boolean | null
-          lobby_id?: string | null
           player1_id: string
+          player1_name?: string | null
           player2_id?: string | null
-          reported_by?: string | null
-          result?: "player1" | "player2" | "draw" | null
-          room_id?: string | null
-          round?: number | null
+          player2_name?: string | null
+          result?: string | null
+          round?: number
           started_at?: string | null
-          status?: "pending" | "playing" | "finished" | "cancelled"
+          status?: string
           table_number?: number | null
           tournament_id: string
           updated_at?: string
@@ -207,154 +204,116 @@ export type Database = {
           winner_id?: string | null
         }
         Update: {
-          ai_opponent_difficulty?: string | null
-          ai_opponent_label?: string | null
           completed_at?: string | null
           created_at?: string
+          game_data?: Json | null
           id?: string
-          is_ai_match?: boolean | null
-          lobby_id?: string | null
           player1_id?: string
+          player1_name?: string | null
           player2_id?: string | null
-          reported_by?: string | null
-          result?: "player1" | "player2" | "draw" | null
-          room_id?: string | null
-          round?: number | null
+          player2_name?: string | null
+          result?: string | null
+          round?: number
           started_at?: string | null
-          status?: "pending" | "playing" | "finished" | "cancelled"
+          status?: string
           table_number?: number | null
           tournament_id?: string
           updated_at?: string
           variant_rules?: string[] | null
           winner_id?: string | null
-        }
-        Relationships: []
-      }
-      tournament_registrations: {
-        Row: {
-          avatar_url: string | null
-          current_match_id: string | null
-          display_name: string | null
-          draws: number
-          id: string
-          is_waiting: boolean
-          joined_at: string
-          last_active_at: string
-          losses: number
-          points: number
-          tournament_id: string
-          user_id: string
-          wins: number
-        }
-        Insert: {
-          avatar_url?: string | null
-          current_match_id?: string | null
-          display_name?: string | null
-          draws?: number
-          id?: string
-          is_waiting?: boolean
-          joined_at?: string
-          last_active_at?: string
-          losses?: number
-          points?: number
-          tournament_id: string
-          user_id: string
-          wins?: number
-        }
-        Update: {
-          avatar_url?: string | null
-          current_match_id?: string | null
-          display_name?: string | null
-          draws?: number
-          id?: string
-          is_waiting?: boolean
-          joined_at?: string
-          last_active_at?: string
-          losses?: number
-          points?: number
-          tournament_id?: string
-          user_id?: string
-          wins?: number
-        }
-        Relationships: []
-      }
-      user_games: {
-        Row: {
-          accuracy: number
-          analysis_overview: Json
-          coach_summary: string | null
-          created_at: string
-          duration_seconds: number | null
-          id: string
-          metadata: Json | null
-          move_history: Json
-          opponent_name: string | null
-          opponent_type: 'ai' | 'player' | 'local'
-          player_color: 'white' | 'black'
-          result: 'win' | 'loss' | 'draw'
-          starting_board: Json
-          time_control: string | null
-          total_moves: number
-          user_id: string | null
-          variant_name: string | null
-        }
-        Insert: {
-          accuracy: number
-          analysis_overview: Json
-          coach_summary?: string | null
-          created_at?: string
-          duration_seconds?: number | null
-          id?: string
-          metadata?: Json | null
-          move_history: Json
-          opponent_name?: string | null
-          opponent_type?: 'ai' | 'player' | 'local'
-          player_color?: 'white' | 'black'
-          result: 'win' | 'loss' | 'draw'
-          starting_board: Json
-          time_control?: string | null
-          total_moves?: number
-          user_id?: string | null
-          variant_name?: string | null
-        }
-        Update: {
-          accuracy?: number
-          analysis_overview?: Json
-          coach_summary?: string | null
-          created_at?: string
-          duration_seconds?: number | null
-          id?: string
-          metadata?: Json | null
-          move_history?: Json
-          opponent_name?: string | null
-          opponent_type?: 'ai' | 'player' | 'local'
-          player_color?: 'white' | 'black'
-          result?: 'win' | 'loss' | 'draw'
-          starting_board?: Json
-          time_control?: string | null
-          total_moves?: number
-          user_id?: string | null
-          variant_name?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: 'user_games_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "tournament_matches_tournament_id_fkey"
+            columns: ["tournament_id"]
             isOneToOne: false
-            referencedRelation: 'users'
-            referencedColumns: ['id']
-          }
+            referencedRelation: "tournament_overview"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_matches_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tournament_registrations: {
+        Row: {
+          display_name: string | null
+          draws: number | null
+          id: string
+          losses: number | null
+          match_id: string | null
+          points: number | null
+          rating: number | null
+          registered_at: string
+          score: number | null
+          status: string
+          tournament_id: string
+          updated_at: string
+          user_id: string
+          wins: number | null
+        }
+        Insert: {
+          display_name?: string | null
+          draws?: number | null
+          id?: string
+          losses?: number | null
+          match_id?: string | null
+          points?: number | null
+          rating?: number | null
+          registered_at?: string
+          score?: number | null
+          status?: string
+          tournament_id: string
+          updated_at?: string
+          user_id: string
+          wins?: number | null
+        }
+        Update: {
+          display_name?: string | null
+          draws?: number | null
+          id?: string
+          losses?: number | null
+          match_id?: string | null
+          points?: number | null
+          rating?: number | null
+          registered_at?: string
+          score?: number | null
+          status?: string
+          tournament_id?: string
+          updated_at?: string
+          user_id?: string
+          wins?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_registrations_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_overview"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_registrations_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
         ]
       }
       tournaments: {
         Row: {
           created_at: string
-          created_by: string | null
           description: string | null
           ends_at: string
           id: string
+          max_participants: number | null
           starts_at: string
-          status: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          status: string
           title: string
           updated_at: string
           variant_lobby_id: string | null
@@ -364,27 +323,27 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          created_by?: string | null
           description?: string | null
           ends_at: string
           id?: string
+          max_participants?: number | null
           starts_at: string
-          status?: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          status?: string
           title: string
           updated_at?: string
           variant_lobby_id?: string | null
           variant_name: string
-          variant_rules: string[]
+          variant_rules?: string[]
           variant_source?: string | null
         }
         Update: {
           created_at?: string
-          created_by?: string | null
           description?: string | null
           ends_at?: string
           id?: string
+          max_participants?: number | null
           starts_at?: string
-          status?: "draft" | "scheduled" | "active" | "completed" | "cancelled"
+          status?: string
           title?: string
           updated_at?: string
           variant_lobby_id?: string | null
@@ -394,54 +353,86 @@ export type Database = {
         }
         Relationships: []
       }
+      user_games: {
+        Row: {
+          accuracy: number | null
+          analysis_overview: Json | null
+          coach_summary: string | null
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          metadata: Json | null
+          move_history: Json
+          opponent_name: string | null
+          opponent_type: string
+          player_color: string
+          result: string
+          starting_board: Json | null
+          time_control: string | null
+          total_moves: number | null
+          user_id: string
+          variant_name: string | null
+        }
+        Insert: {
+          accuracy?: number | null
+          analysis_overview?: Json | null
+          coach_summary?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          metadata?: Json | null
+          move_history: Json
+          opponent_name?: string | null
+          opponent_type: string
+          player_color: string
+          result: string
+          starting_board?: Json | null
+          time_control?: string | null
+          total_moves?: number | null
+          user_id: string
+          variant_name?: string | null
+        }
+        Update: {
+          accuracy?: number | null
+          analysis_overview?: Json | null
+          coach_summary?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          metadata?: Json | null
+          move_history?: Json
+          opponent_name?: string | null
+          opponent_type?: string
+          player_color?: string
+          result?: string
+          starting_board?: Json | null
+          time_control?: string | null
+          total_moves?: number | null
+          user_id?: string
+          variant_name?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
-      tournament_leaderboard: {
-        Row: {
-          avatar_url: string | null
-          display_name: string | null
-          draws: number
-          joined_at: string
-          last_active_at: string
-          losses: number
-          points: number
-          tournament_id: string
-          user_id: string
-          wins: number
-        }
-        Relationships: []
-      }
       tournament_overview: {
         Row: {
-          active_match_count: number
-          completed_match_count: number
-          created_at: string
+          active_match_count: number | null
+          completed_match_count: number | null
+          created_at: string | null
           description: string | null
-          ends_at: string
-          id: string
-          player_count: number
-          starts_at: string
-          status: "draft" | "scheduled" | "active" | "completed" | "cancelled"
-          title: string
-          updated_at: string
+          ends_at: string | null
+          id: string | null
+          max_participants: number | null
+          player_count: number | null
+          starts_at: string | null
+          status: string | null
+          title: string | null
+          updated_at: string | null
           variant_lobby_id: string | null
-          variant_name: string
-          variant_rules: string[]
+          variant_name: string | null
+          variant_rules: string[] | null
           variant_source: string | null
-        }
-        Relationships: []
-      }
-      active_tournaments: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          description: string | null
-          ends_at: string
-          id: string
-          starts_at: string
-          status: "draft" | "scheduled" | "active" | "completed" | "cancelled"
-          title: string
-          updated_at: string
         }
         Relationships: []
       }
