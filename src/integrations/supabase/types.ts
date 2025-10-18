@@ -164,6 +164,57 @@ export type Database = {
         }
         Relationships: []
       }
+      preset_rules: {
+        Row: {
+          category: string
+          complexity_level: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          id: string
+          is_functional: boolean | null
+          prompt_example: string | null
+          rule_id: string
+          rule_json: Json
+          rule_name: string
+          tags: string[] | null
+          updated_at: string
+          validation_notes: string | null
+        }
+        Insert: {
+          category: string
+          complexity_level?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          id?: string
+          is_functional?: boolean | null
+          prompt_example?: string | null
+          rule_id: string
+          rule_json: Json
+          rule_name: string
+          tags?: string[] | null
+          updated_at?: string
+          validation_notes?: string | null
+        }
+        Update: {
+          category?: string
+          complexity_level?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          id?: string
+          is_functional?: boolean | null
+          prompt_example?: string | null
+          rule_id?: string
+          rule_json?: Json
+          rule_name?: string
+          tags?: string[] | null
+          updated_at?: string
+          validation_notes?: string | null
+        }
+        Relationships: []
+      }
       rules_lobby: {
         Row: {
           ai_model: string | null
