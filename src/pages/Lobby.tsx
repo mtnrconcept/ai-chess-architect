@@ -33,6 +33,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from '@/lib/customRuleMapper';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { TIME_CONTROL_SETTINGS, type TimeControlOption } from '@/types/timeControl';
+import { loadPresetRulesFromDatabase } from '@/lib/presetRulesAdapter';
 
 type StatusFilterValue = 'all' | 'active' | 'inactive';
 type IssueFilterValue = 'all' | 'withIssues' | 'withoutIssues';
@@ -65,6 +66,7 @@ const Lobby = () => {
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
   const [customRules, setCustomRules] = useState<ChessRule[]>([]);
+  const [databasePresetRules, setDatabasePresetRules] = useState<ChessRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [ruleIssues, setRuleIssues] = useState<Record<string, string[]>>({});
   const [selectedPresetRuleIds, setSelectedPresetRuleIds] = useState<Set<string>>(new Set());
@@ -145,6 +147,10 @@ const Lobby = () => {
 
       const rows = (data ?? []) as CustomRuleRow[];
       const mappedRules = mapCustomRuleRowsToChessRules(rows);
+      
+      // Charger les règles prévalidées fonctionnelles depuis preset_rules
+      const dbPresetRules = await loadPresetRulesFromDatabase();
+      setDatabasePresetRules(dbPresetRules);
       
       // Charger les règles AI générées (nouveau format RuleJSON)
       const { data: aiRules, error: aiError } = await supabase
@@ -428,13 +434,19 @@ const Lobby = () => {
   }, [customRules, user]);
 
   const presetAnalyses = useMemo(
-    () => allPresetRules.map(rule => analyzeRuleLogic(rule)),
-    []
+    () => {
+      const mergedPresets = [...allPresetRules, ...databasePresetRules];
+      return mergedPresets.map(rule => analyzeRuleLogic(rule));
+    },
+    [databasePresetRules]
   );
 
-  const presetRuleMap = useMemo(() => new Map(
-    allPresetRules.map(rule => [rule.ruleId, rule])
-  ), []);
+  const presetRuleMap = useMemo(() => {
+    const mergedPresets = [...allPresetRules, ...databasePresetRules];
+    return new Map(
+      mergedPresets.map(rule => [rule.ruleId, rule])
+    );
+  }, [databasePresetRules]);
 
   const priorityBounds = useMemo(() => {
     const allRules = [
@@ -721,7 +733,7 @@ const Lobby = () => {
   }, [filteredCustomRules, filteredPresetAnalyses, ruleIssues]);
 
   const totalFilteredRulesCount = combinedRuleEntries.length;
-  const totalAvailableRulesCount = customRules.length + allPresetRules.length;
+  const totalAvailableRulesCount = customRules.length + allPresetRules.length + databasePresetRules.length;
 
   const toggleTagFilter = (tag: string) => {
     setSelectedTags(prev => {

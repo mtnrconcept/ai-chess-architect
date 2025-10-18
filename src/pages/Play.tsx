@@ -579,53 +579,95 @@ const Play = () => {
     const seen = new Set<string>();
 
     gameState.activeRules.forEach(rule => {
-      rule.effects.forEach((effect, index) => {
-        if (effect.action !== 'addAbility') {
-          return;
-        }
+      // Support for RuleJSON format (preset_rules from database)
+      const ruleAsAny = rule as any;
+      if (ruleAsAny.ui?.actions && Array.isArray(ruleAsAny.ui.actions)) {
+        // New RuleJSON format with ui.actions
+        ruleAsAny.ui.actions.forEach((uiAction: any, index: number) => {
+          if (!uiAction.id || typeof uiAction.id !== 'string') return;
+          
+          // Map UI action to special ability
+          const abilityKey = uiAction.id.replace('special_', '').replace(/_/g, '');
+          const id = `${rule.ruleId}-${abilityKey}-${index}`;
+          
+          if (seen.has(id)) return;
+          seen.add(id);
 
-        const parameters = effect.parameters as Record<string, unknown> | undefined;
-        const abilityName = resolveSpecialAbilityName(parameters);
-        if (!abilityName) {
-          return;
-        }
-
-        const normalized = normalizeSpecialAbilityParameters(
-          abilityName,
-          parameters,
-        );
-        const metadata = getSpecialAbilityMetadata(abilityName);
-
-        if (!normalized || !metadata) {
-          return;
-        }
-
-        const id = `${rule.ruleId}-${normalized.ability}-${index}`;
-        if (seen.has(id)) {
-          return;
-        }
-        seen.add(id);
-
-        options.push({
-          id,
-          ruleId: rule.ruleId,
-          ruleName: rule.ruleName,
-          ability: normalized.ability,
-          label: metadata.label,
-          description: metadata.description,
-          icon: metadata.icon,
-          trigger: normalized.trigger,
-          radius: normalized.radius,
-          countdown: normalized.countdown,
-          damage: normalized.damage,
-          animation: normalized.animation,
-          sound: normalized.sound,
-          buttonLabel: metadata.buttonLabel,
-          activation: normalized.activation,
-          freezeTurns: normalized.freezeTurns,
-          allowOccupied: normalized.allowOccupied,
+          // Extract parameters from the action
+          const icon = uiAction.icon === '❄️' ? 'target' : 'bomb';
+          const label = uiAction.label || uiAction.hint || 'Action spéciale';
+          const cooldown = uiAction.cooldown?.perPiece || 2;
+          
+          options.push({
+            id,
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            ability: 'deployBomb' as SpecialAbilityKey, // Default ability type
+            label,
+            description: uiAction.hint || label,
+            icon,
+            trigger: 'instant' as SpecialAbilityTrigger,
+            radius: 1,
+            countdown: cooldown,
+            damage: 100,
+            animation: 'explosion',
+            sound: 'explosion',
+            buttonLabel: label,
+            activation: 'manual' as SpecialAbilityActivation,
+            freezeTurns: 2,
+            allowOccupied: false,
+          });
         });
-      });
+      } else {
+        // Legacy ChessRule format with effects
+        rule.effects.forEach((effect, index) => {
+          if (effect.action !== 'addAbility') {
+            return;
+          }
+
+          const parameters = effect.parameters as Record<string, unknown> | undefined;
+          const abilityName = resolveSpecialAbilityName(parameters);
+          if (!abilityName) {
+            return;
+          }
+
+          const normalized = normalizeSpecialAbilityParameters(
+            abilityName,
+            parameters,
+          );
+          const metadata = getSpecialAbilityMetadata(abilityName);
+
+          if (!normalized || !metadata) {
+            return;
+          }
+
+          const id = `${rule.ruleId}-${normalized.ability}-${index}`;
+          if (seen.has(id)) {
+            return;
+          }
+          seen.add(id);
+
+          options.push({
+            id,
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            ability: normalized.ability,
+            label: metadata.label,
+            description: metadata.description,
+            icon: metadata.icon,
+            trigger: normalized.trigger,
+            radius: normalized.radius,
+            countdown: normalized.countdown,
+            damage: normalized.damage,
+            animation: normalized.animation,
+            sound: normalized.sound,
+            buttonLabel: metadata.buttonLabel,
+            activation: normalized.activation,
+            freezeTurns: normalized.freezeTurns,
+            allowOccupied: normalized.allowOccupied,
+          });
+        });
+      }
     });
 
     return options;
