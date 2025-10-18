@@ -660,13 +660,21 @@ export const syncTournaments = async () => {
   try {
     const { error } = await supabaseClient.functions.invoke("sync-tournaments", { body: {} });
     if (error) {
+      // Ignore schema cache errors - PostgREST just needs time to refresh
+      const message = typeof error.message === "string" ? error.message : "";
+      const isSchemaCache = message.toLowerCase().includes("schema cache");
+      
+      if (isSchemaCache) {
+        console.warn("[syncTournaments] PostgREST schema cache refreshing, continuing...");
+        return;
+      }
+
       if (isFunctionUnavailable(error)) {
         throw new TournamentFeatureUnavailableError(
           "La synchronisation des tournois n'est pas disponible. Vérifiez le déploiement de l'edge function 'sync-tournaments' et appliquez les migrations Supabase associées.",
         );
       }
 
-      const message = typeof error.message === "string" ? error.message : "";
       throw new Error(message || "Impossible de synchroniser les tournois");
     }
   } catch (unknownError) {
