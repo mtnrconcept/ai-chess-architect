@@ -151,6 +151,14 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     onMoveCommitted,
     onUndo,
     onPromote,
+    onTurnStart: useCallback(
+      (side: string) => {
+        if (contractsRef.current) {
+          contractsRef.current.eventBus.emit('lifecycle.onTurnStart', { side });
+        }
+      },
+      []
+    ),
     runUIAction,
     tickCooldowns,
     getUIActions,

@@ -38,6 +38,10 @@ import {
 } from '@/lib/postGameAnalysis';
 import { saveCompletedGame } from '@/lib/gameStorage';
 import { fetchTournamentMatch, requestTournamentMatch } from '@/lib/tournamentApi';
+import { loadPresetRulesFromDatabase, convertRuleJsonToChessRule } from '@/lib/presetRulesAdapter';
+import { useRuleEngine } from '@/hooks/useRuleEngine';
+import { FxProvider, useFxTrigger } from '@/fx/context';
+import type { RuleJSON } from '@/engine/types';
 
 const createChatMessageId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -473,12 +477,58 @@ const Play = () => {
 
   const analyzedCustomRules = useMemo(() => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule), [rawCustomRules]);
 
+  // Phase 1: Charger les règles depuis la DB au lieu de allPresetRules
+  const [dbLoadedRules, setDbLoadedRules] = useState<ChessRule[]>([]);
+  const [dbRulesLoaded, setDbRulesLoaded] = useState(false);
+
+  useEffect(() => {
+    const loadDbRules = async () => {
+      try {
+        // Charger preset_rules fonctionnelles
+        const presetRules = await loadPresetRulesFromDatabase();
+        
+        // Charger rules_lobby actives de l'utilisateur si connecté
+        const aiRules: ChessRule[] = [];
+        if (user?.id) {
+          const { data: rulesData, error } = await supabase
+            .from('rules_lobby')
+            .select('rule_json')
+            .eq('status', 'active')
+            .eq('created_by', user.id);
+          
+          if (!error && rulesData) {
+            rulesData.forEach(row => {
+              if (row.rule_json) {
+                try {
+                  const converted = convertRuleJsonToChessRule(row.rule_json);
+                  aiRules.push(converted);
+                } catch (err) {
+                  console.warn('[Play] Failed to convert AI rule', err);
+                }
+              }
+            });
+          }
+        }
+        
+        setDbLoadedRules([...presetRules, ...aiRules]);
+        setDbRulesLoaded(true);
+      } catch (error) {
+        console.error('[Play] Failed to load DB rules', error);
+        // Fallback aux règles hardcodées
+        setDbLoadedRules(allPresetRules);
+        setDbRulesLoaded(true);
+      }
+    };
+
+    loadDbRules();
+  }, [user?.id]);
+
   const [customRules, setCustomRules] = useState<ChessRule[]>(analyzedCustomRules);
   const activePresetRule = useMemo(() => {
-    if (initialPresetRuleIds.length === 0) return null;
+    if (initialPresetRuleIds.length === 0 || !dbRulesLoaded) return null;
     const [firstRuleId] = initialPresetRuleIds;
-    return allPresetRules.find(rule => rule.ruleId === firstRuleId) ?? null;
-  }, [initialPresetRuleIds]);
+    return dbLoadedRules.find(rule => rule.ruleId === firstRuleId) ?? null;
+  }, [initialPresetRuleIds, dbLoadedRules, dbRulesLoaded]);
   const appliedPresetRuleIds = useMemo(() => new Set(initialPresetRuleIds), [initialPresetRuleIds]);
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
   const variantName = primaryRule?.ruleName ?? 'Standard';
@@ -833,7 +883,16 @@ const Play = () => {
   );
 
   const handleSpecialAction = useCallback((ability: SpecialAbilityOption) => {
-    const instantSuccess = tryInstantAbility(ability);
+      // Phase 3: Essayer d'exécuter via le moteur d'abord
+      const uiAction = getUIActions().find(a => a.id === ability.id);
+      if (uiAction && gameState.selectedPiece) {
+        const pieceId = `${gameState.selectedPiece.type}-${gameState.selectedPiece.position.row}-${gameState.selectedPiece.position.col}`;
+        runUIAction(uiAction.id, pieceId, undefined);
+        setPendingAbility(null);
+        return;
+      }
+
+      const instantSuccess = tryInstantAbility(ability);
     if (instantSuccess) {
       setPendingAbility(null);
       return;
@@ -1427,8 +1486,11 @@ const Play = () => {
   useEffect(() => { setCustomRules(analyzedCustomRules); }, [analyzedCustomRules]);
 
   useEffect(() => {
+    if (!dbRulesLoaded) return;
+    
     const activeCustomRules = customRules.map(rule => ({ ...rule, isActive: true }));
-    const activePresetRules = allPresetRules
+    // Utiliser dbLoadedRules au lieu de allPresetRules
+    const activePresetRules = dbLoadedRules
       .filter(rule => appliedPresetRuleIds.has(rule.ruleId))
       .map(rule => ({ ...rule, isActive: true }));
 
@@ -1463,7 +1525,51 @@ const Play = () => {
         blindOpeningRevealed
       };
     });
-  }, [customRules, appliedPresetRuleIds]);
+  }, [customRules, appliedPresetRuleIds, dbLoadedRules, dbRulesLoaded]);
+
+  // Phase 2: Extraire RuleJSON depuis les ChessRule actives
+  const extractRuleJsons = useCallback((chessRules: ChessRule[]): RuleJSON[] => {
+    return chessRules
+      .map(rule => {
+        const ruleAsAny = rule as any;
+        if (ruleAsAny.__originalRuleJson) {
+          return ruleAsAny.__originalRuleJson as RuleJSON;
+        }
+        console.warn(`[Play] Rule ${rule.ruleId} missing __originalRuleJson`);
+        return null;
+      })
+      .filter((r): r is RuleJSON => r !== null);
+  }, []);
+
+  const activeRuleJsons = useMemo(() => {
+    return extractRuleJsons(gameState.activeRules);
+  }, [gameState.activeRules, extractRuleJsons]);
+
+  // Phase 3 & 4: Initialiser le moteur avec les RuleJSON
+  const boardRef = useRef<HTMLDivElement>(null);
+  
+  const toCellPos = useCallback((cell: string): { x: number; y: number } => {
+    // Convertir notation d'échecs (e.g., "e4") en coordonnées pixel
+    const col = cell.charCodeAt(0) - 'a'.charCodeAt(0);
+    const row = 8 - parseInt(cell[1], 10);
+    const squareSize = 80; // Ajuster selon la taille réelle de l'échiquier
+    return {
+      x: col * squareSize + squareSize / 2,
+      y: row * squareSize + squareSize / 2,
+    };
+  }, []);
+
+  const ruleEngineHook = useRuleEngine(gameState, activeRuleJsons);
+  const { 
+    onEnterTile, 
+    onMoveCommitted, 
+    onPromote, 
+    onUndo,
+    runUIAction, 
+    tickCooldowns,
+    getUIActions,
+    vfxAdapter 
+  } = ruleEngineHook;
 
   const respawnPawn = useCallback((board: (ChessPiece | null)[][], color: PieceColor): boolean => {
     const startRow = color === 'white' ? 6 : 1;
@@ -1502,6 +1608,18 @@ const Play = () => {
     }
 
     const newBoard = ChessEngine.executeMove(state.board, move, state);
+
+    // Phase 3: Déclencher événements du moteur
+    const pieceId = `${selectedPiece.type}-${selectedPiece.position.row}-${selectedPiece.position.col}`;
+    const fromTile = `${FILES[originPosition.col]}${8 - originPosition.row}`;
+    const toTile = `${FILES[destination.col]}${8 - destination.row}`;
+    
+    onEnterTile?.(pieceId, toTile);
+    onMoveCommitted?.({
+      pieceId,
+      from: fromTile,
+      to: toTile,
+    });
 
     if (updatedSpecialAttacks.length > 0) {
       const remainingAttacks: typeof updatedSpecialAttacks = [];
@@ -2232,7 +2350,23 @@ const Play = () => {
 
     const nextState = applyMoveToState(gameState, selectedPiece, position, selectionDuration);
     setGameState(nextState);
+    
+    // Phase 3: Déclencher onTurnStart si le joueur change
+    if (nextState.currentPlayer !== gameState.currentPlayer) {
+      tickCooldowns?.();
+      // onTurnStart sera appelé dans le useEffect ci-dessous
+    }
   };
+
+  // Phase 3: Déclencher onTurnStart à chaque changement de tour
+  const prevPlayerRef = useRef<PieceColor>(gameState.currentPlayer);
+  useEffect(() => {
+    if (prevPlayerRef.current !== gameState.currentPlayer) {
+      prevPlayerRef.current = gameState.currentPlayer;
+      // Appeler le moteur pour démarrer le tour
+      ruleEngineHook.onTurnStart?.(gameState.currentPlayer);
+    }
+  }, [gameState.currentPlayer, ruleEngineHook]);
 
   useEffect(() => {
     if (opponentType !== 'ai') {
@@ -2274,7 +2408,7 @@ const Play = () => {
         return applyMoveToState(prev, piece, bestMove.to, delayMs);
       });
     }, delayMs);
-  }, [gameState.currentPlayer, gameState.gameStatus, opponentType, findBestAIMove, applyMoveToState, timeControl]);
+  }, [gameState.currentPlayer, gameState.gameStatus, opponentType, findBestAIMove, applyMoveToState, timeControl, tickCooldowns]);
 
   const resetGame = () => {
     const initialBoard = ChessEngine.initializeBoard();
@@ -2875,13 +3009,18 @@ const Play = () => {
                       </div>
                     </div>
 
-                    <div className="relative flex w-full justify-center">
+                     <div className="relative flex w-full justify-center">
                       {pendingAbility && (
                         <div className="absolute -top-9 left-1/2 z-20 -translate-x-1/2 rounded-full border border-fuchsia-400/40 bg-fuchsia-500/20 px-4 py-2 text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-fuchsia-100 shadow-[0_0_25px_rgba(236,72,153,0.35)]">
                           Cliquez sur une case vide pour {pendingAbility.buttonLabel?.toLowerCase() ?? pendingAbility.label.toLowerCase()}
                         </div>
                       )}
-                      <ChessBoard gameState={gameState} onSquareClick={handleSquareClick} onPieceClick={handlePieceClick} />
+                      <div ref={boardRef} className="relative">
+                        <FxProvider boardRef={boardRef} toCellPos={toCellPos}>
+                          <FxIntegration vfxAdapter={vfxAdapter} />
+                          <ChessBoard gameState={gameState} onSquareClick={handleSquareClick} onPieceClick={handlePieceClick} />
+                        </FxProvider>
+                      </div>
                     </div>
 
                     <div className="flex flex-col gap-4">
@@ -2936,6 +3075,20 @@ const Play = () => {
       </div>
     </div>
   );
+};
+
+// Phase 4: Composant pour intégrer le contexte FX avec vfxAdapter
+const FxIntegration = ({ vfxAdapter }: { vfxAdapter: any }) => {
+  const fxTrigger = useFxTrigger();
+  
+  useEffect(() => {
+    if (!vfxAdapter || !fxTrigger) return;
+    
+    // Injecter la fonction trigger dans le vfxAdapter
+    vfxAdapter.setFxTrigger?.(fxTrigger);
+  }, [vfxAdapter, fxTrigger]);
+  
+  return null;
 };
 
 export default Play;
