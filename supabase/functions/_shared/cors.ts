@@ -22,19 +22,51 @@ export function preflightIfOptions(req: Request): Response | null {
   return null;
 }
 
-// Additional helper exports for backward compatibility
-export function handleOptions(req: Request): Response | null {
-  return preflightIfOptions(req);
-}
-
-export function jsonResponse(data: unknown, status = 200): Response {
+// Helper qui combine JSON + CORS automatiquement
+// Supporte deux signatures pour rétrocompatibilité :
+// - Nouvelle : jsonResponse(data, status)
+// - Ancienne : jsonResponse(req, data, options, ...)
+export function jsonResponse(...args: any[]): Response {
+  // Nouvelle signature : jsonResponse(data, status?)
+  if (args.length <= 2 && (typeof args[0] !== 'object' || !('method' in args[0]))) {
+    const [data, status = 200] = args;
+    return new Response(JSON.stringify(data), {
+      status,
+      headers: { ...baseHeaders, "Content-Type": "application/json" },
+    });
+  }
+  
+  // Ancienne signature : jsonResponse(req, data, options?, corsOptions?)
+  // On ignore req et corsOptions, on extrait data et options
+  const data = args[1];
+  const options = args[2] || {};
+  const status = options.status || 200;
+  
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...baseHeaders, "Content-Type": "application/json" },
+    headers: { ...baseHeaders, "Content-Type": "application/json", ...options.headers },
   });
 }
 
-export function corsResponse(body: BodyInit | null, init?: ResponseInit): Response {
+// Backward compatibility aliases
+export function handleOptions(...args: any[]): Response | null {
+  // Accepte handleOptions(req) ou handleOptions(req, corsOptions)
+  const req = args[0];
+  return preflightIfOptions(req);
+}
+
+export function corsResponse(...args: any[]): Response {
+  // Nouvelle signature : corsResponse(body, init?)
+  if (args.length <= 2 && (typeof args[0] !== 'object' || !('method' in args[0]))) {
+    const [body, init] = args;
+    const headers = new Headers(init?.headers);
+    for (const [k, v] of Object.entries(baseHeaders)) headers.set(k, v);
+    return new Response(body, { ...init, headers });
+  }
+  
+  // Ancienne signature : corsResponse(req, body, init?, corsOptions?)
+  const body = args[1];
+  const init = args[2] || {};
   const headers = new Headers(init?.headers);
   for (const [k, v] of Object.entries(baseHeaders)) headers.set(k, v);
   return new Response(body, { ...init, headers });
