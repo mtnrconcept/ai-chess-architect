@@ -126,6 +126,11 @@ export interface ChessRule {
   userId?: string;
   createdAt?: string;
   updatedAt?: string;
+  // Données supplémentaires pour le nouveau format rule_json
+  assets?: any;
+  uiActions?: any[];
+  state?: any;
+  parameters?: Record<string, any>;
 }
 
 export interface GameState {

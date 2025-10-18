@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Sparkles, Save, Loader2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { ArrowLeft, Sparkles, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors';
 import { useToast } from '@/hooks/use-toast';
@@ -234,23 +235,43 @@ const Generator = () => {
       }
 
       // L'Edge Function retourne l'objet complet de la DB : { id, rule_json: {...}, status, ... }
-      // On extrait le vrai rule_json pour l'analyse
-      const actualRuleJSON = (ruleEnvelope as any)?.rule_json || ruleEnvelope;
+      const dbRecord = ruleEnvelope as any;
+      const actualRuleJSON = dbRecord?.rule_json || ruleEnvelope;
       
-      // Analyser pour l'affichage
-      const { rule, issues } = analyzeRuleLogic(actualRuleJSON);
-      const normalizedRule: ChessRule = {
-        ...rule,
-        tags: Array.isArray(rule.tags)
-          ? rule.tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0)
-          : [],
+      // Créer une version ChessRule pour l'affichage (adapté du nouveau format)
+      const meta = actualRuleJSON?.meta || {};
+      const scope = actualRuleJSON?.scope || {};
+      const logic = actualRuleJSON?.logic || {};
+      const ui = actualRuleJSON?.ui || {};
+      const assets = actualRuleJSON?.assets || {};
+      
+      const displayRule: ChessRule = {
+        id: dbRecord?.id,
+        ruleId: meta.ruleId || dbRecord?.rule_id || 'unknown',
+        ruleName: meta.ruleName || dbRecord?.rule_name || 'Règle sans nom',
+        description: meta.description || dbRecord?.description || '',
+        category: meta.category || dbRecord?.category || 'special',
+        affectedPieces: scope.affectedPieces || [],
+        trigger: 'always', // Le nouveau format n'a pas de trigger global
+        conditions: [], // Les conditions sont maintenant dans logic.effects[].if
+        effects: logic.effects || [], // Garder le format complet pour l'affichage
+        tags: Array.isArray(meta.tags) ? meta.tags : [],
+        priority: meta.priority || dbRecord?.priority || 1,
+        isActive: meta.isActive ?? true,
+        validationRules: {
+          allowedWith: [],
+          conflictsWith: [],
+          requiredState: null,
+        },
+        // Ajouter les assets pour l'affichage
+        assets: assets,
+        uiActions: ui.actions || [],
       };
 
-      setGeneratedRule(normalizedRule);
-      setGeneratedIssues(issues);
+      setGeneratedRule(displayRule);
+      setGeneratedIssues([]); // Pas d'issues car la règle a été validée côté serveur
       
-      // L'Edge Function a déjà inséré la règle dans rules_lobby, pas besoin de le refaire
-      console.log('[Generator] Rule generated and saved by Edge Function:', (ruleEnvelope as any)?.id);
+      console.log('[Generator] Rule generated and saved by Edge Function:', dbRecord?.id);
       
       toast({
         title: 'Succès !',
@@ -273,98 +294,8 @@ const Generator = () => {
     }
   };
 
-  const saveRule = async () => {
-    if (!generatedRule) return;
-
-    if (!user) {
-      toast({
-        title: 'Erreur',
-        description: 'Vous devez être connecté pour sauvegarder une règle',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const sanitizedTags = Array.isArray(generatedRule.tags)
-        ? generatedRule.tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0)
-        : [];
-
-      const rulePayload: Database['public']['Tables']['custom_chess_rules']['Insert'] = {
-        rule_id: generatedRule.ruleId,
-        rule_name: generatedRule.ruleName,
-        description: generatedRule.description,
-        category: generatedRule.category,
-        affected_pieces: generatedRule.affectedPieces as any,
-        trigger: generatedRule.trigger,
-        conditions: generatedRule.conditions as any,
-        effects: generatedRule.effects as any,
-        priority: generatedRule.priority,
-        is_active: generatedRule.isActive,
-        validation_rules: generatedRule.validationRules as any,
-        user_id: user.id,
-      };
-
-      if (sanitizedTags.length > 0) {
-        (rulePayload as any).tags = sanitizedTags;
-      }
-
-      // Créer le payload pour chess_rules (nouveau format unifié)
-      const chessRulePayload = {
-        rule_id: generatedRule.ruleId,
-        rule_name: generatedRule.ruleName,
-        description: generatedRule.description,
-        category: generatedRule.category,
-        rule_json: {
-          meta: {
-            ruleId: generatedRule.ruleId,
-            ruleName: generatedRule.ruleName,
-            description: generatedRule.description,
-            category: generatedRule.category,
-            tags: sanitizedTags,
-          },
-          logic: {
-            effects: generatedRule.effects,
-          },
-          scope: {
-            affectedPieces: generatedRule.affectedPieces,
-          },
-        } as any, // Cast to any pour éviter les erreurs de type Json
-        source: 'custom' as const,
-        tags: sanitizedTags,
-        affected_pieces: generatedRule.affectedPieces,
-        priority: generatedRule.priority,
-        status: generatedRule.isActive ? 'active' : 'draft',
-        created_by: user.id,
-      };
-
-      const { error } = await supabase.from('chess_rules').insert([chessRulePayload]);
-
-      if (error) {
-        throw error;
-      }
-
-      toast({
-        title: 'Règle sauvegardée !',
-        description: 'La règle a été ajoutée au lobby',
-      });
-
-      setPrompt('');
-      setGeneratedRule(null);
-      setGeneratedIssues([]);
-      navigate('/lobby');
-    } catch (error: any) {
-      console.error('Error saving rule:', error);
-      toast({
-        title: 'Erreur',
-        description: error.message || 'Erreur lors de la sauvegarde de la règle',
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
+  // SUPPRIMÉ : La fonction saveRule n'est plus nécessaire car l'Edge Function
+  // insère déjà la règle dans chess_rules. Le bouton "Sauvegarder" a été retiré.
 
   return (
     <NeonBackground contentClassName="px-4 py-10 sm:px-6 lg:px-8">
@@ -437,10 +368,9 @@ const Generator = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Règle Générée</h2>
-              <Button onClick={saveRule} variant="gold" size="lg" disabled={saving}>
-                {saving ? <Loader2 className="mr-2 animate-spin" size={20} /> : <Save size={20} />}
-                {saving ? 'Sauvegarde...' : 'Sauvegarder au Lobby'}
-              </Button>
+              <Badge variant="outline" className="bg-green-500/20 text-green-300 border-green-500/30 text-sm">
+                ✓ Règle ajoutée au lobby
+              </Badge>
             </div>
 
             <RuleCard rule={generatedRule} showActions={false} issues={generatedIssues} />
