@@ -61,7 +61,14 @@ export function registerBuiltinConditions(reg: Registry) {
   });
 
   reg.registerCondition("target.hasStatus", (ctx) => {
-    const key = ctx.params?.statusKey || ctx.params?.key;
+    let key = ctx.params?.statusKey || ctx.params?.key;
+    
+    // Résoudre les références $params.*
+    if (typeof key === 'string' && key.startsWith('$params.')) {
+      const paramPath = key.slice(8); // "freezeKey" depuis "$params.freezeKey"
+      key = ctx.params?.[paramPath];
+    }
+    
     if (!ctx.targetPieceId || !key) return false;
     try {
       const piece = ctx.engine.board.getPiece(ctx.targetPieceId);
@@ -73,7 +80,11 @@ export function registerBuiltinConditions(reg: Registry) {
 
   // Phase 2: Advanced targeting conditions
   reg.registerCondition("ctx.hasTargetPiece", (ctx) => {
-    return !!ctx.targetPieceId;
+    const hasTarget = !!ctx.targetPieceId;
+    if (!hasTarget) {
+      console.warn("[condition] ctx.hasTargetPiece failed - no targetPieceId in context");
+    }
+    return hasTarget;
   });
 
   reg.registerCondition("target.isEnemy", (ctx) => {

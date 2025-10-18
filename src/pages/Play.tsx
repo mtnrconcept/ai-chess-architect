@@ -883,47 +883,6 @@ const Play = () => {
     [deploySpecialAttack, gameState.activeRules, gameState.board, gameState.selectedPiece, toast],
   );
 
-  const handleSpecialAction = useCallback((ability: SpecialAbilityOption) => {
-      // Phase 3: Essayer d'exécuter via le moteur d'abord
-      const uiAction = getUIActions().find(a => a.id === ability.id);
-      if (uiAction && gameState.selectedPiece) {
-        const pieceId = `${gameState.selectedPiece.type}-${gameState.selectedPiece.position.row}-${gameState.selectedPiece.position.col}`;
-        runUIAction(uiAction.id, pieceId, undefined);
-        setPendingAbility(null);
-        return;
-      }
-
-      const instantSuccess = tryInstantAbility(ability);
-    if (instantSuccess) {
-      setPendingAbility(null);
-      return;
-    }
-
-    setPendingAbility(prev => {
-      if (prev?.id === ability.id) {
-        toast({
-          title: 'Sélection annulée',
-          description: `La capacité ${ability.label} est désactivée.`,
-        });
-        return null;
-      }
-
-      const instruction =
-        ability.trigger === 'countdown'
-          ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
-          : 'Clique ensuite sur la case à piéger.';
-
-      const description = `${instruction} ${ability.description}`.trim();
-
-      toast({
-        title: `${ability.label} prête`,
-        description,
-      });
-
-      return ability;
-    });
-  }, [toast, tryInstantAbility]);
-
   useEffect(() => {
     if (pendingAbility && !specialAbilities.some(ability => ability.id === pendingAbility.id)) {
       setPendingAbility(null);
@@ -1571,6 +1530,61 @@ const Play = () => {
     getUIActions,
     vfxAdapter 
   } = ruleEngineHook;
+
+  const handleSpecialAction = useCallback((ability: SpecialAbilityOption) => {
+      // Phase 1: Vérifier le mode de ciblage via le moteur
+      const uiAction = getUIActions().find(a => a.id === ability.id);
+      
+      if (uiAction) {
+        // Si le ciblage requiert une pièce, activer le mode sélection
+        if (uiAction.targeting?.mode === 'piece') {
+          setPendingAbility(ability);
+          toast({
+            title: `${ability.label} prête`,
+            description: ability.description || 'Sélectionnez une pièce ennemie cible',
+          });
+          return;
+        }
+        
+        // Sinon, exécution immédiate ou sur case vide
+        if (gameState.selectedPiece) {
+          const pieceId = `${gameState.selectedPiece.type}-${gameState.selectedPiece.position.row}-${gameState.selectedPiece.position.col}`;
+          runUIAction(uiAction.id, pieceId, undefined);
+          setPendingAbility(null);
+          return;
+        }
+      }
+
+      const instantSuccess = tryInstantAbility(ability);
+    if (instantSuccess) {
+      setPendingAbility(null);
+      return;
+    }
+
+    setPendingAbility(prev => {
+      if (prev?.id === ability.id) {
+        toast({
+          title: 'Sélection annulée',
+          description: `La capacité ${ability.label} est désactivée.`,
+        });
+        return null;
+      }
+
+      const instruction =
+        ability.trigger === 'countdown'
+          ? `Détonation dans ${ability.countdown} tour${ability.countdown > 1 ? 's' : ''}.`
+          : 'Clique ensuite sur la case à piéger.';
+
+      const description = `${instruction} ${ability.description}`.trim();
+
+      toast({
+        title: `${ability.label} prête`,
+        description,
+      });
+
+      return ability;
+    });
+  }, [toast, tryInstantAbility, gameState.selectedPiece, getUIActions, runUIAction]);
 
   const respawnPawn = useCallback((board: (ChessPiece | null)[][], color: PieceColor): boolean => {
     const startRow = color === 'white' ? 6 : 1;
@@ -2333,6 +2347,45 @@ const Play = () => {
     if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(gameState.gameStatus)) return;
 
     if (pendingAbility) {
+      const uiAction = getUIActions().find(a => a.id === pendingAbility.id);
+      
+      // Phase 2: Traiter le ciblage de pièce
+      if (uiAction?.targeting?.mode === 'piece') {
+        const targetPiece = ChessEngine.getPieceAt(gameState.board, position);
+        
+        if (!targetPiece) {
+          toast({
+            title: 'Cible invalide',
+            description: 'Vous devez sélectionner une pièce ennemie.',
+            variant: 'destructive'
+          });
+          return;
+        }
+        
+        // Vérifier que c'est bien une pièce ennemie
+        if (gameState.selectedPiece && targetPiece.color === gameState.selectedPiece.color) {
+          toast({
+            title: 'Cible invalide',
+            description: 'Vous devez cibler une pièce ennemie.',
+            variant: 'destructive'
+          });
+          return;
+        }
+        
+        // Construire le pieceId et le targetTile
+        const pieceId = gameState.selectedPiece 
+          ? `${gameState.selectedPiece.type}-${gameState.selectedPiece.position.row}-${gameState.selectedPiece.position.col}`
+          : undefined;
+        const targetTile = `${FILES[position.col]}${8 - position.row}`;
+        
+        console.log(`[Play] Ciblage de pièce: pieceId=${pieceId}, targetTile=${targetTile}, targetPieceId=${targetPiece.type}-${targetPiece.position.row}-${targetPiece.position.col}`);
+        
+        runUIAction(uiAction.id, pieceId, targetTile);
+        setPendingAbility(null);
+        return;
+      }
+      
+      // Mode case vide (bombe, mine, etc.)
       const result = deploySpecialAttack(pendingAbility, position, { clearSelection: true });
       if (result.success) {
         setPendingAbility(null);

@@ -54,12 +54,25 @@ export function generateUIActions(logic: any): any[] {
     if (isPlayerAction) {
       const effectActions = Array.isArray(effect.do) ? effect.do : [effect.do];
       
+      // Phase 4: Détecter le mode de ciblage depuis les conditions
+      const conditions = Array.isArray(effect.if) ? effect.if : [];
+      const targetsPieces = conditions.some((cond: any) => 
+        typeof cond === 'string' && 
+        (cond.includes('target.isEnemy') || 
+         cond.includes('ctx.hasTargetPiece') ||
+         cond.includes('target.hasStatus'))
+      );
+      
       actions.push({
         id: effect.id || `special_action_${idx}`,
         label: extractLabel(effect, effectActions),
         hint: extractHint(effectActions),
         icon: extractIcon(effectActions),
-        targeting: extractTargeting(effectActions),
+        targeting: {
+          mode: targetsPieces ? 'piece' : extractTargeting(effectActions).type,
+          highlightMoves: true,
+          validTilesProvider: targetsPieces ? 'provider.enemiesInLineOfSight' : undefined
+        },
         consumesTurn: effect.consumesTurn !== false,
         cooldown: effect.cooldown || { perPiece: 1 },
         availability: {
