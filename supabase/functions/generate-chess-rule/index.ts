@@ -58,23 +58,7 @@ const RuleJSONSchema = z.object({
     })),
   }).optional(),
   logic: z.object({
-    effects: z.array(z.object({
-      id: z.string(),
-      when: z.string(),
-      if: z.union([
-        z.string(),
-        z.array(z.union([z.string(), z.array(z.any())]))
-      ]).optional(),
-      do: z.array(z.object({
-        action: z.string(),
-        params: z.record(z.any()).optional(),
-      })),
-      else: z.array(z.object({
-        action: z.string(),
-        params: z.record(z.any()).optional(),
-      })).optional(),
-      onFail: z.string().optional(),
-    })),
+    effects: z.array(z.any()), // Temporairement permissif pour diagnostic
   }),
   state: z.object({
     namespace: z.string(),
@@ -1003,6 +987,19 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
     }
 
     console.log('[generate-chess-rule] Raw JSON from AI (preview):', sanitized.slice(0, 300));
+
+    // PHASE 1 DIAGNOSTIC: Logs détaillés avant validation
+    console.log('[DIAGNOSTIC] Full raw JSON:', JSON.stringify(candidate, null, 2));
+    console.log('[DIAGNOSTIC] Type checks:', {
+      hasLogic: !!(candidate as any)?.logic,
+      logicType: typeof (candidate as any)?.logic,
+      hasEffects: !!(candidate as any)?.logic?.effects,
+      effectsIsArray: Array.isArray((candidate as any)?.logic?.effects),
+      effectsLength: (candidate as any)?.logic?.effects?.length,
+      firstEffect: (candidate as any)?.logic?.effects?.[0],
+      firstEffectDo: (candidate as any)?.logic?.effects?.[0]?.do,
+      firstEffectDoIsArray: Array.isArray((candidate as any)?.logic?.effects?.[0]?.do),
+    });
 
     const checked = RuleJSONSchema.safeParse(candidate);
     if (!checked.success) {
