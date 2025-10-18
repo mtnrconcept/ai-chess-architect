@@ -43,10 +43,32 @@ export class ChessBoardAdapter implements BoardAPI {
     return `${file}${rank}` as Tile;
   }
 
-  private tileToPosition(tile: Tile): Position {
+  tileToPosition(tile: Tile): Position {
     const file = tile.charCodeAt(0) - 97;
     const rank = 8 - parseInt(tile[1]);
     return { row: rank, col: file };
+  }
+
+  getPiecesInRadius(center: Position, radius: number): PieceID[] {
+    const result: PieceID[] = [];
+    
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const distance = Math.max(
+          Math.abs(row - center.row),
+          Math.abs(col - center.col)
+        );
+        
+        if (distance <= radius) {
+          const piece = this.board[row]?.[col];
+          if (piece) {
+            result.push(this.createPieceId({ row, col }));
+          }
+        }
+      }
+    }
+    
+    return result;
   }
 
   private getTileKey(tile: Tile): string {

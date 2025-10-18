@@ -171,6 +171,55 @@ export function registerBuiltinEffects(reg: Registry) {
     }
   });
 
+  reg.registerEffect("board.areaEffect", (ctx, p) => {
+    if (!p?.center || p?.radius === undefined || !p?.action || !p?.actionParams) {
+      console.warn("[effect] board.areaEffect: paramètres manquants", p);
+      return;
+    }
+
+    try {
+      // Convertir center en position
+      const centerPos = ctx.engine.board.tileToPosition ? 
+        ctx.engine.board.tileToPosition(p.center) : 
+        null;
+      
+      if (!centerPos) {
+        console.warn("[effect] board.areaEffect: impossible de convertir la position", p.center);
+        return;
+      }
+
+      // Trouver toutes les pièces dans le rayon
+      const affectedPieces = ctx.engine.board.getPiecesInRadius(centerPos, p.radius);
+      console.log(`[effect] board.areaEffect: ${affectedPieces.length} pièces affectées dans rayon ${p.radius}`);
+
+      // Appliquer l'action à chaque pièce
+      affectedPieces.forEach(pieceId => {
+        if (p.action === "status.add") {
+          const statusId = p.actionParams.statusId || p.actionParams.key;
+          const duration = p.actionParams.duration || 1;
+          const icon = p.actionParams.icon || "⚠️";
+          
+          reg.runEffect({
+            action: "status.add",
+            params: {
+              pieceId,
+              key: statusId,
+              duration,
+              metadata: { icon, ...p.actionParams.metadata }
+            }
+          }, ctx);
+        } else if (p.action === "piece.capture") {
+          reg.runEffect({
+            action: "piece.capture",
+            params: { pieceId, reason: p.actionParams.reason }
+          }, ctx);
+        }
+      });
+    } catch (error) {
+      console.error("[effect] board.areaEffect failed:", error);
+    }
+  });
+
   // Phase 1: Status management effects
   reg.registerEffect("status.add", (ctx, p) => {
     if (p?.pieceId && p?.key) {

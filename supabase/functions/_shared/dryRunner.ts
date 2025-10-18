@@ -14,6 +14,19 @@ export interface DryRunResult {
  * Effectue une validation structurelle de la règle
  * Ne simule pas le moteur complet, mais vérifie la cohérence logique
  */
+const KNOWN_ACTIONS = new Set([
+  "tile.setTrap", "tile.clearTrap", "tile.resolveTrap",
+  "piece.spawn", "piece.capture", "piece.move", "piece.duplicate",
+  "status.add", "status.remove", "status.tickAll",
+  "vfx.play", "audio.play", "ui.toast",
+  "cooldown.set", "turn.end",
+  "state.set", "state.inc", "state.delete",
+  "board.areaEffect",
+  "decal.set", "decal.clear",
+  "area.forEachTile", "composite",
+  "intent.cancel"
+]);
+
 export async function dryRunRule(rule: any): Promise<DryRunResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -48,8 +61,20 @@ export async function dryRunRule(rule: any): Promise<DryRunResult> {
             errors.push(`Effet ${index}, action ${actionIndex}: champ 'action' manquant`);
           } else if (!action.action.includes('.')) {
             errors.push(`Effet ${index}, action ${actionIndex}: format d'action invalide (${action.action}), attendu 'namespace.method'`);
+          } else if (!KNOWN_ACTIONS.has(action.action)) {
+            errors.push(`Effet ${index}, action ${actionIndex}: action non implémentée '${action.action}'`);
           } else {
             executedActions.push(action.action);
+          }
+        });
+      }
+      
+      // Vérifier aussi les actions dans 'else' si présentes
+      if (effect.else) {
+        const elseActions = Array.isArray(effect.else) ? effect.else : [effect.else];
+        elseActions.forEach((action: any, actionIndex: number) => {
+          if (action.action && !KNOWN_ACTIONS.has(action.action)) {
+            errors.push(`Effet ${index}, else action ${actionIndex}: action non implémentée '${action.action}'`);
           }
         });
       }
