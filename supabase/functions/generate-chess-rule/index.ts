@@ -1148,12 +1148,39 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
       .single();
 
     if (dbError) {
-      console.error("[generate-chess-rule] DB insert failed:", dbError);
-      trackEvent("rulegen.db_insert_failed", { correlationId, ruleId, error: dbError.message });
+      console.error("[generate-chess-rule] DB insert failed:", {
+        code: dbError.code,
+        details: dbError.details,
+        hint: dbError.hint,
+        message: dbError.message,
+        promptKey,
+        ruleId,
+        hasUserId: !!userId,
+        timestamp: new Date().toISOString()
+      });
+      
+      trackEvent("rulegen.db_insert_failed", {
+        correlationId,
+        ruleId,
+        error: dbError.message,
+        code: dbError.code
+      });
+
+      // Message d'erreur plus explicite selon le code
+      const errorMessages: Record<string, string> = {
+        "42P10": "Configuration error: missing unique constraint on prompt_key",
+        "23505": "A rule with this prompt already exists",
+        "23503": "Invalid user reference",
+      };
+
+      const userMessage = errorMessages[dbError.code] || "Database insertion failed";
+
       return withCors(json({
         ok: false,
         error: "DBInsertFailed",
+        reason: userMessage,
         details: dbError.message,
+        code: dbError.code
       }, 500));
     }
 
