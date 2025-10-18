@@ -210,152 +210,763 @@ Génère UNIQUEMENT un objet JSON valide conforme au format RuleJSON ci-dessous.
 **FORMAT OBLIGATOIRE RuleJSON** :
 {
   "meta": {
-    "ruleId": "rule_unique_${Date.now()}",
-    "ruleName": "Nom court en français",
-    "description": "Description détaillée",
-    "category": "special",
-    "version": "1.0.0",
-    "isActive": true,
-    "tags": ["tag1", "tag2"]
+    "ruleId": "rule_unique_id",         // ID unique pour la règle
+    "ruleName": "Nom court",            // Nom affiché dans l'interface
+    "description": "Description",       // Explication détaillée de la règle
+    "category": "special",              // "special" | "movement" | "capture" | "defense"
+    "version": "1.0.0",                 // Versioning sémantique
+    "isActive": true,                   // Active par défaut
+    "tags": ["tag1", "tag2"]            // Tags pour filtrage/recherche
   },
   "scope": {
-    "affectedPieces": ["pawn", "rook"],
-    "sides": ["white", "black"]
+    "affectedPieces": ["pawn"],         // Pièces concernées (pawn, rook, knight, bishop, queen, king)
+    "sides": ["white", "black"]         // Camps concernés
   },
   "ui": {
-    "actions": [
+    "actions": [                        // Actions disponibles dans l'interface
       {
-        "id": "action_unique_id",
-        "label": "Libellé du bouton",
-        "hint": "Description de l'action",
-        "icon": "🎯",
+        "id": "action_id",              // ID unique de l'action
+        "label": "Label bouton",        // Texte du bouton
+        "hint": "Tooltip",              // Description au survol
+        "icon": "🎯",                   // Emoji ou icône
         "availability": {
-          "requiresSelection": true,
-          "pieceTypes": ["pawn"],
-          "phase": "main",
-          "cooldownOk": true
+          "requiresSelection": true,    // Nécessite une pièce sélectionnée
+          "pieceTypes": ["pawn"],       // Types de pièces autorisées
+          "phase": "main",              // Phase de jeu (main, pre-move)
+          "cooldownOk": true            // Vérifie le cooldown avant affichage
         },
         "targeting": {
-          "mode": "tile",
-          "validTilesProvider": "provider.neighborsEmpty"
+          "mode": "tile",               // "tile" | "piece" | "none"
+          "validTilesProvider": "provider.neighborsEmpty"  // Provider pour cases valides
         },
-        "consumesTurn": true,
-        "cooldown": { "perPiece": 3 }
+        "consumesTurn": true,           // Termine le tour après exécution
+        "cooldown": {
+          "perPiece": 3,                // Cooldown par pièce (tours)
+          "global": 0                   // Cooldown global (optionnel)
+        }
       }
     ]
   },
   "logic": {
-    "effects": [
+    "effects": [                        // Effets déclenchés par des événements
       {
-        "id": "effect_unique",
-        "when": "ui.action_unique_id",
-        "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
-        "do": [
-          { "action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "catapult"} },
-          { "action": "vfx.play", "params": {"sprite": "place_trap"} },
-          { "action": "audio.play", "params": {"id": "place"} },
-          { "action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "action_unique_id", "turns": 3} },
-          { "action": "turn.end", "params": {} }
+        "id": "effect_id",              // ID unique de l'effet
+        "when": "ui.action_id",         // Événement déclencheur
+        "if": [                         // Conditions (tableau ou string unique)
+          "cooldown.ready",
+          "ctx.hasTargetTile",
+          ["and", "cond1", "cond2"]     // Conditions composées possibles
         ],
-        "onFail": "blockAction"
+        "do": [                         // Actions à exécuter
+          {
+            "action": "tile.setTrap",
+            "params": {
+              "tile": "$targetTile",    // Variables d'interpolation avec $
+              "kind": "mine"
+            }
+          }
+        ],
+        "else": [                       // Actions si conditions échouent (préféré à onFail)
+          {
+            "action": "ui.toast",
+            "params": {
+              "message": "Action impossible",
+              "variant": "warning"
+            }
+          },
+          {
+            "action": "intent.cancel"   // Annule l'action
+          }
+        ]
       }
     ]
   },
   "state": {
-    "namespace": "rules.unique_id",
-    "initial": {}
+    "namespace": "rules.my_rule",       // Namespace pour isoler l'état
+    "initial": {}                       // État initial (optionnel)
   },
-  "parameters": {},
-  "assets": {
+  "parameters": {                       // Paramètres configurables
+    "cooldownTurns": 3,
+    "friendlyFire": false,
+    "toastOnSuccess": "Action réussie !"
+  },
+  "assets": {                           // Assets visuels/audio
     "icon": "🎯",
-    "color": "#ff6600"
+    "color": "#ff6600",
+    "sprites": {
+      "trap": "mine_icon",
+      "placeVfx": "place_trap"
+    },
+    "sfx": {
+      "place": "place_mine"
+    }
   }
 }
 
 **ACTIONS DISPONIBLES** (pour "do") :
-tile.setTrap, tile.resolveTrap, tile.clearTrap, piece.spawn, piece.capture, 
-piece.move, piece.duplicate, status.add, status.remove, vfx.play, audio.play, 
-ui.toast, cooldown.set, turn.end, state.set, state.inc
+• Tuiles : tile.setTrap, tile.clearTrap, tile.hasTrap, tile.trapMetadata, tile.isEmpty
+• Pièces : piece.move, piece.spawn, piece.capture, piece.remove, piece.hasStatus, piece.isType, piece.transform, piece.damage
+• Plateau : board.capture, board.move, board.areaCapture
+• Statuts : status.add, status.remove, status.tickAll
+• État : state.set, state.inc, state.delete, state.exists, state.equals, state.greaterThan
+• VFX/Audio : vfx.play, audio.play
+• UI : ui.toast, ui.showOverlay
+• Cooldowns : cooldown.set, cooldown.ready
+• Tours : turn.end, turn.skip
+• Intent : intent.cancel, intent.confirm
+• Cibles : target.isEnemy, target.isEnemyOf, target.isFriendly
+• Aléatoire : random.chance, random.roll
 
 **CONDITIONS DISPONIBLES** (pour "if") :
-cooldown.ready, ctx.hasTargetTile, ctx.hasTargetPiece, tile.isEmpty, 
-piece.exists, tile.withinBoard, target.isEnemy, target.isFriendly, 
-piece.hasStatus, state.exists, state.equals, random.chance
+cooldown.ready, ctx.hasTargetTile, ctx.hasTargetPiece, tile.isEmpty, tile.hasTrap, 
+tile.trapMetadata, piece.exists, piece.hasStatus, piece.isType, target.isEnemy, 
+target.isEnemyOf, target.isFriendly, state.exists, state.equals, state.greaterThan, 
+random.chance, random.roll, board.inBounds
 
-**PROVIDERS** (pour validTilesProvider) :
-provider.anyEmptyTile, provider.neighborsEmpty, provider.enemyPieces, 
-provider.friendlyPieces, provider.piecesInRadius, provider.enemiesInLineOfSight
+**OPÉRATEURS LOGIQUES** (pour conditions composées) :
+["not", condition]                     → Négation
+["and", cond1, cond2, ...]            → ET logique
+["or", cond1, cond2, ...]             → OU logique
 
-**EXEMPLE COMPLET - Catapultes** :
+Exemples :
+["not", "tile.isEmpty"]
+["and", "cooldown.ready", "ctx.hasTargetTile"]
+["or", ["target.isEnemyOf", "$piece.side"], "$params.friendlyFire"]
+
+**PROVIDERS** (pour "validTilesProvider") :
+provider.anyEmptyTile           → Toutes les cases vides
+provider.neighborsEmpty         → Cases adjacentes vides (8 directions)
+provider.enemyPieces            → Toutes les pièces ennemies
+provider.friendlyPieces         → Toutes les pièces alliées
+provider.piecesInRadius         → Pièces dans un rayon donné
+provider.enemiesInLineOfSight   → Ennemis en ligne de vue
+provider.jumpOverAny            → Cases après un saut par-dessus pièce
+provider.enemyNeighbors         → Pièces ennemies adjacentes
+
+**ÉVÉNEMENTS LIFECYCLE** (pour "when") :
+ui.ACTION_ID                    → Déclenché par action utilisateur (définie dans ui.actions)
+lifecycle.onMoveCommitted       → Après validation d'un mouvement ($from, $to, $pieceId)
+lifecycle.onEnterTile           → Quand une pièce entre sur une case ($to, $enteringPieceId)
+lifecycle.onTurnStart           → Au début d'un tour ($side, $pieceId pour chaque pièce)
+lifecycle.onPromote             → Quand un pion est promu ($pieceId, $newType)
+lifecycle.onCapture             → Après une capture ($attackerId, $victimId)
+status.expired                  → Quand un statut temporisé expire ($pieceId, $statusId)
+
+**VARIABLES D'INTERPOLATION** (accessibles dans params avec $) :
+$pieceId                        → ID de la pièce sélectionnée
+$piece.side                     → Camp de la pièce (white|black)
+$piece.type                     → Type de la pièce (pawn, rook, knight, bishop, queen, king)
+$piece.position                 → Position actuelle {row, col}
+$targetTile                     → Case ciblée par l'action {row, col}
+$targetPieceId                  → ID de la pièce sur la case ciblée
+$from                           → Case de départ (dans lifecycle.onMoveCommitted)
+$to                             → Case d'arrivée (dans lifecycle.onEnterTile, onMoveCommitted)
+$enteringPieceId                → ID de la pièce entrant sur une case
+$params.KEY                     → Accès aux paramètres définis dans "parameters"
+$assets.KEY                     → Accès aux assets définis dans "assets"
+$state.KEY                      → Accès à l'état défini dans "state.initial"
+
+**EXEMPLES COMPLETS** :
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 1 : Piège avec déclenchement automatique (Mine complète)
+═══════════════════════════════════════════════════════════════════════════════
 {
   "meta": {
-    "ruleId": "rule_catapult_${Date.now()}",
-    "ruleName": "Poser une catapulte",
-    "description": "Les pions peuvent poser une catapulte sur une case adjacente vide qui permet de projeter des pièces alliées",
+    "ruleId": "rule_mine_complete",
+    "ruleName": "Poser une mine explosive",
+    "description": "Les pions peuvent poser une mine qui explose au contact ennemi.",
     "category": "special",
     "version": "1.0.0",
     "isActive": true,
-    "tags": ["trap", "movement", "pawn"]
+    "tags": ["trap", "pawn", "explosion"]
   },
   "scope": {
     "affectedPieces": ["pawn"],
     "sides": ["white", "black"]
   },
   "ui": {
-    "actions": [
-      {
-        "id": "place_catapult",
-        "label": "Poser catapulte",
-        "hint": "Place une catapulte sur une case voisine vide",
-        "icon": "🎯",
-        "availability": {
-          "requiresSelection": true,
-          "pieceTypes": ["pawn"],
-          "phase": "main",
-          "cooldownOk": true
-        },
-        "targeting": {
-          "mode": "tile",
-          "validTilesProvider": "provider.neighborsEmpty"
-        },
-        "consumesTurn": true,
-        "cooldown": { "perPiece": 3 }
-      }
-    ]
+    "actions": [{
+      "id": "place_mine",
+      "label": "Poser mine",
+      "hint": "Place une mine sur une case voisine",
+      "icon": "💣",
+      "availability": {
+        "requiresSelection": true,
+        "pieceTypes": ["pawn"],
+        "phase": "main",
+        "cooldownOk": true
+      },
+      "targeting": {
+        "mode": "tile",
+        "validTilesProvider": "provider.neighborsEmpty"
+      },
+      "consumesTurn": true,
+      "cooldown": {"perPiece": 4}
+    }]
   },
   "logic": {
     "effects": [
       {
-        "id": "effect_place_catapult",
-        "when": "ui.place_catapult",
+        "id": "effect_place_mine",
+        "when": "ui.place_mine",
         "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
         "do": [
-          { "action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "catapult", "sprite": "catapult_icon"} },
-          { "action": "vfx.play", "params": {"sprite": "place_trap"} },
-          { "action": "audio.play", "params": {"id": "place"} },
-          { "action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "place_catapult", "turns": 3} },
-          { "action": "ui.toast", "params": {"message": "Catapulte posée !", "variant": "success"} },
-          { "action": "turn.end", "params": {} }
+          {"action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "mine", "sprite": "mine_icon", "metadata": {"ownerSide": "$piece.side"}}},
+          {"action": "vfx.play", "params": {"sprite": "place_trap", "tile": "$targetTile"}},
+          {"action": "audio.play", "params": {"id": "place_mine"}},
+          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "place_mine", "turns": 4}},
+          {"action": "ui.toast", "params": {"message": "Mine posée !", "variant": "success"}},
+          {"action": "turn.end"}
         ],
-        "onFail": "blockAction"
+        "else": [
+          {"action": "ui.toast", "params": {"message": "Impossible de poser la mine ici", "variant": "warning"}},
+          {"action": "intent.cancel"}
+        ]
+      },
+      {
+        "id": "effect_trigger_mine",
+        "when": "lifecycle.onEnterTile",
+        "if": [
+          ["tile.hasTrap", "$to", "mine"],
+          ["target.isEnemyOf", ["tile.trapMetadata", "$to", "ownerSide"]]
+        ],
+        "do": [
+          {"action": "vfx.play", "params": {"sprite": "explosion_small", "tile": "$to"}},
+          {"action": "audio.play", "params": {"id": "explode_mine"}},
+          {"action": "board.capture", "params": {"pieceId": "$enteringPieceId"}},
+          {"action": "tile.clearTrap", "params": {"tile": "$to"}},
+          {"action": "ui.toast", "params": {"message": "💥 Mine déclenchée !", "variant": "destructive"}}
+        ]
       }
     ]
   },
+  "parameters": {
+    "cooldownTurns": 4,
+    "friendlyFire": false,
+    "trapKind": "mine"
+  },
   "state": {
-    "namespace": "rules.catapult",
+    "namespace": "rules.mine",
     "initial": {}
   },
-  "parameters": {},
   "assets": {
-    "icon": "🎯",
-    "color": "#ff6600"
+    "icon": "💣",
+    "color": "#333333",
+    "sprites": {
+      "trap": "mine_icon",
+      "placeVfx": "place_trap",
+      "explodeVfx": "explosion_small"
+    },
+    "sfx": {
+      "place": "place_mine",
+      "explode": "explode_mine"
+    }
   }
 }
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 2 : Modification de mouvement (Pion sauteur)
+═══════════════════════════════════════════════════════════════════════════════
+{
+  "meta": {
+    "ruleId": "rule_jumping_pawn",
+    "ruleName": "Pions sauteurs",
+    "description": "Les pions peuvent sauter par-dessus une pièce adjacente.",
+    "category": "movement",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["pawn", "jump", "mobility"]
+  },
+  "scope": {
+    "affectedPieces": ["pawn"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [{
+      "id": "pawn_jump",
+      "label": "Sauter",
+      "hint": "Saute par-dessus une pièce adjacente",
+      "icon": "🦘",
+      "availability": {
+        "requiresSelection": true,
+        "pieceTypes": ["pawn"],
+        "phase": "main",
+        "cooldownOk": true
+      },
+      "targeting": {
+        "mode": "tile",
+        "validTilesProvider": "provider.jumpOverAny"
+      },
+      "consumesTurn": true,
+      "cooldown": {"perPiece": 2}
+    }]
+  },
+  "logic": {
+    "effects": [{
+      "id": "effect_pawn_jump",
+      "when": "ui.pawn_jump",
+      "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
+      "do": [
+        {"action": "piece.move", "params": {"pieceId": "$pieceId", "targetTile": "$targetTile"}},
+        {"action": "vfx.play", "params": {"sprite": "jump_arc", "tile": "$targetTile"}},
+        {"action": "audio.play", "params": {"id": "jump"}},
+        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "pawn_jump", "turns": 2}},
+        {"action": "ui.toast", "params": {"message": "Saut effectué !", "variant": "info"}},
+        {"action": "turn.end"}
+      ],
+      "else": [
+        {"action": "ui.toast", "params": {"message": "Saut impossible", "variant": "warning"}},
+        {"action": "intent.cancel"}
+      ]
+    }]
+  },
+  "parameters": {
+    "cooldownTurns": 2
+  },
+  "state": {
+    "namespace": "rules.jumping_pawn",
+    "initial": {}
+  },
+  "assets": {
+    "icon": "🦘",
+    "color": "#4CAF50"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 3 : Lifecycle automatique (Bouclier régénérant)
+═══════════════════════════════════════════════════════════════════════════════
+{
+  "meta": {
+    "ruleId": "rule_shield_regen",
+    "ruleName": "Bouclier régénérant",
+    "description": "Les cavaliers gagnent un bouclier temporaire chaque tour.",
+    "category": "defense",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["knight", "defense", "status"]
+  },
+  "scope": {
+    "affectedPieces": ["knight"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": []
+  },
+  "logic": {
+    "effects": [{
+      "id": "effect_shield_regen",
+      "when": "lifecycle.onTurnStart",
+      "if": ["piece.isType", "$pieceId", "knight"],
+      "do": [
+        {"action": "status.add", "params": {"pieceId": "$pieceId", "statusId": "shield", "duration": 1, "icon": "🛡️"}},
+        {"action": "vfx.play", "params": {"sprite": "shield_glow", "tile": "$piece.position"}},
+        {"action": "audio.play", "params": {"id": "shield_up"}}
+      ]
+    }]
+  },
+  "parameters": {},
+  "state": {
+    "namespace": "rules.shield",
+    "initial": {"enabled": true}
+  },
+  "assets": {
+    "icon": "🛡️",
+    "color": "#2196F3"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 4 : Ciblage de pièce (Rayon gelant)
+═══════════════════════════════════════════════════════════════════════════════
+{
+  "meta": {
+    "ruleId": "rule_freeze_enemy",
+    "ruleName": "Rayon gelant",
+    "description": "La reine peut geler une pièce ennemie pendant 2 tours.",
+    "category": "special",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["queen", "freeze", "control"]
+  },
+  "scope": {
+    "affectedPieces": ["queen"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [{
+      "id": "freeze_ray",
+      "label": "Geler",
+      "hint": "Gèle une pièce ennemie en ligne de vue",
+      "icon": "❄️",
+      "availability": {
+        "requiresSelection": true,
+        "pieceTypes": ["queen"],
+        "phase": "main",
+        "cooldownOk": true
+      },
+      "targeting": {
+        "mode": "piece",
+        "validTilesProvider": "provider.enemiesInLineOfSight"
+      },
+      "consumesTurn": false,
+      "cooldown": {"perPiece": 3}
+    }]
+  },
+  "logic": {
+    "effects": [{
+      "id": "effect_freeze",
+      "when": "ui.freeze_ray",
+      "if": ["cooldown.ready", "ctx.hasTargetPiece", "target.isEnemy"],
+      "do": [
+        {"action": "status.add", "params": {"pieceId": "$targetPieceId", "statusId": "frozen", "duration": 2, "icon": "🧊"}},
+        {"action": "vfx.play", "params": {"sprite": "ice_blast", "tile": "$targetTile"}},
+        {"action": "audio.play", "params": {"id": "freeze"}},
+        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "freeze_ray", "turns": 3}},
+        {"action": "ui.toast", "params": {"message": "Cible gelée !", "variant": "info"}}
+      ],
+      "else": [
+        {"action": "ui.toast", "params": {"message": "Cible invalide", "variant": "warning"}},
+        {"action": "intent.cancel"}
+      ]
+    }]
+  },
+  "parameters": {
+    "freezeDuration": 2
+  },
+  "state": {
+    "namespace": "rules.freeze",
+    "initial": {}
+  },
+  "assets": {
+    "icon": "❄️",
+    "color": "#00BCD4"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 5 : Explosion de zone (Sacrifice avec AOE)
+═══════════════════════════════════════════════════════════════════════════════
+{
+  "meta": {
+    "ruleId": "rule_tower_blast",
+    "ruleName": "Explosion de tour",
+    "description": "Les tours peuvent exploser pour détruire toutes les pièces dans un rayon de 2 cases.",
+    "category": "special",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["rook", "explosion", "sacrifice"]
+  },
+  "scope": {
+    "affectedPieces": ["rook"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [{
+      "id": "tower_explode",
+      "label": "Exploser",
+      "hint": "Détruit la tour et toutes les pièces alentour",
+      "icon": "💥",
+      "availability": {
+        "requiresSelection": true,
+        "pieceTypes": ["rook"],
+        "phase": "main",
+        "cooldownOk": true
+      },
+      "targeting": {
+        "mode": "none"
+      },
+      "consumesTurn": true,
+      "cooldown": {"perPiece": 999}
+    }]
+  },
+  "logic": {
+    "effects": [{
+      "id": "effect_explode",
+      "when": "ui.tower_explode",
+      "if": [],
+      "do": [
+        {"action": "vfx.play", "params": {"sprite": "big_explosion", "tile": "$piece.position"}},
+        {"action": "audio.play", "params": {"id": "big_boom"}},
+        {"action": "board.areaCapture", "params": {"center": "$piece.position", "radius": 2, "includeSelf": true}},
+        {"action": "ui.toast", "params": {"message": "💥 BOOM !", "variant": "destructive"}},
+        {"action": "turn.end"}
+      ]
+    }]
+  },
+  "parameters": {
+    "explosionRadius": 2
+  },
+  "state": {
+    "namespace": "rules.tower_blast",
+    "initial": {}
+  },
+  "assets": {
+    "icon": "💥",
+    "color": "#FF5722"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 6 : Transformation temporaire (Métamorphose)
+═══════════════════════════════════════════════════════════════════════════════
+{
+  "meta": {
+    "ruleId": "rule_bishop_morph",
+    "ruleName": "Métamorphose du fou",
+    "description": "Le fou peut se transformer en cavalier pendant 3 tours.",
+    "category": "special",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["bishop", "transform", "versatile"]
+  },
+  "scope": {
+    "affectedPieces": ["bishop"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [{
+      "id": "bishop_morph",
+      "label": "Se transformer",
+      "hint": "Devient un cavalier pendant 3 tours",
+      "icon": "🦎",
+      "availability": {
+        "requiresSelection": true,
+        "pieceTypes": ["bishop"],
+        "phase": "main",
+        "cooldownOk": true
+      },
+      "targeting": {
+        "mode": "none"
+      },
+      "consumesTurn": false,
+      "cooldown": {"perPiece": 5}
+    }]
+  },
+  "logic": {
+    "effects": [{
+      "id": "effect_morph_start",
+      "when": "ui.bishop_morph",
+      "if": ["cooldown.ready"],
+      "do": [
+        {"action": "piece.transform", "params": {"pieceId": "$pieceId", "newType": "knight", "duration": 3}},
+        {"action": "vfx.play", "params": {"sprite": "morph_effect", "tile": "$piece.position"}},
+        {"action": "audio.play", "params": {"id": "transform"}},
+        {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "bishop_morph", "turns": 5}},
+        {"action": "ui.toast", "params": {"message": "Transformation réussie !", "variant": "success"}}
+      ],
+      "else": [
+        {"action": "ui.toast", "params": {"message": "Impossible de se transformer", "variant": "warning"}},
+        {"action": "intent.cancel"}
+      ]
+    }]
+  },
+  "parameters": {
+    "morphDuration": 3
+  },
+  "state": {
+    "namespace": "rules.bishop_morph",
+    "initial": {}
+  },
+  "assets": {
+    "icon": "🦎",
+    "color": "#9C27B0"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 7 : Statut avec expiration (Poison temporisé)
+═══════════════════════════════════════════════════════════════════════════════
+{
+  "meta": {
+    "ruleId": "rule_poison_attack",
+    "ruleName": "Attaque empoisonnée",
+    "description": "Les pions peuvent empoisonner une pièce ennemie adjacente qui perdra 1 PV/tour pendant 3 tours.",
+    "category": "special",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["pawn", "poison", "damage-over-time"]
+  },
+  "scope": {
+    "affectedPieces": ["pawn"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [{
+      "id": "apply_poison",
+      "label": "Empoisonner",
+      "hint": "Empoisonne une pièce ennemie adjacente",
+      "icon": "☠️",
+      "availability": {
+        "requiresSelection": true,
+        "pieceTypes": ["pawn"],
+        "phase": "main",
+        "cooldownOk": true
+      },
+      "targeting": {
+        "mode": "piece",
+        "validTilesProvider": "provider.enemyNeighbors"
+      },
+      "consumesTurn": false,
+      "cooldown": {"perPiece": 4}
+    }]
+  },
+  "logic": {
+    "effects": [
+      {
+        "id": "effect_apply_poison",
+        "when": "ui.apply_poison",
+        "if": ["cooldown.ready", "ctx.hasTargetPiece", "target.isEnemy"],
+        "do": [
+          {"action": "status.add", "params": {"pieceId": "$targetPieceId", "statusId": "poisoned", "duration": 3, "icon": "🤢", "damagePerTurn": 1}},
+          {"action": "vfx.play", "params": {"sprite": "poison_cloud", "tile": "$targetTile"}},
+          {"action": "audio.play", "params": {"id": "poison_apply"}},
+          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "apply_poison", "turns": 4}},
+          {"action": "ui.toast", "params": {"message": "Cible empoisonnée !", "variant": "success"}}
+        ],
+        "else": [
+          {"action": "ui.toast", "params": {"message": "Cible invalide", "variant": "warning"}},
+          {"action": "intent.cancel"}
+        ]
+      },
+      {
+        "id": "effect_poison_tick",
+        "when": "lifecycle.onTurnStart",
+        "if": ["piece.hasStatus", "$pieceId", "poisoned"],
+        "do": [
+          {"action": "piece.damage", "params": {"pieceId": "$pieceId", "amount": 1}},
+          {"action": "vfx.play", "params": {"sprite": "poison_damage", "tile": "$piece.position"}},
+          {"action": "audio.play", "params": {"id": "poison_tick"}},
+          {"action": "status.tickAll", "params": {}}
+        ]
+      }
+    ]
+  },
+  "parameters": {
+    "poisonDuration": 3,
+    "damagePerTurn": 1
+  },
+  "state": {
+    "namespace": "rules.poison",
+    "initial": {}
+  },
+  "assets": {
+    "icon": "☠️",
+    "color": "#8BC34A"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLE 8 : Condition composite complexe (Mine intelligente)
+═══════════════════════════════════════════════════════════════════════════════
+{
+  "meta": {
+    "ruleId": "rule_smart_mine",
+    "ruleName": "Mine intelligente",
+    "description": "Mine qui explose seulement si la pièce ennemie est une pièce majeure (reine, tour) OU si friendly-fire activé.",
+    "category": "special",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["trap", "smart", "conditional"]
+  },
+  "scope": {
+    "affectedPieces": ["pawn"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [{
+      "id": "place_smart_mine",
+      "label": "Poser mine intelligente",
+      "hint": "Mine qui cible les pièces majeures",
+      "icon": "🎯",
+      "availability": {
+        "requiresSelection": true,
+        "pieceTypes": ["pawn"],
+        "phase": "main",
+        "cooldownOk": true
+      },
+      "targeting": {
+        "mode": "tile",
+        "validTilesProvider": "provider.neighborsEmpty"
+      },
+      "consumesTurn": true,
+      "cooldown": {"perPiece": 5}
+    }]
+  },
+  "logic": {
+    "effects": [
+      {
+        "id": "effect_place_smart_mine",
+        "when": "ui.place_smart_mine",
+        "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
+        "do": [
+          {"action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "smart_mine", "sprite": "smart_mine_icon", "metadata": {"ownerSide": "$piece.side"}}},
+          {"action": "vfx.play", "params": {"sprite": "place_trap", "tile": "$targetTile"}},
+          {"action": "audio.play", "params": {"id": "place_mine"}},
+          {"action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "place_smart_mine", "turns": 5}},
+          {"action": "ui.toast", "params": {"message": "Mine intelligente posée !", "variant": "info"}},
+          {"action": "turn.end"}
+        ],
+        "else": [
+          {"action": "ui.toast", "params": {"message": "Impossible", "variant": "warning"}},
+          {"action": "intent.cancel"}
+        ]
+      },
+      {
+        "id": "effect_trigger_smart_mine",
+        "when": "lifecycle.onEnterTile",
+        "if": [
+          ["tile.hasTrap", "$to", "smart_mine"],
+          ["or",
+            ["and",
+              ["target.isEnemyOf", ["tile.trapMetadata", "$to", "ownerSide"]],
+              ["or",
+                ["piece.isType", "$enteringPieceId", "queen"],
+                ["piece.isType", "$enteringPieceId", "rook"]
+              ]
+            ],
+            ["and", "$params.friendlyFire", true]
+          ]
+        ],
+        "do": [
+          {"action": "vfx.play", "params": {"sprite": "smart_explosion", "tile": "$to"}},
+          {"action": "audio.play", "params": {"id": "smart_boom"}},
+          {"action": "board.capture", "params": {"pieceId": "$enteringPieceId"}},
+          {"action": "tile.clearTrap", "params": {"tile": "$to"}},
+          {"action": "ui.toast", "params": {"message": "🎯 Mine ciblée déclenchée !", "variant": "destructive"}}
+        ]
+      }
+    ]
+  },
+  "parameters": {
+    "friendlyFire": false
+  },
+  "state": {
+    "namespace": "rules.smart_mine",
+    "initial": {}
+  },
+  "assets": {
+    "icon": "🎯",
+    "color": "#FF9800"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+**RÈGLES IMPORTANTES** :
+1. Toujours inclure une branche "else" avec ui.toast + intent.cancel (jamais "onFail")
+2. Toujours spécifier "tile" dans vfx.play (ex: {"sprite": "effect", "tile": "$targetTile"})
+3. Toujours remplir "parameters" avec des valeurs configurables
+4. Toujours utiliser des variables d'interpolation $ pour les références dynamiques
+5. Pour les pièges/traps, toujours créer 2 effets : placement (ui.action) + déclenchement (lifecycle.onEnterTile)
+6. Utiliser des conditions composées ["and", "or", "not"] pour logique complexe
+7. Toujours inclure des feedbacks (vfx.play, audio.play, ui.toast)
 
 **Prompt utilisateur** :
 ${prompt}
 
-Génère UNIQUEMENT le JSON, sans texte avant/après ni markdown.
+Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
 `.trim();
 
     let rawJSON = "";
