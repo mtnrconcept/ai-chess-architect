@@ -1344,24 +1344,6 @@ export const presetBizarreRules: ChessRule[] = [
 
 export const presetVipMagnusGoatRules: ChessRule[] = [
   {
-    ruleId: 'preset_vip_magnus_01',
-    ruleName: 'L\'ouverture aveugle',
-    description: 'Avant la partie, chaque joueur dispose ses pièces majeures en secret sur la première rangée (hors roi et pions).',
-    category: 'vip',
-    affectedPieces: ['queen', 'rook', 'bishop', 'knight'],
-    trigger: 'conditional',
-    conditions: [
-      { type: 'phase', value: 'setup', operator: 'equals' }
-    ],
-    effects: [
-      { action: 'secretSetup', target: 'self', parameters: { hidden: true, rank: 1, excludedPieces: ['king', 'pawn'] } }
-    ],
-    tags: ['vip', 'magnus', 'ouverture', 'creativite', 'surprise'],
-    priority: 10,
-    isActive: false,
-    validationRules: { allowedWith: [], conflictsWith: [], requiredState: { phase: 'setup' } }
-  },
-  {
     ruleId: 'preset_vip_magnus_02',
     ruleName: 'L\'écho stratégique',
     description: 'Chaque poussée de pion oblige l\'adversaire à répondre par un coup de pion symétrique dans la colonne miroir.',

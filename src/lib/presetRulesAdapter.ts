@@ -36,7 +36,7 @@ export function convertRuleJsonToChessRule(ruleJson: any): ChessRule {
     });
   }
 
-  return {
+  const chessRule: ChessRule = {
     ruleId: meta.ruleId || 'unknown',
     ruleName: meta.ruleName || 'Unknown Rule',
     description: meta.description || '',
@@ -54,6 +54,11 @@ export function convertRuleJsonToChessRule(ruleJson: any): ChessRule {
       requiredState: {},
     },
   };
+
+  // Préserver le rule_json complet pour accès ultérieur
+  (chessRule as any).__originalRuleJson = ruleJson;
+  
+  return chessRule;
 }
 
 /**

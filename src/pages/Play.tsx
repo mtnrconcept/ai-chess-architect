@@ -575,13 +575,61 @@ const Play = () => {
   }, [gameState.capturedPieces]);
 
   const specialAbilities = useMemo<SpecialAbilityOption[]>(() => {
+    console.log('[Play] Active rules:', gameState.activeRules.map(r => ({
+      ruleId: r.ruleId,
+      ruleName: r.ruleName,
+      hasOriginalJson: !!(r as any).__originalRuleJson,
+      hasUiActions: !!(r as any).ui?.actions,
+      hasEffects: r.effects?.length > 0
+    })));
+
     const options: SpecialAbilityOption[] = [];
     const seen = new Set<string>();
 
     gameState.activeRules.forEach(rule => {
-      // Support for RuleJSON format (preset_rules from database)
       const ruleAsAny = rule as any;
-      if (ruleAsAny.ui?.actions && Array.isArray(ruleAsAny.ui.actions)) {
+      
+      // PRIORITAIRE : Lire depuis __originalRuleJson si disponible
+      const originalJson = ruleAsAny.__originalRuleJson;
+      
+      if (originalJson?.ui?.actions && Array.isArray(originalJson.ui.actions)) {
+        // Traiter les actions du RuleJSON complet
+        originalJson.ui.actions.forEach((uiAction: any, index: number) => {
+          if (!uiAction.id || typeof uiAction.id !== 'string') return;
+          
+          // Map UI action to special ability
+          const abilityKey = uiAction.id.replace('special_', '').replace(/_/g, '');
+          const id = `${rule.ruleId}-${abilityKey}-${index}`;
+          
+          if (seen.has(id)) return;
+          seen.add(id);
+
+          // Extract parameters from the action
+          const icon = uiAction.icon === '❄️' ? 'target' : 'bomb';
+          const label = uiAction.label || uiAction.hint || 'Action spéciale';
+          const cooldown = uiAction.cooldown?.perPiece || 2;
+          
+          options.push({
+            id,
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            ability: 'deployBomb' as SpecialAbilityKey,
+            label,
+            description: uiAction.hint || label,
+            icon,
+            trigger: 'instant' as SpecialAbilityTrigger,
+            radius: 1,
+            countdown: cooldown,
+            damage: 100,
+            animation: 'explosion',
+            sound: 'explosion',
+            buttonLabel: label,
+            activation: 'manual' as SpecialAbilityActivation,
+            freezeTurns: 2,
+            allowOccupied: false,
+          });
+        });
+      } else if (ruleAsAny.ui?.actions && Array.isArray(ruleAsAny.ui.actions)) {
         // New RuleJSON format with ui.actions
         ruleAsAny.ui.actions.forEach((uiAction: any, index: number) => {
           if (!uiAction.id || typeof uiAction.id !== 'string') return;
