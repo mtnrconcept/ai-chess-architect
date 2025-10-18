@@ -20,7 +20,7 @@ const requestSchema = z.object({
   turnNumber: z.coerce.number().int().min(0).max(1024),
   gameStatus: z.string().trim().min(1).max(64),
   activeRules: z
-    .array(z.string().trim().min(1).max(64))
+    .array(z.string().trim().min(1).max(200))
     .max(64)
     .optional()
     .default([]),

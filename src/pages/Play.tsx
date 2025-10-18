@@ -1250,7 +1250,7 @@ const Play = () => {
       const currentState = latestGameStateRef.current;
       const board = serializeBoardForAi(currentState.board);
       const moveHistory = currentState.moveHistory.map(formatMoveForAi);
-      const activeRules = currentState.activeRules.map(rule => `${rule.ruleName}: ${rule.description}`);
+      const activeRules = currentState.activeRules.map(rule => rule.ruleName);
       const moveCount = currentState.moveHistory.length;
 
       const history = coachMessagesRef.current
