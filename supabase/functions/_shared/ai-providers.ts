@@ -94,7 +94,7 @@ export async function invokeChatCompletion(args: InvokeArgs): Promise<InvokeResu
   }
 
   if (provider === "groq") {
-    // Groq n’a pas de JSON-mode strict → prompt-guard
+    // Groq n'a pas de JSON-mode strict → prompt-guard
     const guarded = forceJson
       ? [
           { role: "system", content: `Tu dois répondre EXCLUSIVEMENT avec un JSON valide, sans markdown, sans texte additionnel.` },
@@ -128,6 +128,11 @@ export async function invokeChatCompletion(args: InvokeArgs): Promise<InvokeResu
 
   // lovable (routeur)
   {
+    const apiKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+    if (!apiKey) {
+      throw new Error("[lovable] Missing LOVABLE_API_KEY in environment");
+    }
+
     const guarded = forceJson
       ? [
           { role: "system", content: `Réponds UNIQUEMENT en JSON valide. Aucune prose, aucun code fence.` },
@@ -135,22 +140,22 @@ export async function invokeChatCompletion(args: InvokeArgs): Promise<InvokeResu
         ]
       : args.messages;
 
-    const res = await fetch("https://api.lovable.ai/chat/completions", {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${Deno.env.get("LOVABLE_API_KEY") ?? ""}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: model ?? "google/gemini-2.0-pro-exp",
+        model: model ?? "google/gemini-2.5-flash",
         messages: guarded,
         temperature,
         max_tokens: maxTokens,
-        // si l’API supporte un équivalent JSON-mode, l’activer ici
       }),
     });
     if (!res.ok) {
       const t = await res.text();
+      console.error(`[lovable] API error ${res.status}:`, t.slice(0, 500));
       throw new Error(`[lovable] ${res.status} ${t}`);
     }
     const json = await res.json();

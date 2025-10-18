@@ -77,6 +77,13 @@ async function invokeWithTimeoutAndRetry(
 
       const status: number | undefined = err?.context?.response?.status ?? err?.status;
       lastError = err;
+      
+      console.error(`[invokeWithTimeoutAndRetry] Attempt ${attempt + 1} failed:`, {
+        name: err?.name,
+        message: err?.message,
+        status,
+        isRetriable: isRetriable(status, err)
+      });
 
       if (isRetriable(status, err) && attempt < MAX_RETRIES) {
         attempt++;

@@ -58,6 +58,9 @@ type EngineRule = z.infer<typeof EngineRuleSchema>;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const MODEL = Deno.env.get("MODEL") ?? "google/gemini-2.5-flash";
 
+// Log startup config (sans exposer la clé)
+console.log(`[generate-chess-rule] Starting with model=${MODEL}, key=${LOVABLE_API_KEY ? "present" : "MISSING"}`);
+
 // Utilitaire: appel modèle qui renvoie TOUJOURS une string JSON (ou lance une erreur contrôlée)
 async function callModelJSON(
   prompt: string,
@@ -65,6 +68,7 @@ async function callModelJSON(
   signal: AbortSignal,
 ): Promise<string> {
   if (!LOVABLE_API_KEY) {
+    console.error("[generate-chess-rule] LOVABLE_API_KEY is missing in environment");
     throw new Error("Missing LOVABLE_API_KEY");
   }
   
@@ -94,11 +98,13 @@ async function callModelJSON(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    console.error(`[generate-chess-rule] Lovable AI error ${res.status}:`, text.slice(0, 500));
     throw new Error(`LovableAIError ${res.status}: ${text.slice(0, 300)}`);
   }
   const data = await res.json();
   const raw = data?.choices?.[0]?.message?.content;
   if (typeof raw !== "string" || raw.trim().length === 0) {
+    console.error("[generate-chess-rule] Empty model response:", data);
     throw new Error("EmptyModelResponse");
   }
   return raw;
