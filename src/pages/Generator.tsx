@@ -168,6 +168,8 @@ const Generator = () => {
     setGeneratedIssues([]);
     setGeneratedRule(null);
 
+    console.log('[Generator] Invoking generate-chess-rule with prompt:', trimmed.slice(0, 50) + '...');
+
     try {
       const aborter = new AbortController();
 

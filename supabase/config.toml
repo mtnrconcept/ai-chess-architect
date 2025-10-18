@@ -7,3 +7,12 @@ verify_jwt = false
 
 [functions.generate-chess-rule]
 verify_jwt = false
+
+[functions.tournament-matchmaking]
+verify_jwt = true
+
+[functions.report-tournament-match]
+verify_jwt = true
+
+[functions.sync-tournaments]
+verify_jwt = false
