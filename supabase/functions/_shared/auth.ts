@@ -6,8 +6,8 @@ const normalizeEnv = (value: string | undefined | null) => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
-const EXPECTED_PROJECT_NAME = "Youaregood";
+const EXPECTED_PROJECT_ID = "pfcaolibtgvynnwaxvol";
+const EXPECTED_PROJECT_NAME = "LovableCloud";
 
 const rawSupabaseUrl =
   normalizeEnv(Deno.env.get("SUPABASE_URL")) ??
@@ -71,15 +71,15 @@ const diagnostics: SupabaseProjectDiagnostics = {
 };
 
 const globalScope = globalThis as typeof globalThis & {
-  __YOUAREGOOD_SUPABASE_DIAGNOSTICS__?: SupabaseProjectDiagnostics;
-  __YOUAREGOOD_SUPABASE_LOGGED__?: boolean;
+  __LOVABLE_CLOUD_SUPABASE_DIAGNOSTICS__?: SupabaseProjectDiagnostics;
+  __LOVABLE_CLOUD_SUPABASE_LOGGED__?: boolean;
 };
 
-if (!globalScope.__YOUAREGOOD_SUPABASE_DIAGNOSTICS__) {
-  globalScope.__YOUAREGOOD_SUPABASE_DIAGNOSTICS__ = diagnostics;
+if (!globalScope.__LOVABLE_CLOUD_SUPABASE_DIAGNOSTICS__) {
+  globalScope.__LOVABLE_CLOUD_SUPABASE_DIAGNOSTICS__ = diagnostics;
 }
 
-if (!globalScope.__YOUAREGOOD_SUPABASE_LOGGED__) {
+if (!globalScope.__LOVABLE_CLOUD_SUPABASE_LOGGED__) {
   const messages: string[] = [];
 
   if (configuredProjectId && configuredProjectId !== EXPECTED_PROJECT_ID) {
@@ -113,12 +113,12 @@ if (!globalScope.__YOUAREGOOD_SUPABASE_LOGGED__) {
   }
 
   if (messages.length > 0) {
-    console.warn(`[Youaregood] ${messages.join(" ")}`);
+    console.warn(`[LovableCloud] ${messages.join(" ")}`);
   } else {
-    console.log(`[Youaregood] Fonctions configurées pour ${resolvedProjectName} (${resolvedProjectId}).`);
+    console.log(`[LovableCloud] Fonctions configurées pour ${resolvedProjectName} (${resolvedProjectId}).`);
   }
 
-  globalScope.__YOUAREGOOD_SUPABASE_LOGGED__ = true;
+  globalScope.__LOVABLE_CLOUD_SUPABASE_LOGGED__ = true;
 }
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
@@ -146,7 +146,7 @@ type AuthFailure = {
 export type AuthResult = AuthSuccess | AuthFailure;
 
 export const supabaseProjectDiagnostics = () =>
-  globalScope.__YOUAREGOOD_SUPABASE_DIAGNOSTICS__ ?? diagnostics;
+  globalScope.__LOVABLE_CLOUD_SUPABASE_DIAGNOSTICS__ ?? diagnostics;
 
 export const resolvedSupabaseUrl = SUPABASE_URL;
 export const resolvedServiceRoleKey = SERVICE_ROLE_KEY;

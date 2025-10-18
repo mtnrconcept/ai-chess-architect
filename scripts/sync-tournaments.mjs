@@ -75,8 +75,8 @@ loadEnv(resolveProjectRoot());
 
 const env = process.env;
 
-const EXPECTED_PROJECT_ID = 'ucaqbhmyutlnitnedowk';
-const EXPECTED_PROJECT_NAME = 'Youaregood';
+const EXPECTED_PROJECT_ID = 'pfcaolibtgvynnwaxvol';
+const EXPECTED_PROJECT_NAME = 'LovableCloud';
 
 const configuredProjectRef =
   normaliseEnv(env.SUPABASE_PROJECT_ID) ??

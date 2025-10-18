@@ -7,7 +7,7 @@ type SupportedPlan = "starter" | "pro";
 type BillingInterval = "monthly" | "yearly";
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-const defaultSiteUrl = (Deno.env.get("SITE_URL") ?? "https://ucaqbhmyutlnitnedowk.supabase.co").replace(/\/$/, "");
+const defaultSiteUrl = (Deno.env.get("SITE_URL") ?? "https://pfcaolibtgvynnwaxvol.supabase.co").replace(/\/$/, "");
 
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, {

@@ -1,6 +1,6 @@
 # Supabase project name used across environments
-# project = "Youaregood"
-project_id = "ucaqbhmyutlnitnedowk"
+# project = "LovableCloud"
+project_id = "pfcaolibtgvynnwaxvol"
 
 [functions.chess-insights]
 verify_jwt = false
