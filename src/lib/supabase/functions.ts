@@ -35,7 +35,16 @@ export type GeneratedRule = {
 
 type GenerateRuleSuccess = {
   ok: true;
-  rule: GeneratedRule;
+  rule: any; // RuleJSON complet depuis la DB
+  meta?: {
+    correlationId?: string;
+    ruleId?: string;
+    promptKey?: string;
+    generationDurationMs?: number;
+    dryRunSuccess?: boolean;
+    dryRunWarnings?: string[];
+    ajvWarnings?: string[];
+  };
 };
 
 type GenerateRuleFailure = {

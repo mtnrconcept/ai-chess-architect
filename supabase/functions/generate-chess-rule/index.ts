@@ -5,10 +5,16 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { withCors, preflightIfOptions } from "../_shared/cors.ts";
 import { json } from "../_shared/http.ts";
+import { generateRuleId, promptHash, generateCorrelationId } from "../_shared/identity.ts";
+import { validateRuleJSON } from "../_shared/validation.ts";
+import { dryRunRule } from "../_shared/dryRunner.ts";
+import { trackEvent } from "../_shared/telemetry.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // —— Config runtime ——
 const MODEL_TIMEOUT_MS = 45000; // < 60s pour rester sous limite CF/Supabase
 const BODY_LIMIT_BYTES = 256 * 1024; // 256 KB, protège contre payloads énormes
+const STRICT_DRYRUN = Deno.env.get("STRICT_DRYRUN") !== "false"; // Par défaut strict
 
 // —— Schémas d'entrées/sorties ——
 const RulePromptSchema = z.object({
@@ -165,6 +171,9 @@ serve(async (rawReq) => {
   const preflight = preflightIfOptions(rawReq);
   if (preflight) return preflight;
 
+  const startTime = Date.now();
+  const correlationId = generateCorrelationId();
+
   try {
     // Sécurise taille payload
     const bodyBytes = await readBodyWithLimit(rawReq, BODY_LIMIT_BYTES);
@@ -173,6 +182,7 @@ serve(async (rawReq) => {
     // Validation input
     const parsedInput = RulePromptSchema.safeParse(JSON.parse(bodyText));
     if (!parsedInput.success) {
+      trackEvent("rulegen.invalid_input", { correlationId, errors: parsedInput.error.flatten() });
       return withCors(
         json(
           {
@@ -185,6 +195,17 @@ serve(async (rawReq) => {
       );
     }
     const { prompt, temperature, locale, context } = parsedInput.data;
+    
+    // Calcul du hash prompt (pour déduplication)
+    const promptKey = await promptHash(prompt);
+
+    trackEvent("rulegen.prompt_received", {
+      correlationId,
+      promptKey,
+      promptLength: prompt.length,
+      locale,
+      temperature,
+    });
 
     // Timeout contrôlé
     const aborter = new AbortController();
@@ -1004,6 +1025,7 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
     const checked = RuleJSONSchema.safeParse(candidate);
     if (!checked.success) {
       console.error('[generate-chess-rule] Validation failed:', checked.error.flatten());
+      trackEvent("rulegen.zod_validation_failed", { correlationId, errors: checked.error.flatten() });
       return withCors(
         json(
           {
@@ -1019,14 +1041,118 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
 
     const rule: RuleJSON = checked.data;
     
-    console.log('[generate-chess-rule] Rule validated:', {
+    // Générer ID serveur et version
+    const ruleId = generateRuleId();
+    rule.meta.ruleId = ruleId;
+    rule.meta.version = rule.meta.version || "1.0.0";
+    
+    trackEvent("rulegen.zod_validated", { correlationId, ruleId });
+    
+    console.log('[generate-chess-rule] Rule validated (Zod):', {
       ruleId: rule.meta.ruleId,
       effectsCount: rule.logic.effects.length,
       hasUI: !!rule.ui
     });
 
-    // Succès
-    return withCors(json({ ok: true, rule }, 200));
+    // Validation AJV stricte
+    const ajvResult = validateRuleJSON(rule);
+    if (!ajvResult.valid) {
+      console.error('[generate-chess-rule] AJV validation failed:', ajvResult.errors);
+      trackEvent("rulegen.ajv_validation_failed", { correlationId, ruleId, errors: ajvResult.errors });
+      return withCors(json({
+        ok: false,
+        error: "AJVValidationFailed",
+        details: ajvResult.errors,
+        warnings: ajvResult.warnings,
+      }, 422));
+    }
+
+    if (ajvResult.warnings?.length) {
+      console.warn(`[generate-chess-rule] Warnings for ${ruleId}:`, ajvResult.warnings);
+    }
+
+    trackEvent("rulegen.ajv_validated", {
+      correlationId,
+      ruleId,
+      warnings: ajvResult.warnings?.length || 0,
+    });
+
+    // Dry-run
+    const dryRunResult = await dryRunRule(rule);
+    
+    trackEvent("rulegen.dryrun_completed", {
+      correlationId,
+      ruleId,
+      success: dryRunResult.success,
+      executedActions: dryRunResult.executedActions.length,
+      errors: dryRunResult.errors.length,
+      warnings: dryRunResult.warnings.length,
+    });
+
+    // Mode strict: bloquer si dry-run échoue
+    if (STRICT_DRYRUN && !dryRunResult.success) {
+      console.error('[generate-chess-rule] Dry-run failed:', dryRunResult.errors);
+      return withCors(json({
+        ok: false,
+        error: "DryRunFailed",
+        details: dryRunResult.errors,
+        warnings: dryRunResult.warnings,
+        executedActions: dryRunResult.executedActions,
+      }, 422));
+    }
+
+    // Insertion en base
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const generationDuration = Date.now() - startTime;
+
+    const { data: insertedRule, error: dbError } = await supabase
+      .from("rules_lobby")
+      .upsert({
+        rule_id: ruleId,
+        prompt,
+        prompt_key: promptKey,
+        rule_json: rule,
+        status: dryRunResult.success ? "active" : "error",
+        generation_duration_ms: generationDuration,
+        ai_model: MODEL,
+      }, { onConflict: "prompt_key" })
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error("[generate-chess-rule] DB insert failed:", dbError);
+      trackEvent("rulegen.db_insert_failed", { correlationId, ruleId, error: dbError.message });
+      return withCors(json({
+        ok: false,
+        error: "DBInsertFailed",
+        details: dbError.message,
+      }, 500));
+    }
+
+    trackEvent("rulegen.persist_ok", {
+      correlationId,
+      ruleId,
+      status: insertedRule.status,
+      durationMs: generationDuration,
+    });
+
+    // Succès - Retour enrichi
+    return withCors(json({
+      ok: true,
+      rule: insertedRule,
+      meta: {
+        correlationId,
+        ruleId,
+        promptKey,
+        generationDurationMs: generationDuration,
+        dryRunSuccess: dryRunResult.success,
+        dryRunWarnings: dryRunResult.warnings,
+        ajvWarnings: ajvResult.warnings || [],
+      },
+    }, 200));
   } catch (err: unknown) {
     // Journalisation contrôlée (évite 502)
     const errMessage = err instanceof Error ? err.message : String(err);
@@ -1036,6 +1162,12 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
         : errMessage === "PayloadTooLarge"
           ? 413
           : 500;
+
+    trackEvent("rulegen.unexpected_error", {
+      correlationId,
+      error: errMessage,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
 
     const safe = {
       ok: false,
