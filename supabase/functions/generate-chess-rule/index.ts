@@ -10,6 +10,7 @@ import { validateRuleJSON } from "../_shared/validation.ts";
 import { dryRunRule } from "../_shared/dryRunner.ts";
 import { trackEvent } from "../_shared/telemetry.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { enrichRule } from "../_shared/enrichment.ts";
 
 // —— Config runtime ——
 const MODEL_TIMEOUT_MS = 45000; // < 60s pour rester sous limite CF/Supabase
@@ -1102,8 +1103,22 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
       warnings: ajvResult.warnings?.length || 0,
     });
 
-    // Dry-run
-    const dryRunResult = await dryRunRule(rule);
+    // Enrichissement automatique de la règle
+    const enrichedRule = enrichRule(rule, prompt, ruleId);
+    
+    trackEvent("rulegen.rule_enriched", {
+      correlationId,
+      ruleId,
+      hasAssets: !!enrichedRule.assets,
+      hasUIActions: enrichedRule.ui?.actions?.length > 0,
+      hasState: !!enrichedRule.state,
+      hasFxIntents: enrichedRule.logic?.effects?.some((e: any) => 
+        (Array.isArray(e.do) ? e.do : [e.do]).some((a: any) => a.action === 'vfx.play')
+      ),
+    });
+
+    // Dry-run sur la règle enrichie
+    const dryRunResult = await dryRunRule(enrichedRule);
     
     trackEvent("rulegen.dryrun_completed", {
       correlationId,
@@ -1137,17 +1152,20 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
       .from("chess_rules")
       .upsert({
         rule_id: ruleId,
-        rule_name: (rule as any).meta?.ruleName || 'AI Generated Rule',
-        description: (rule as any).meta?.description || prompt.trim(),
-        category: (rule as any).meta?.category || 'ai-generated',
-        rule_json: rule,
+        rule_name: enrichedRule.meta?.ruleName || 'AI Generated Rule',
+        description: enrichedRule.meta?.description || prompt.trim(),
+        category: enrichedRule.meta?.category || 'ai-generated',
+        rule_json: enrichedRule,
         source: 'ai_generated',
         prompt: prompt.trim(),
         prompt_key: promptKey,
         ai_model: MODEL,
         generation_duration_ms: generationDuration,
-        tags: (rule as any).meta?.tags || [],
+        tags: enrichedRule.meta?.tags || [],
+        affected_pieces: enrichedRule.scope?.affectedPieces || [],
+        assets: enrichedRule.assets,
         status: dryRunResult.success ? "active" : "draft",
+        is_functional: dryRunResult.success,
         created_by: userId,
       }, { onConflict: "prompt_key" })
       .select()

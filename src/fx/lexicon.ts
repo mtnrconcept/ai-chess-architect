@@ -34,6 +34,25 @@ export const FxLexicon: FxLexiconEntry[] = [
     kw: ["charge", "rush", "dash"],
     intents: [{ intent: "piece.trail", color: "#FFD166", duration: 0.6 }],
   },
+  {
+    kw: ["secret", "setup", "disposition", "aveugle", "caché"],
+    intents: [{ intent: "viz.hologram", style: { color: "#9C27B0", holo: true } }],
+  },
+  {
+    kw: ["catapult", "lance", "projete", "propulse"],
+    intents: [
+      { intent: "piece.trail", color: "#FF5722", duration: 0.8 },
+      { intent: "combat.hit", power: "medium" }
+    ],
+  },
+  {
+    kw: ["invisible", "furtif", "stealth"],
+    intents: [{ intent: "viz.hologram", style: { color: "#76E0FF", holo: true, blink: true } }],
+  },
+  {
+    kw: ["bouclier", "shield", "protection"],
+    intents: [{ intent: "viz.highlight", style: { color: "#4CAF50", ring: true, pulse: true } }],
+  },
 ];
 
 export function lookupFxIntents(description: string): FxIntent[] {
