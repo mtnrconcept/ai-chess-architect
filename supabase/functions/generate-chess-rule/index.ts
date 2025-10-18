@@ -175,6 +175,19 @@ serve(async (rawReq) => {
   const correlationId = generateCorrelationId();
 
   try {
+    // Extraire le userId du JWT (optionnel)
+    let userId: string | null = null;
+    const authHeader = rawReq.headers.get("authorization");
+    if (authHeader) {
+      try {
+        const token = authHeader.replace("Bearer ", "");
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        userId = payload.sub || null;
+      } catch (err) {
+        console.warn("[generate-chess-rule] Failed to extract userId from JWT:", err);
+      }
+    }
+
     // Sécurise taille payload
     const bodyBytes = await readBodyWithLimit(rawReq, BODY_LIMIT_BYTES);
     const bodyText = new TextDecoder().decode(bodyBytes) || "{}";
@@ -1123,13 +1136,13 @@ Génère UNIQUEMENT le JSON valide, sans texte avant/après ni markdown.
     const { data: insertedRule, error: dbError } = await supabase
       .from("rules_lobby")
       .upsert({
-        rule_id: ruleId,
         prompt,
         prompt_key: promptKey,
         rule_json: rule,
         status: dryRunResult.success ? "active" : "error",
         generation_duration_ms: generationDuration,
         ai_model: MODEL,
+        created_by: userId, // Associer la règle à l'utilisateur authentifié
       }, { onConflict: "prompt_key" })
       .select()
       .single();
