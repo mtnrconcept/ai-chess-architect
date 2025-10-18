@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsResponse, handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { corsResponse, handleOptions, jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
 import { getSupabaseServiceRoleClient } from "../_shared/auth.ts";
 
 const corsOptions = { methods: ["POST"] };
@@ -201,10 +201,9 @@ const ensureAiOpponentForMatch = async (context: AiAttachmentContext, options: {
   return true;
 };
 
-serve(async req => {
-  if (req.method === "OPTIONS") {
-    return handleOptions(req, corsOptions);
-  }
+serve(async (req) => {
+  const preflight = preflightIfOptions(req);
+  if (preflight) return preflight;
 
   if (req.method !== "POST") {
     return corsResponse(req, "Method not allowed", { status: 405 }, corsOptions);

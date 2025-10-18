@@ -1,5 +1,5 @@
 import { getSupabaseServiceRoleClient, resolvedServiceRoleKey, resolvedSupabaseUrl } from "../_shared/auth.ts";
-import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { handleOptions, jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
 
 type ApiCategory = "supabase" | "edge_function" | "coach_api" | "http";
 
@@ -337,9 +337,8 @@ async function probeEntry(entry: ApiRegistryRow): Promise<IntegrationHealthResul
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return handleOptions(req);
-  }
+  const preflight = preflightIfOptions(req);
+  if (preflight) return preflight;
 
   if (!supabase || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
     return jsonResponse(

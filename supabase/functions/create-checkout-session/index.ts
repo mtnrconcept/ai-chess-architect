@@ -1,7 +1,7 @@
 import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 
-import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { handleOptions, jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
 
 type SupportedPlan = "starter" | "pro";
 type BillingInterval = "monthly" | "yearly";
@@ -74,9 +74,8 @@ const warnIfMisconfigured = (plan: SupportedPlan, interval: BillingInterval) => 
 };
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return handleOptions(req);
-  }
+  const preflight = preflightIfOptions(req);
+  if (preflight) return preflight;
 
   if (req.method !== "POST") {
     return jsonResponse(

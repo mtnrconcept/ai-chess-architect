@@ -1,5 +1,6 @@
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { preflightIfOptions } from "../_shared/cors.ts";
 import { authenticateRequest } from "../_shared/auth.ts";
 import { invokeChatCompletion, type ChatMessage } from "../_shared/ai-providers.ts";
 
@@ -129,9 +130,8 @@ const buildFallbackMessage = (payload: RequestPayload, reason: string) => {
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return handleOptions(req, corsOptions);
-  }
+  const preflight = preflightIfOptions(req);
+  if (preflight) return preflight;
 
   try {
     if (req.method !== "POST") {
