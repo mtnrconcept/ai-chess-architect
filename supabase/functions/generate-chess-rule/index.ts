@@ -49,7 +49,8 @@ const EngineRuleSchema = z.object({
       validate: z.string().optional(),
       resolveConflicts: z.string().optional(),
     })
-    .partial(),
+    .partial()
+    .optional(),
 });
 
 type EngineRule = z.infer<typeof EngineRuleSchema>;
@@ -178,21 +179,45 @@ serve(async (rawReq) => {
 
     // Construit un prompt canonique pour forcer un JSON conforme
     const instruction = `
-Génère une règle pour mon moteur de variantes d'échecs à partir du prompt utilisateur ci-dessous.
-Renvoie UNIQUEMENT un JSON conforme au schéma "EngineRuleSchema" (pas de Markdown ni d'explications).
-Contraintes:
-- Fournir "ruleId" unique (ex: "rule_${Date.now()}").
-- "effects" doit décrire l'action (ex: "placeMine", "explodeMine", "freezeMissile", "teleport", etc.) avec payload minimal utile.
-- Si spécial (bouton d'action), renseigner "engineAdapters.onSpecialAction" avec le nom d'un handler (string).
-- Ne crée pas de texte hors JSON.
+Tu es un compilateur de règles de jeu d'échecs variantes. 
+Génère UNIQUEMENT un objet JSON valide conforme au format ci-dessous, sans texte avant/après ni markdown.
 
-Schema attendu (typescript):
-${EngineRuleSchema.toString()}
+**Format JSON attendu** (RESPECTE CES NOMS EXACTS) :
+{
+  "ruleId": "rule_UNIQUE_ID",
+  "ruleName": "Nom court de la règle",
+  "description": "Description détaillée de l'effet de la règle",
+  "effects": [
+    {
+      "type": "nom_de_l_effet",
+      "triggers": ["onMove", "onCapture", "onTurnStart"],
+      "payload": { "key": "value" }
+    }
+  ],
+  "visuals": {
+    "icon": "💥",
+    "color": "#ff0000",
+    "animations": ["explosion", "shake"]
+  },
+  "engineAdapters": {
+    "onSpecialAction": "handleExplosion"
+  }
+}
 
-Prompt utilisateur (locale=${locale}):
+**Champs obligatoires** :
+- ruleId (string, unique, ex: "rule_${Date.now()}")
+- ruleName (string, nom court)
+- description (string, détails de la règle)
+- effects (array, minimum 1 effet avec "type" obligatoire)
+
+**Champs optionnels** :
+- visuals (objet avec icon, color, animations)
+- engineAdapters (objet avec callbacks optionnels)
+
+**Prompt utilisateur (locale=${locale})** :
 ${prompt}
 
-Contexte (optionnel):
+**Contexte supplémentaire** :
 ${JSON.stringify(context ?? {}, null, 2)}
 `.trim();
 
@@ -222,8 +247,11 @@ ${JSON.stringify(context ?? {}, null, 2)}
       candidate = JSON.parse(match[0]);
     }
 
+    console.log('[generate-chess-rule] Raw JSON from AI:', sanitized.slice(0, 500));
+
     const checked = EngineRuleSchema.safeParse(candidate);
     if (!checked.success) {
+      console.error('[generate-chess-rule] Validation failed:', checked.error.flatten());
       return withCors(
         json(
           {
