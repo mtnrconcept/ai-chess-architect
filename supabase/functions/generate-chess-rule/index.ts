@@ -61,11 +61,18 @@ const RuleJSONSchema = z.object({
     effects: z.array(z.object({
       id: z.string(),
       when: z.string(),
-      if: z.union([z.string(), z.array(z.string())]).optional(),
+      if: z.union([
+        z.string(),
+        z.array(z.union([z.string(), z.array(z.any())]))
+      ]).optional(),
       do: z.array(z.object({
         action: z.string(),
         params: z.record(z.any()).optional(),
       })),
+      else: z.array(z.object({
+        action: z.string(),
+        params: z.record(z.any()).optional(),
+      })).optional(),
       onFail: z.string().optional(),
     })),
   }),
