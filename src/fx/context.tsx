@@ -39,7 +39,15 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
       antialias: true,
       autoDensity: true,
     });
-    container.appendChild(app.view as HTMLCanvasElement);
+
+    // Pixi v8 utilise app.canvas au lieu de app.view
+    const canvas = (app as any).canvas || (app as any).view;
+    if (canvas && canvas instanceof HTMLCanvasElement) {
+      container.appendChild(canvas);
+    } else {
+      console.error('[FxProvider] Unable to access Pixi canvas');
+      return;
+    }
 
     const ctx: FxContext = {
       app,
