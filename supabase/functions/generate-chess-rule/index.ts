@@ -180,28 +180,32 @@ serve(async (rawReq) => {
     // Construit un prompt canonique pour forcer un JSON conforme
     const instruction = `
 Tu es un compilateur de règles de jeu d'échecs variantes.
-Génère UNIQUEMENT un objet JSON valide conforme au format ci-dessous.
+Génère UNIQUEMENT un objet JSON valide conforme au format ci-dessous, SANS COMMENTAIRES.
 
-**IMPORTANT : Actions et triggers disponibles**
+**STRUCTURE REQUISE** :
+Pour créer une règle avec action UI (bouton), tu dois générer PLUSIEURS effets :
+1. UN effet qui définit le bouton UI (avec trigger "ui.XXX" et les infos du bouton)
+2. UN ou PLUSIEURS effets qui définissent ce qui se passe (avec des actions concrètes)
 
-Actions d'effets disponibles :
-- vfx.play, audio.play, ui.toast
-- piece.spawn, piece.capture, piece.move, piece.duplicate
-- piece.setInvisible
-- status.add, status.remove (avec duration pour statuts temporisés)
-- tile.setTrap, tile.clearTrap, tile.resolveTrap
-- cooldown.set, turn.end
-- state.set, state.inc, state.delete
+**Actions disponibles** (pour le champ "type" dans les effets de logique) :
+- vfx.play : joue une animation visuelle
+- audio.play : joue un son
+- ui.toast : affiche un message
+- piece.spawn : crée une pièce
+- piece.capture : capture une pièce
+- piece.move : déplace une pièce
+- piece.duplicate : duplique une pièce
+- piece.setInvisible : rend invisible
+- status.add : ajoute un statut temporisé (frozen, etc.)
+- status.remove : retire un statut
+- tile.setTrap : place un piège sur une case
+- tile.clearTrap : retire un piège
+- tile.resolveTrap : déclenche un piège
+- cooldown.set : met un cooldown
+- turn.end : termine le tour
+- state.set, state.inc, state.delete : gestion de compteurs
 
-Triggers (événements) disponibles :
-- ui.CUSTOM_ACTION_ID (pour actions spéciales)
-- lifecycle.onMoveCommitted
-- lifecycle.onEnterTile
-- lifecycle.onTurnStart
-- lifecycle.onPromote
-- status.expired
-
-Conditions disponibles (pour payload.conditions) :
+**Conditions disponibles** :
 - cooldown.ready, piece.isTypeInScope
 - ctx.hasTargetTile, ctx.hasTargetPiece
 - tile.isEmpty, piece.exists, tile.withinBoard
@@ -210,65 +214,81 @@ Conditions disponibles (pour payload.conditions) :
 - state.exists, state.equals, state.lessThan
 - random.chance
 
-Providers (pour payload.provider) :
-- provider.anyEmptyTile
-- provider.neighborsEmpty
-- provider.enemyPieces
-- provider.friendlyPieces
-- provider.piecesInRadius
-- provider.enemiesInLineOfSight
+**Providers pour ciblage** :
+- provider.anyEmptyTile : toutes cases vides
+- provider.neighborsEmpty : cases voisines vides
+- provider.enemyPieces : pièces ennemies
+- provider.friendlyPieces : pièces alliées
+- provider.piecesInRadius : pièces dans un rayon
+- provider.enemiesInLineOfSight : ennemis en ligne de vue
 
-Opérateurs logiques (dans conditions) :
-- ["not", condition]
-- ["and", cond1, cond2]
-- ["or", cond1, cond2]
-
-**Format JSON attendu** (RESPECTE CES NOMS EXACTS) :
+**EXEMPLE DE FORMAT CORRECT** :
 {
-  "ruleId": "rule_${Date.now()}",
-  "ruleName": "Nom court de la règle",
-  "description": "Description détaillée de l'effet de la règle",
+  "ruleId": "rule_catapult_${Date.now()}",
+  "ruleName": "Poser une catapulte",
+  "description": "Les pions peuvent poser une catapulte sur une case adjacente vide",
   "effects": [
     {
-      "type": "NOM_ACTION_CI_DESSUS",
-      "triggers": ["NOM_TRIGGER_CI_DESSUS"],
-      "payload": { 
-        "pieceId": "$pieceId",
-        "targetTile": "$targetTile",
-        "targetPieceId": "$targetPieceId",
-        "statusKey": "frozen",
-        "duration": 2,
-        "conditions": ["cooldown.ready", "ctx.hasTargetPiece"],
-        "provider": "provider.enemiesInLineOfSight",
-        "targetingMode": "piece",
-        "label": "Nom de l'action",
-        "hint": "Description",
+      "type": "ui_action_definition",
+      "triggers": ["ui.place_catapult"],
+      "payload": {
+        "label": "Poser catapulte",
+        "hint": "Place une catapulte sur une case voisine",
+        "icon": "🎯",
+        "pieceTypes": ["pawn"],
+        "targetingMode": "tile",
+        "provider": "provider.neighborsEmpty",
         "consumesTurn": true,
-        "cooldown": 2
+        "cooldown": 3,
+        "conditions": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"]
       }
+    },
+    {
+      "type": "tile.setTrap",
+      "triggers": ["ui.place_catapult"],
+      "payload": {
+        "tile": "$targetTile",
+        "kind": "catapult",
+        "sprite": "catapult_icon"
+      }
+    },
+    {
+      "type": "audio.play",
+      "triggers": ["ui.place_catapult"],
+      "payload": {
+        "id": "place"
+      }
+    },
+    {
+      "type": "cooldown.set",
+      "triggers": ["ui.place_catapult"],
+      "payload": {
+        "pieceId": "$pieceId",
+        "actionId": "place_catapult",
+        "turns": 3
+      }
+    },
+    {
+      "type": "turn.end",
+      "triggers": ["ui.place_catapult"],
+      "payload": {}
     }
   ],
-  "visuals": { "icon": "❄️", "color": "#00f" },
+  "visuals": {
+    "icon": "🎯",
+    "color": "#ff6600"
+  },
   "engineAdapters": {}
 }
 
-**Variables disponibles dans payload** :
-- $pieceId : ID de la pièce qui effectue l'action
-- $targetTile : Case cible
-- $targetPieceId : ID de la pièce cible (si présente)
-- $params.* : Paramètres de la règle
+**IMPORTANT** :
+- Le PREMIER effet avec trigger "ui.XXX" définit le bouton (son type peut être "ui_action_definition")
+- Les AUTRES effets avec le MÊME trigger "ui.XXX" définissent les actions concrètes
+- Utilise des noms d'actions RÉELS (tile.setTrap, audio.play, etc.)
+- N'oublie JAMAIS turn.end à la fin si consumesTurn est true
 
-**Champs obligatoires** :
-- ruleId (string, unique)
-- ruleName (string, nom court)
-- description (string, détails de la règle)
-- effects (array, minimum 1 effet avec "type" obligatoire)
-
-**Prompt utilisateur (locale=${locale})** :
+**Prompt utilisateur** :
 ${prompt}
-
-**Contexte supplémentaire** :
-${JSON.stringify(context ?? {}, null, 2)}
 `.trim();
 
     let rawJSON = "";

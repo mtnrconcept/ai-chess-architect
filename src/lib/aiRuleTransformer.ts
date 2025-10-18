@@ -8,31 +8,77 @@ import type { GeneratedRule } from './supabase/functions';
  * @returns Règle au format moteur (RuleJSON)
  */
 export function transformAiRuleToEngineRule(aiRule: GeneratedRule): RuleJSON {
-  // Extraire les actions UI depuis les effects avec trigger "ui.*"
-  const uiEffects = aiRule.effects.filter(eff => 
-    eff.triggers?.some(t => t.startsWith("ui."))
-  );
+  // Grouper les effets par trigger
+  const effectsByTrigger = new Map<string, Array<typeof aiRule.effects[0]>>();
+  aiRule.effects.forEach(eff => {
+    const trigger = eff.triggers?.[0] || "lifecycle.onMoveCommitted";
+    if (!effectsByTrigger.has(trigger)) {
+      effectsByTrigger.set(trigger, []);
+    }
+    effectsByTrigger.get(trigger)!.push(eff);
+  });
   
-  const uiActions = uiEffects.map(eff => {
-    const actionId = eff.triggers?.find(t => t.startsWith("ui."))?.replace("ui.", "") || "custom_action";
+  // Extraire les actions UI depuis les effects avec trigger "ui.*"
+  const uiTriggers = Array.from(effectsByTrigger.keys()).filter(t => t.startsWith("ui."));
+  const uiActions = uiTriggers.map(trigger => {
+    const effects = effectsByTrigger.get(trigger)!;
+    // Le premier effet contient les infos UI dans son payload
+    const uiDef = effects[0];
+    const actionId = trigger.replace("ui.", "");
     
     return {
       id: actionId,
-      label: (eff.payload?.label as string) || aiRule.ruleName,
-      hint: (eff.payload?.hint as string) || aiRule.description,
-      icon: aiRule.visuals?.icon || "⚡",
+      label: (uiDef.payload?.label as string) || aiRule.ruleName,
+      hint: (uiDef.payload?.hint as string) || aiRule.description,
+      icon: (uiDef.payload?.icon as string) || aiRule.visuals?.icon || "⚡",
       availability: {
         requiresSelection: true,
         phase: "main" as const,
-        cooldownOk: true
+        cooldownOk: true,
+        pieceTypes: (uiDef.payload?.pieceTypes as string[]) || undefined
       },
       targeting: {
-        mode: (eff.payload?.targetingMode || "tile") as "tile" | "piece" | "none",
-        validTilesProvider: (eff.payload?.provider as string) || "provider.anyEmptyTile"
+        mode: (uiDef.payload?.targetingMode || "tile") as "tile" | "piece" | "none",
+        validTilesProvider: (uiDef.payload?.provider as string) || "provider.anyEmptyTile"
       },
-      consumesTurn: eff.payload?.consumesTurn !== false,
-      cooldown: eff.payload?.cooldown ? { perPiece: eff.payload.cooldown as number } : undefined
+      consumesTurn: uiDef.payload?.consumesTurn !== false,
+      cooldown: uiDef.payload?.cooldown ? { perPiece: uiDef.payload.cooldown as number } : undefined
     };
+  });
+  
+  // Créer les logic effects
+  const logicEffects = Array.from(effectsByTrigger.entries())
+    .map(([trigger, effects]) => {
+      // Filtrer les effets d'UI definition (premier effet si UI trigger)
+      const actionEffects = trigger.startsWith("ui.") ? effects.slice(1) : effects;
+      
+      // Ne créer un effect que s'il y a des actions
+      if (actionEffects.length === 0) return null;
+      
+      // Si c'est un trigger UI, utiliser les conditions du premier effet
+      const conditions = trigger.startsWith("ui.") 
+        ? (effects[0].payload?.conditions || []) as string | string[]
+        : [];
+      
+      return {
+        id: `effect_${trigger}`,
+        when: trigger,
+        if: conditions,
+        do: actionEffects.map(eff => ({
+          action: eff.type,
+          params: eff.payload || {}
+        })),
+        onFail: trigger.startsWith("ui.") ? "blockAction" as const : undefined
+      };
+    })
+    .filter((eff): eff is NonNullable<typeof eff> => eff !== null);
+  
+  // Extraire affectedPieces depuis les payloads
+  const allPieceTypes = new Set<string>();
+  aiRule.effects.forEach(eff => {
+    if (eff.payload?.pieceTypes && Array.isArray(eff.payload.pieceTypes)) {
+      (eff.payload.pieceTypes as string[]).forEach(type => allPieceTypes.add(type));
+    }
   });
   
   return {
@@ -45,23 +91,15 @@ export function transformAiRuleToEngineRule(aiRule: GeneratedRule): RuleJSON {
       version: "1.0.0"
     },
     
+    scope: allPieceTypes.size > 0 ? {
+      affectedPieces: Array.from(allPieceTypes),
+      sides: ["white", "black"]
+    } : undefined,
+    
     ui: uiActions.length > 0 ? { actions: uiActions } : undefined,
     
     logic: {
-      effects: aiRule.effects.map((eff, idx) => {
-        const trigger = eff.triggers?.[0] || "lifecycle.onMoveCommitted";
-        const conditions = (eff.payload?.conditions || []) as string | string[];
-        
-        return {
-          id: `effect_${idx}`,
-          when: trigger,
-          if: conditions,
-          do: {
-            action: eff.type,
-            params: eff.payload || {}
-          }
-        };
-      })
+      effects: logicEffects
     },
     
     state: {
