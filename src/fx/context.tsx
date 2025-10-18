@@ -9,7 +9,7 @@ type FxRuntime = {
   trigger: (intents: FxIntent[] | undefined, payload?: FxPayload) => Promise<void>;
 };
 
-const FxContextInternal = createContext<FxRuntime | null>(null);
+const FxContextInternal = createContext<FxRuntime | null | undefined>(undefined);
 
 type FxProviderProps = PropsWithChildren<{
   boardRef: React.RefObject<HTMLElement>;
@@ -68,7 +68,7 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
 
 export const useFxRuntime = () => {
   const runtime = useContext(FxContextInternal);
-  if (!runtime) {
+  if (runtime === undefined) {
     throw new Error("useFxRuntime must be used inside FxProvider");
   }
   return runtime;
@@ -78,6 +78,7 @@ export const useFxTrigger = () => {
   const runtime = useFxRuntime();
   return useCallback(
     async (intents: FxIntent[] | undefined, payload?: FxPayload) => {
+      if (!runtime || !runtime.ctx) return;
       await runtime.trigger(intents, payload);
     },
     [runtime],

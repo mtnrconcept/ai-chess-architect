@@ -3082,10 +3082,12 @@ const FxIntegration = ({ vfxAdapter }: { vfxAdapter: any }) => {
   const fxTrigger = useFxTrigger();
   
   useEffect(() => {
-    if (!vfxAdapter || !fxTrigger) return;
+    if (!vfxAdapter) return;
     
     // Injecter la fonction trigger dans le vfxAdapter
-    vfxAdapter.setFxTrigger?.(fxTrigger);
+    if (typeof vfxAdapter.setFxTrigger === 'function') {
+      vfxAdapter.setFxTrigger(fxTrigger);
+    }
   }, [vfxAdapter, fxTrigger]);
   
   return null;
