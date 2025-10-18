@@ -233,11 +233,12 @@ const Generator = () => {
         }
       }
 
-      // Succès - stocker la règle brute avant transformation
-      const ruleJSONRaw = ruleEnvelope;
+      // L'Edge Function retourne l'objet complet de la DB : { id, rule_json: {...}, status, ... }
+      // On extrait le vrai rule_json pour l'analyse
+      const actualRuleJSON = (ruleEnvelope as any)?.rule_json || ruleEnvelope;
       
       // Analyser pour l'affichage
-      const { rule, issues } = analyzeRuleLogic(rawRule);
+      const { rule, issues } = analyzeRuleLogic(actualRuleJSON);
       const normalizedRule: ChessRule = {
         ...rule,
         tags: Array.isArray(rule.tags)
@@ -248,41 +249,18 @@ const Generator = () => {
       setGeneratedRule(normalizedRule);
       setGeneratedIssues(issues);
       
-      // Sauvegarde automatique dans rules_lobby
-      const startTime = Date.now();
-      const duration = Date.now() - startTime;
+      // L'Edge Function a déjà inséré la règle dans rules_lobby, pas besoin de le refaire
+      console.log('[Generator] Rule generated and saved by Edge Function:', (ruleEnvelope as any)?.id);
       
-      const { error: saveError } = await supabase
-        .from('rules_lobby')
-        .insert({
-          prompt: trimmed,
-          status: 'active',
-          rule_json: ruleJSONRaw,
-          assets: (ruleJSONRaw as any)?.assets || null,
-          ai_model: 'google/gemini-2.5-flash',
-          generation_duration_ms: duration,
-          created_by: user.id
-        });
-
-      if (saveError) {
-        console.error('[Generator] Failed to save to lobby:', saveError);
-        toast({
-          title: 'Règle générée',
-          description: 'La règle a été générée mais n\'a pas pu être ajoutée au lobby',
-          variant: 'default'
-        });
-      } else {
-        console.log('[Generator] Saved to lobby successfully');
-        toast({
-          title: 'Succès !',
-          description: 'Règle générée et ajoutée au lobby',
-        });
-        
-        // Redirection vers le lobby après 2s
-        setTimeout(() => {
-          navigate('/lobby');
-        }, 2000);
-      }
+      toast({
+        title: 'Succès !',
+        description: 'Règle générée et ajoutée au lobby',
+      });
+      
+      // Redirection vers le lobby après 2s
+      setTimeout(() => {
+        navigate('/lobby');
+      }, 2000);
     } catch (error: unknown) {
       console.error('Error generating rule:', error);
       const description = getSupabaseFunctionErrorMessage(
