@@ -12,8 +12,15 @@ export function createRuleEngine(engineContracts: EngineContracts, rules: RuleJS
   registerBuiltinEffects(registry);
   registerBuiltinProviders(registry);
 
+  // Phase 6: Feature flag legacy
+  let validRules = rules;
+  if (import.meta.env.VITE_ENABLE_LEGACY_RULES !== 'true') {
+    validRules = rules.filter(r => r.logic?.effects && r.logic.effects.length > 0);
+    console.log(`[engine] Legacy mode disabled, ${validRules.length}/${rules.length} rules loaded`);
+  }
+
   const ruleEngine = new RuleEngine(engineContracts, registry);
-  ruleEngine.loadRules(rules);
+  ruleEngine.loadRules(validRules);
 
   engineContracts.eventBus.on("lifecycle.onEnterTile", (p) =>
     ruleEngine.onEnterTile(p.pieceId, p.to)

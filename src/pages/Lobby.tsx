@@ -27,7 +27,6 @@ import { useToast } from '@/hooks/use-toast';
 import { ChessRule } from '@/types/chess';
 import RuleCard from '@/components/RuleCard';
 import NeonBackground from '@/components/layout/NeonBackground';
-import { allPresetRules } from '@/lib/presetRules';
 import { analyzeRuleLogic, RuleAnalysisResult } from '@/lib/ruleValidation';
 import { useAuth } from '@/contexts/AuthContext';
 import { mapCustomRuleRowsToChessRules, type CustomRuleRow } from '@/lib/customRuleMapper';
@@ -435,16 +434,14 @@ const Lobby = () => {
 
   const presetAnalyses = useMemo(
     () => {
-      const mergedPresets = [...allPresetRules, ...databasePresetRules];
-      return mergedPresets.map(rule => analyzeRuleLogic(rule));
+      return databasePresetRules.map(rule => analyzeRuleLogic(rule));
     },
     [databasePresetRules]
   );
 
   const presetRuleMap = useMemo(() => {
-    const mergedPresets = [...allPresetRules, ...databasePresetRules];
     return new Map(
-      mergedPresets.map(rule => [rule.ruleId, rule])
+      databasePresetRules.map(rule => [rule.ruleId, rule])
     );
   }, [databasePresetRules]);
 
@@ -733,7 +730,7 @@ const Lobby = () => {
   }, [filteredCustomRules, filteredPresetAnalyses, ruleIssues]);
 
   const totalFilteredRulesCount = combinedRuleEntries.length;
-  const totalAvailableRulesCount = customRules.length + allPresetRules.length + databasePresetRules.length;
+  const totalAvailableRulesCount = customRules.length + databasePresetRules.length;
 
   const toggleTagFilter = (tag: string) => {
     setSelectedTags(prev => {

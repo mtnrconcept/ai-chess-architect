@@ -180,6 +180,7 @@ export type Database = {
           tags: string[] | null
           updated_at: string
           validation_notes: string | null
+          version: string | null
         }
         Insert: {
           category: string
@@ -196,6 +197,7 @@ export type Database = {
           tags?: string[] | null
           updated_at?: string
           validation_notes?: string | null
+          version?: string | null
         }
         Update: {
           category?: string
@@ -212,6 +214,7 @@ export type Database = {
           tags?: string[] | null
           updated_at?: string
           validation_notes?: string | null
+          version?: string | null
         }
         Relationships: []
       }
@@ -224,6 +227,7 @@ export type Database = {
           generation_duration_ms: number | null
           id: string
           prompt: string
+          prompt_key: string | null
           rule_json: Json
           status: string
           updated_at: string
@@ -236,6 +240,7 @@ export type Database = {
           generation_duration_ms?: number | null
           id?: string
           prompt: string
+          prompt_key?: string | null
           rule_json: Json
           status?: string
           updated_at?: string
@@ -248,6 +253,7 @@ export type Database = {
           generation_duration_ms?: number | null
           id?: string
           prompt?: string
+          prompt_key?: string | null
           rule_json?: Json
           status?: string
           updated_at?: string
