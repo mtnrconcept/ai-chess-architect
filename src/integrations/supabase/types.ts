@@ -290,6 +290,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "tournament_registrations_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_matches"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "tournament_registrations_tournament_id_fkey"
             columns: ["tournament_id"]
             isOneToOne: false
