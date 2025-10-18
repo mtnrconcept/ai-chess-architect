@@ -31,6 +31,10 @@ export function createRuleEngine(engineContracts: EngineContracts, rules: RuleJS
     ruleEngine.onPromote(p.pieceId, p.fromType, p.toType)
   );
 
+  engineContracts.eventBus.on("lifecycle.onTurnStart", (p) =>
+    ruleEngine.onTurnStart(p.side)
+  );
+
   engineContracts.eventBus.on("ui.runAction", (p) =>
     ruleEngine.runUIAction(p.actionId, p.pieceId, p.targetTile)
   );

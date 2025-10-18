@@ -6,7 +6,7 @@ export const freezeMissileRule: RuleJSON = {
     ruleName: "Missiles Gelants",
     isActive: true,
     category: "attack",
-    description: "Les pions peuvent tirer des missiles qui gèlent les pièces adverses",
+    description: "Les pions peuvent tirer un missile qui gèle une pièce ennemie pendant 2 tours",
     tags: ["attack", "status", "ranged"]
   },
   scope: {
@@ -26,8 +26,8 @@ export const freezeMissileRule: RuleJSON = {
         cooldownOk: true
       },
       targeting: {
-        mode: "tile",
-        validTilesProvider: "provider.anyEmptyTile"
+        mode: "piece",
+        validTilesProvider: "provider.enemiesInLineOfSight"
       },
       consumesTurn: true,
       cooldown: { perPiece: 2 }
@@ -46,14 +46,29 @@ export const freezeMissileRule: RuleJSON = {
       {
         id: "fire-missile",
         when: "ui.special_freeze_missile",
-        if: ["ctx.hasTargetTile", "cooldown.ready", "piece.isTypeInScope"],
+        if: [
+          "cooldown.ready",
+          "ctx.hasTargetPiece",
+          "target.isEnemy",
+          ["not", ["target.hasStatus", "$params.freezeKey"]]
+        ],
         do: [
           { action: "vfx.play", params: { sprite: "ice_projectile", tile: "$targetTile" } },
           { action: "audio.play", params: { id: "whoosh" } },
-          { action: "decal.set", params: { tile: "$targetTile", sprite: "ice_blast" } },
+          { action: "vfx.play", params: { sprite: "ice_blast", tile: "$targetTile" } },
+          {
+            action: "status.add",
+            params: {
+              pieceId: "$targetPieceId",
+              key: "$params.freezeKey",
+              duration: "$params.freezeTurns"
+            }
+          },
           { action: "cooldown.set", params: { pieceId: "$pieceId", actionId: "special_freeze_missile", turns: 2 } },
           { action: "turn.end" }
-        ]
+        ],
+        onFail: "blockAction",
+        message: "Tir impossible."
       }
     ]
   }
@@ -202,19 +217,31 @@ export const multiplyingQueenRule: RuleJSON = {
       maxPerPiece: 2
     }]
   },
+  state: {
+    namespace: "rules.multiplyingQueen",
+    initial: { spawnedCount: {} }
+  },
   logic: {
     effects: [
       {
         id: "duplicate",
         when: "ui.special_duplicate_queen",
-        if: ["ctx.hasTargetTile", "tile.isEmpty", "cooldown.ready", "piece.isTypeInScope"],
+        if: [
+          "ctx.hasTargetTile",
+          "tile.isEmpty",
+          "cooldown.ready",
+          "piece.isTypeInScope",
+          ["state.lessThan", { path: "rules.multiplyingQueen.spawnedCount.$pieceId", value: 2 }]
+        ],
         do: [
-          { action: "piece.spawn", params: { type: "queen", side: "$piece.side", tile: "$targetTile" } },
+          { action: "piece.duplicate", params: { sourceId: "$pieceId", tile: "$targetTile" } },
           { action: "vfx.play", params: { sprite: "spawn_flash", tile: "$targetTile" } },
           { action: "audio.play", params: { id: "spawn" } },
           { action: "cooldown.set", params: { pieceId: "$pieceId", actionId: "special_duplicate_queen", turns: 3 } },
+          { action: "state.inc", params: { path: "rules.multiplyingQueen.spawnedCount.$pieceId", by: 1, default: 0 } },
           { action: "turn.end" }
-        ]
+        ],
+        onFail: "blockAction"
       }
     ]
   }

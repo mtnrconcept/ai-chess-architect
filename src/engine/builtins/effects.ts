@@ -170,4 +170,109 @@ export function registerBuiltinEffects(reg: Registry) {
       ctx.engine.ui.toast(p.message);
     }
   });
+
+  // Phase 1: Status management effects
+  reg.registerEffect("status.add", (ctx, p) => {
+    if (p?.pieceId && p?.key) {
+      try {
+        const piece = ctx.engine.board.getPiece(p.pieceId);
+        piece.statuses = piece.statuses ?? {};
+        piece.statuses[p.key] = {
+          active: true,
+          duration: p.duration ?? -1, // -1 = permanent
+          metadata: p.metadata ?? {},
+          appliedAt: ctx.engine.match.get().ply
+        };
+      } catch (error) {
+        console.warn('Failed to add status:', error);
+      }
+    }
+  });
+
+  reg.registerEffect("status.remove", (ctx, p) => {
+    if (p?.pieceId && p?.key) {
+      try {
+        const piece = ctx.engine.board.getPiece(p.pieceId);
+        if (piece.statuses?.[p.key]) {
+          delete piece.statuses[p.key];
+        }
+      } catch (error) {
+        console.warn('Failed to remove status:', error);
+      }
+    }
+  });
+
+  reg.registerEffect("status.tickAll", (ctx) => {
+    // Décrémente tous les statuts temporisés du camp actif
+    const side = ctx.params?.side || ctx.engine.match.get().turnSide;
+    const allPieces = ctx.engine.board.tiles()
+      .map(t => ctx.engine.board.getPieceAt(t))
+      .filter(pid => pid !== null)
+      .map(pid => ctx.engine.board.getPiece(pid!))
+      .filter(p => p.side === side);
+
+    allPieces.forEach(piece => {
+      if (!piece.statuses) return;
+      
+      Object.entries(piece.statuses).forEach(([key, status]) => {
+        if (typeof status === 'object' && status !== null && 'active' in status && 'duration' in status) {
+          const typedStatus = status as { active: boolean; duration: number; metadata?: any; appliedAt?: number };
+          if (typedStatus.active && typedStatus.duration > 0) {
+            typedStatus.duration--;
+            
+            if (typedStatus.duration === 0) {
+              // Émettre événement d'expiration
+              ctx.engine.eventBus.emit('status.expired', {
+                pieceId: piece.id,
+                statusKey: key,
+                tile: piece.tile
+              });
+              delete piece.statuses![key];
+            }
+          }
+        }
+      });
+    });
+  });
+
+  // Phase 3: State management effects
+  reg.registerEffect("state.set", (ctx, p) => {
+    if (!p?.path || p?.value === undefined) return;
+    const keys = p.path.split('.');
+    let current = ctx.state;
+    
+    for (let i = 0; i < keys.length - 1; i++) {
+      current[keys[i]] = current[keys[i]] ?? {};
+      current = current[keys[i]];
+    }
+    
+    current[keys[keys.length - 1]] = p.value;
+  });
+
+  reg.registerEffect("state.inc", (ctx, p) => {
+    if (!p?.path) return;
+    const keys = p.path.split('.');
+    let current = ctx.state;
+    
+    for (let i = 0; i < keys.length - 1; i++) {
+      current[keys[i]] = current[keys[i]] ?? {};
+      current = current[keys[i]];
+    }
+    
+    const lastKey = keys[keys.length - 1];
+    current[lastKey] = (current[lastKey] ?? p.default ?? 0) + (p.by ?? 1);
+  });
+
+  reg.registerEffect("state.delete", (ctx, p) => {
+    if (!p?.path) return;
+    const keys = p.path.split('.');
+    let current = ctx.state;
+    
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (!current[keys[i]]) return;
+      current = current[keys[i]];
+    }
+    
+    delete current[keys[keys.length - 1]];
+  });
 }

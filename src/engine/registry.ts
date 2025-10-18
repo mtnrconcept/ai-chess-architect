@@ -20,8 +20,26 @@ export class Registry {
     this.providers.set(id, fn);
   }
 
-  runCondition(id: string, ctx: any): boolean {
-    const fn = this.conditions.get(id);
+  runCondition(id: string | any[], ctx: any): boolean {
+    // Phase 4: Support des opérateurs logiques
+    if (Array.isArray(id)) {
+      const [op, ...args] = id;
+      
+      if (op === "not") {
+        return !this.runCondition(args[0], ctx);
+      }
+      
+      if (op === "and") {
+        return args.every(cond => this.runCondition(cond, ctx));
+      }
+      
+      if (op === "or") {
+        return args.some(cond => this.runCondition(cond, ctx));
+      }
+    }
+    
+    // Condition simple (existant)
+    const fn = this.conditions.get(id as string);
     if (!fn) {
       console.warn(`Condition missing: ${id}`);
       return true;

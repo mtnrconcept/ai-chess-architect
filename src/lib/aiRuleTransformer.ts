@@ -8,6 +8,33 @@ import type { GeneratedRule } from './supabase/functions';
  * @returns Règle au format moteur (RuleJSON)
  */
 export function transformAiRuleToEngineRule(aiRule: GeneratedRule): RuleJSON {
+  // Extraire les actions UI depuis les effects avec trigger "ui.*"
+  const uiEffects = aiRule.effects.filter(eff => 
+    eff.triggers?.some(t => t.startsWith("ui."))
+  );
+  
+  const uiActions = uiEffects.map(eff => {
+    const actionId = eff.triggers?.find(t => t.startsWith("ui."))?.replace("ui.", "") || "custom_action";
+    
+    return {
+      id: actionId,
+      label: (eff.payload?.label as string) || aiRule.ruleName,
+      hint: (eff.payload?.hint as string) || aiRule.description,
+      icon: aiRule.visuals?.icon || "⚡",
+      availability: {
+        requiresSelection: true,
+        phase: "main" as const,
+        cooldownOk: true
+      },
+      targeting: {
+        mode: (eff.payload?.targetingMode || "tile") as "tile" | "piece" | "none",
+        validTilesProvider: (eff.payload?.provider as string) || "provider.anyEmptyTile"
+      },
+      consumesTurn: eff.payload?.consumesTurn !== false,
+      cooldown: eff.payload?.cooldown ? { perPiece: eff.payload.cooldown as number } : undefined
+    };
+  });
+  
   return {
     meta: {
       ruleId: aiRule.ruleId,
@@ -18,32 +45,36 @@ export function transformAiRuleToEngineRule(aiRule: GeneratedRule): RuleJSON {
       version: "1.0.0"
     },
     
-    // Convertir effects[] → logic.effects[]
+    ui: uiActions.length > 0 ? { actions: uiActions } : undefined,
+    
     logic: {
-      effects: aiRule.effects.map((eff, idx) => ({
-        id: `effect_${idx}`,
-        when: eff.triggers?.[0] || "lifecycle.onMoveCommitted",
-        do: {
-          action: eff.type,
-          params: eff.payload || {}
-        }
-      }))
+      effects: aiRule.effects.map((eff, idx) => {
+        const trigger = eff.triggers?.[0] || "lifecycle.onMoveCommitted";
+        const conditions = (eff.payload?.conditions || []) as string | string[];
+        
+        return {
+          id: `effect_${idx}`,
+          when: trigger,
+          if: conditions,
+          do: {
+            action: eff.type,
+            params: eff.payload || {}
+          }
+        };
+      })
     },
     
-    // Convertir engineAdapters → handlers
-    handlers: Object.entries(aiRule.engineAdapters).reduce((acc, [hook, handler]) => {
-      if (handler) {
-        acc[`lifecycle.${hook}`] = handler;
-      }
-      return acc;
-    }, {} as Record<string, string>),
+    state: {
+      namespace: `rules.${aiRule.ruleId}`,
+      initial: {}
+    },
     
-    // Mapping visuals
-    assets: aiRule.visuals ? {
+    parameters: aiRule.visuals ? {
       icon: aiRule.visuals.icon,
-      color: aiRule.visuals.color,
-      animations: aiRule.visuals.animations
-    } : undefined
+      color: aiRule.visuals.color
+    } : {},
+    
+    assets: aiRule.visuals
   };
 }
 

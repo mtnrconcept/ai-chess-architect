@@ -47,4 +47,106 @@ export function registerBuiltinConditions(reg: Registry) {
     if (!ctx.piece || !ctx.params?.side) return true;
     return ctx.piece.side === ctx.params.side;
   });
+
+  // Phase 1: Status management conditions
+  reg.registerCondition("piece.hasStatus", (ctx) => {
+    const key = ctx.params?.statusKey || ctx.params?.key;
+    if (!ctx.pieceId || !key) return false;
+    try {
+      const piece = ctx.engine.board.getPiece(ctx.pieceId);
+      return !!(piece.statuses?.[key]?.active);
+    } catch {
+      return false;
+    }
+  });
+
+  reg.registerCondition("target.hasStatus", (ctx) => {
+    const key = ctx.params?.statusKey || ctx.params?.key;
+    if (!ctx.targetPieceId || !key) return false;
+    try {
+      const piece = ctx.engine.board.getPiece(ctx.targetPieceId);
+      return !!(piece.statuses?.[key]?.active);
+    } catch {
+      return false;
+    }
+  });
+
+  // Phase 2: Advanced targeting conditions
+  reg.registerCondition("ctx.hasTargetPiece", (ctx) => {
+    return !!ctx.targetPieceId;
+  });
+
+  reg.registerCondition("target.isEnemy", (ctx) => {
+    if (!ctx.targetPieceId || !ctx.piece) return false;
+    try {
+      const target = ctx.engine.board.getPiece(ctx.targetPieceId);
+      return target.side !== ctx.piece.side;
+    } catch {
+      return false;
+    }
+  });
+
+  reg.registerCondition("target.isFriendly", (ctx) => {
+    if (!ctx.targetPieceId || !ctx.piece) return false;
+    try {
+      const target = ctx.engine.board.getPiece(ctx.targetPieceId);
+      return target.side === ctx.piece.side;
+    } catch {
+      return false;
+    }
+  });
+
+  // Phase 3: State management conditions
+  reg.registerCondition("state.exists", (ctx) => {
+    const path = ctx.params?.path;
+    if (!path) return false;
+    
+    const keys = path.split('.');
+    let current = ctx.state;
+    
+    for (const key of keys) {
+      if (!current || typeof current !== 'object') return false;
+      current = current[key];
+    }
+    
+    return current !== undefined;
+  });
+
+  reg.registerCondition("state.equals", (ctx) => {
+    const path = ctx.params?.path;
+    const value = ctx.params?.value;
+    if (!path) return false;
+    
+    const keys = path.split('.');
+    let current = ctx.state;
+    
+    for (const key of keys) {
+      if (!current || typeof current !== 'object') return false;
+      current = current[key];
+    }
+    
+    return current === value;
+  });
+
+  reg.registerCondition("state.lessThan", (ctx) => {
+    const path = ctx.params?.path;
+    const value = ctx.params?.value;
+    if (!path || value === undefined) return false;
+    
+    const keys = path.split('.');
+    let current = ctx.state;
+    
+    for (const key of keys) {
+      if (!current || typeof current !== 'object') return false;
+      current = current[key];
+    }
+    
+    return typeof current === 'number' && current < value;
+  });
+
+  // Phase 4: Probabilistic conditions
+  reg.registerCondition("random.chance", (ctx) => {
+    const percent = ctx.params?.percent ?? 50;
+    return Math.random() * 100 < percent;
+  });
 }

@@ -81,6 +81,18 @@ export class RuleEngine {
     }
   }
 
+  // Phase 1: Gestion du début de tour pour tick des statuts
+  onTurnStart(side: string) {
+    const ctx = this.buildContext({ event: "lifecycle.onTurnStart", side });
+    
+    // Tick des statuts AVANT d'évaluer les règles
+    this.registry.runEffect({ action: "status.tickAll", params: { side } }, ctx);
+    
+    for (const rule of this.rules) {
+      this.evaluateLogicBlock("lifecycle.onTurnStart", ctx.withRule(rule), rule.logic?.effects);
+    }
+  }
+
   runUIAction(actionId: string, pieceId?: PieceID, targetTile?: Tile) {
     const action = this.uiActions.find(a => a.id === actionId);
     if (!action) {
@@ -88,7 +100,20 @@ export class RuleEngine {
       return;
     }
 
-    const ctx = this.buildContext({ event: `ui.${actionId}`, pieceId, targetTile });
+    // Phase 2: Enrichir avec targetPieceId si une pièce est sur targetTile
+    let targetPieceId: PieceID | undefined;
+    if (targetTile) {
+      targetPieceId = this.engine.board.getPieceAt(targetTile) ?? undefined;
+    }
+
+    const ctx = this.buildContext({ 
+      event: `ui.${actionId}`, 
+      pieceId, 
+      targetTile,
+      targetPieceId,
+      baseActionId: actionId
+    });
+    
     for (const rule of this.rules) {
       this.evaluateLogicBlock(`ui.${actionId}`, ctx.withRule(rule), rule.logic?.effects);
     }

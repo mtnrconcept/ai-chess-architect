@@ -143,10 +143,12 @@ export type UIActionSpec = {
   maxPerPiece?: number;
 };
 
+export type Condition = string | any[];
+
 export type LogicStep = {
   id: string;
   when: string;
-  if?: string | string[];
+  if?: Condition | Condition[];
   do: ActionStep | ActionStep[];
   onFail?: "blockAction" | "skip";
   message?: string;

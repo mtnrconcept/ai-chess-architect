@@ -179,40 +179,90 @@ serve(async (rawReq) => {
 
     // Construit un prompt canonique pour forcer un JSON conforme
     const instruction = `
-Tu es un compilateur de règles de jeu d'échecs variantes. 
-Génère UNIQUEMENT un objet JSON valide conforme au format ci-dessous, sans texte avant/après ni markdown.
+Tu es un compilateur de règles de jeu d'échecs variantes.
+Génère UNIQUEMENT un objet JSON valide conforme au format ci-dessous.
+
+**IMPORTANT : Actions et triggers disponibles**
+
+Actions d'effets disponibles :
+- vfx.play, audio.play, ui.toast
+- piece.spawn, piece.capture, piece.move, piece.duplicate
+- piece.setInvisible
+- status.add, status.remove (avec duration pour statuts temporisés)
+- tile.setTrap, tile.clearTrap, tile.resolveTrap
+- cooldown.set, turn.end
+- state.set, state.inc, state.delete
+
+Triggers (événements) disponibles :
+- ui.CUSTOM_ACTION_ID (pour actions spéciales)
+- lifecycle.onMoveCommitted
+- lifecycle.onEnterTile
+- lifecycle.onTurnStart
+- lifecycle.onPromote
+- status.expired
+
+Conditions disponibles (pour payload.conditions) :
+- cooldown.ready, piece.isTypeInScope
+- ctx.hasTargetTile, ctx.hasTargetPiece
+- tile.isEmpty, piece.exists, tile.withinBoard
+- target.isEnemy, target.isFriendly
+- piece.hasStatus, target.hasStatus
+- state.exists, state.equals, state.lessThan
+- random.chance
+
+Providers (pour payload.provider) :
+- provider.anyEmptyTile
+- provider.neighborsEmpty
+- provider.enemyPieces
+- provider.friendlyPieces
+- provider.piecesInRadius
+- provider.enemiesInLineOfSight
+
+Opérateurs logiques (dans conditions) :
+- ["not", condition]
+- ["and", cond1, cond2]
+- ["or", cond1, cond2]
 
 **Format JSON attendu** (RESPECTE CES NOMS EXACTS) :
 {
-  "ruleId": "rule_UNIQUE_ID",
+  "ruleId": "rule_${Date.now()}",
   "ruleName": "Nom court de la règle",
   "description": "Description détaillée de l'effet de la règle",
   "effects": [
     {
-      "type": "nom_de_l_effet",
-      "triggers": ["onMove", "onCapture", "onTurnStart"],
-      "payload": { "key": "value" }
+      "type": "NOM_ACTION_CI_DESSUS",
+      "triggers": ["NOM_TRIGGER_CI_DESSUS"],
+      "payload": { 
+        "pieceId": "$pieceId",
+        "targetTile": "$targetTile",
+        "targetPieceId": "$targetPieceId",
+        "statusKey": "frozen",
+        "duration": 2,
+        "conditions": ["cooldown.ready", "ctx.hasTargetPiece"],
+        "provider": "provider.enemiesInLineOfSight",
+        "targetingMode": "piece",
+        "label": "Nom de l'action",
+        "hint": "Description",
+        "consumesTurn": true,
+        "cooldown": 2
+      }
     }
   ],
-  "visuals": {
-    "icon": "💥",
-    "color": "#ff0000",
-    "animations": ["explosion", "shake"]
-  },
-  "engineAdapters": {
-    "onSpecialAction": "handleExplosion"
-  }
+  "visuals": { "icon": "❄️", "color": "#00f" },
+  "engineAdapters": {}
 }
 
+**Variables disponibles dans payload** :
+- $pieceId : ID de la pièce qui effectue l'action
+- $targetTile : Case cible
+- $targetPieceId : ID de la pièce cible (si présente)
+- $params.* : Paramètres de la règle
+
 **Champs obligatoires** :
-- ruleId (string, unique, ex: "rule_${Date.now()}")
+- ruleId (string, unique)
 - ruleName (string, nom court)
 - description (string, détails de la règle)
 - effects (array, minimum 1 effet avec "type" obligatoire)
-
-**Champs optionnels** :
-- visuals (objet avec icon, color, animations)
-- engineAdapters (objet avec callbacks optionnels)
 
 **Prompt utilisateur (locale=${locale})** :
 ${prompt}
