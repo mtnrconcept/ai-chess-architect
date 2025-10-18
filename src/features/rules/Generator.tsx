@@ -4,7 +4,7 @@ import {
   invokeGenerateRule,
   type GeneratedRule,
 } from "@/lib/supabase/functions";
-import { transformAiRuleToEngineRule, validateAiRuleActions } from "@/lib/aiRuleTransformer";
+import { transformAiRuleToEngineRule, validateRuleJSONActions } from "@/lib/aiRuleTransformer";
 import type { RuleJSON } from "@/engine/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,18 +47,17 @@ export default function RuleGenerator() {
         locale: "fr",
         temperature: 0.4,
       });
-      
       setAiResult(aiRule);
-      
-      // Valider les actions
-      const unknownActions = validateAiRuleActions(aiRule);
-      if (unknownActions.length > 0) {
-        setWarnings([`Actions inconnues détectées : ${unknownActions.join(", ")}`]);
-      }
       
       // Transformer vers le format moteur
       const engineRule = transformAiRuleToEngineRule(aiRule);
       setEngineResult(engineRule);
+      
+      // Valider les actions du RuleJSON
+      const unknownActions = validateRuleJSONActions(engineRule);
+      if (unknownActions.length > 0) {
+        setWarnings([`Actions inconnues détectées : ${unknownActions.join(", ")}`]);
+      }
       
     } catch (err) {
       setError(toErrorMessage(err));

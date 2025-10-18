@@ -164,6 +164,45 @@ export type Database = {
         }
         Relationships: []
       }
+      rules_lobby: {
+        Row: {
+          ai_model: string | null
+          assets: Json | null
+          created_at: string
+          created_by: string | null
+          generation_duration_ms: number | null
+          id: string
+          prompt: string
+          rule_json: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          ai_model?: string | null
+          assets?: Json | null
+          created_at?: string
+          created_by?: string | null
+          generation_duration_ms?: number | null
+          id?: string
+          prompt: string
+          rule_json: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          ai_model?: string | null
+          assets?: Json | null
+          created_at?: string
+          created_by?: string | null
+          generation_duration_ms?: number | null
+          id?: string
+          prompt?: string
+          rule_json?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       tournament_matches: {
         Row: {
           completed_at: string | null

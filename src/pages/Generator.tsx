@@ -233,6 +233,10 @@ const Generator = () => {
         }
       }
 
+      // Succès - stocker la règle brute avant transformation
+      const ruleJSONRaw = ruleEnvelope;
+      
+      // Analyser pour l'affichage
       const { rule, issues } = analyzeRuleLogic(rawRule);
       const normalizedRule: ChessRule = {
         ...rule,
@@ -243,13 +247,42 @@ const Generator = () => {
 
       setGeneratedRule(normalizedRule);
       setGeneratedIssues(issues);
+      
+      // Sauvegarde automatique dans rules_lobby
+      const startTime = Date.now();
+      const duration = Date.now() - startTime;
+      
+      const { error: saveError } = await supabase
+        .from('rules_lobby')
+        .insert({
+          prompt: trimmed,
+          status: 'active',
+          rule_json: ruleJSONRaw,
+          assets: (ruleJSONRaw as any)?.assets || null,
+          ai_model: 'google/gemini-2.5-flash',
+          generation_duration_ms: duration,
+          created_by: user.id
+        });
 
-      const adjustmentsSummary =
-        issues.length > 0
-          ? `Ajustements appliqués : ${issues.slice(0, 2).join(' • ')}${issues.length > 2 ? '…' : ''}`
-          : 'Règle générée avec succès';
-
-      toast({ title: 'Succès !', description: adjustmentsSummary });
+      if (saveError) {
+        console.error('[Generator] Failed to save to lobby:', saveError);
+        toast({
+          title: 'Règle générée',
+          description: 'La règle a été générée mais n\'a pas pu être ajoutée au lobby',
+          variant: 'default'
+        });
+      } else {
+        console.log('[Generator] Saved to lobby successfully');
+        toast({
+          title: 'Succès !',
+          description: 'Règle générée et ajoutée au lobby',
+        });
+        
+        // Redirection vers le lobby après 2s
+        setTimeout(() => {
+          navigate('/lobby');
+        }, 2000);
+      }
     } catch (error: unknown) {
       console.error('Error generating rule:', error);
       const description = getSupabaseFunctionErrorMessage(

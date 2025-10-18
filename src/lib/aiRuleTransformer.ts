@@ -1,140 +1,83 @@
 import type { RuleJSON } from '@/engine/types';
-import type { GeneratedRule } from './supabase/functions';
 
 /**
  * Transforme une règle générée par l'IA vers le format attendu par le moteur.
+ * Si l'IA génère déjà du RuleJSON valide, on le retourne directement.
+ * Sinon, on applique une transformation minimale (fallback).
  * 
- * @param aiRule - Règle au format IA (GeneratedRule)
+ * @param aiRule - Règle au format IA
  * @returns Règle au format moteur (RuleJSON)
  */
-export function transformAiRuleToEngineRule(aiRule: GeneratedRule): RuleJSON {
-  // Grouper les effets par trigger
-  const effectsByTrigger = new Map<string, Array<typeof aiRule.effects[0]>>();
-  aiRule.effects.forEach(eff => {
-    const trigger = eff.triggers?.[0] || "lifecycle.onMoveCommitted";
-    if (!effectsByTrigger.has(trigger)) {
-      effectsByTrigger.set(trigger, []);
-    }
-    effectsByTrigger.get(trigger)!.push(eff);
-  });
+export function transformAiRuleToEngineRule(aiRule: any): RuleJSON {
+  // Si l'IA a généré directement du RuleJSON, validation et retour direct
+  if (aiRule.meta && aiRule.logic) {
+    return aiRule as RuleJSON;
+  }
   
-  // Extraire les actions UI depuis les effects avec trigger "ui.*"
-  const uiTriggers = Array.from(effectsByTrigger.keys()).filter(t => t.startsWith("ui."));
-  const uiActions = uiTriggers.map(trigger => {
-    const effects = effectsByTrigger.get(trigger)!;
-    // Le premier effet contient les infos UI dans son payload
-    const uiDef = effects[0];
-    const actionId = trigger.replace("ui.", "");
-    
-    return {
-      id: actionId,
-      label: (uiDef.payload?.label as string) || aiRule.ruleName,
-      hint: (uiDef.payload?.hint as string) || aiRule.description,
-      icon: (uiDef.payload?.icon as string) || aiRule.visuals?.icon || "⚡",
-      availability: {
-        requiresSelection: true,
-        phase: "main" as const,
-        cooldownOk: true,
-        pieceTypes: (uiDef.payload?.pieceTypes as string[]) || undefined
-      },
-      targeting: {
-        mode: (uiDef.payload?.targetingMode || "tile") as "tile" | "piece" | "none",
-        validTilesProvider: (uiDef.payload?.provider as string) || "provider.anyEmptyTile"
-      },
-      consumesTurn: uiDef.payload?.consumesTurn !== false,
-      cooldown: uiDef.payload?.cooldown ? { perPiece: uiDef.payload.cooldown as number } : undefined
-    };
-  });
-  
-  // Créer les logic effects
-  const logicEffects = Array.from(effectsByTrigger.entries())
-    .map(([trigger, effects]) => {
-      // Filtrer les effets d'UI definition (premier effet si UI trigger)
-      const actionEffects = trigger.startsWith("ui.") ? effects.slice(1) : effects;
-      
-      // Ne créer un effect que s'il y a des actions
-      if (actionEffects.length === 0) return null;
-      
-      // Si c'est un trigger UI, utiliser les conditions du premier effet
-      const conditions = trigger.startsWith("ui.") 
-        ? (effects[0].payload?.conditions || []) as string | string[]
-        : [];
-      
-      return {
-        id: `effect_${trigger}`,
-        when: trigger,
-        if: conditions,
-        do: actionEffects.map(eff => ({
-          action: eff.type,
-          params: eff.payload || {}
-        })),
-        onFail: trigger.startsWith("ui.") ? "blockAction" as const : undefined
-      };
-    })
-    .filter((eff): eff is NonNullable<typeof eff> => eff !== null);
-  
-  // Extraire affectedPieces depuis les payloads
-  const allPieceTypes = new Set<string>();
-  aiRule.effects.forEach(eff => {
-    if (eff.payload?.pieceTypes && Array.isArray(eff.payload.pieceTypes)) {
-      (eff.payload.pieceTypes as string[]).forEach(type => allPieceTypes.add(type));
-    }
-  });
-  
+  // Fallback minimal si format ancien
   return {
     meta: {
-      ruleId: aiRule.ruleId,
-      ruleName: aiRule.ruleName,
-      description: aiRule.description,
+      ruleId: aiRule.ruleId || `rule_${Date.now()}`,
+      ruleName: aiRule.ruleName || "Règle sans nom",
+      description: aiRule.description || "",
       category: "ai-generated",
+      version: "1.0.0",
       isActive: true,
-      version: "1.0.0"
+      tags: aiRule.tags || []
     },
-    
-    scope: allPieceTypes.size > 0 ? {
-      affectedPieces: Array.from(allPieceTypes),
+    scope: {
+      affectedPieces: aiRule.affectedPieces || [],
       sides: ["white", "black"]
-    } : undefined,
-    
-    ui: uiActions.length > 0 ? { actions: uiActions } : undefined,
-    
-    logic: {
-      effects: logicEffects
     },
-    
+    logic: {
+      effects: aiRule.effects || []
+    },
     state: {
-      namespace: `rules.${aiRule.ruleId}`,
+      namespace: `rules.${aiRule.ruleId || Date.now()}`,
       initial: {}
     },
-    
-    parameters: aiRule.visuals ? {
-      icon: aiRule.visuals.icon,
-      color: aiRule.visuals.color
-    } : {},
-    
-    assets: aiRule.visuals
+    parameters: aiRule.parameters || {},
+    assets: aiRule.visuals || aiRule.assets
   };
 }
 
 /**
- * Valide qu'une règle générée par l'IA contient des actions connues.
+ * Valide qu'une règle RuleJSON contient des actions connues.
  * 
- * @param aiRule - Règle à valider
+ * @param ruleJSON - Règle à valider
  * @returns Liste des actions inconnues (vide si tout est valide)
  */
-export function validateAiRuleActions(aiRule: GeneratedRule): string[] {
+export function validateRuleJSONActions(ruleJSON: RuleJSON): string[] {
   const knownActions = [
-    "placeMine", 
-    "explodeMine", 
-    "teleport", 
-    "freezePiece",
-    "promotePawn",
-    "swapPieces",
-    "clonePiece",
-    "removePiece"
+    "tile.setTrap", 
+    "tile.resolveTrap", 
+    "tile.clearTrap",
+    "piece.spawn", 
+    "piece.capture",
+    "piece.move",
+    "piece.duplicate",
+    "status.add",
+    "status.remove",
+    "vfx.play",
+    "audio.play",
+    "ui.toast",
+    "cooldown.set",
+    "turn.end",
+    "state.set",
+    "state.inc",
+    "state.delete"
   ];
   
-  return aiRule.effects
-    .map(eff => eff.type)
-    .filter(action => !knownActions.includes(action));
+  const unknownActions: string[] = [];
+  
+  ruleJSON.logic.effects.forEach(effect => {
+    const actions = Array.isArray(effect.do) ? effect.do : [effect.do];
+    actions.forEach(action => {
+      if (!knownActions.includes(action.action)) {
+        unknownActions.push(action.action);
+      }
+    });
+  });
+  
+  return [...new Set(unknownActions)];
 }

@@ -19,41 +19,65 @@ const RulePromptSchema = z.object({
   context: z.record(z.any()).optional(),
 });
 
-const EngineRuleSchema = z.object({
-  ruleId: z.string().min(3),
-  ruleName: z.string().min(1),
-  description: z.string().min(5),
-  // Contrat minimum attendu par ton moteur (adapte si besoin)
-  visuals: z
-    .object({
+// RuleJSON schema - format attendu par le moteur
+const RuleJSONSchema = z.object({
+  meta: z.object({
+    ruleId: z.string().min(3),
+    ruleName: z.string().min(1),
+    description: z.string().min(5),
+    category: z.enum(["special", "movement", "capture", "defense", "ai-generated"]).optional(),
+    version: z.string().optional(),
+    isActive: z.boolean().optional(),
+    tags: z.array(z.string()).optional(),
+  }),
+  scope: z.object({
+    affectedPieces: z.array(z.string()).optional(),
+    sides: z.array(z.enum(["white", "black"])).optional(),
+  }).optional(),
+  ui: z.object({
+    actions: z.array(z.object({
+      id: z.string(),
+      label: z.string(),
+      hint: z.string().optional(),
       icon: z.string().optional(),
-      color: z.string().optional(),
-      animations: z.array(z.string()).optional(),
-    })
-    .optional(),
-  effects: z
-    .array(
-      z.object({
-        type: z.string().min(1),
-        triggers: z.array(z.string()).optional(),
-        payload: z.record(z.any()).optional(),
-      }),
-    )
-    .min(1),
-  engineAdapters: z
-    .object({
-      // clés pour brancher le moteur : hooks & handlers
-      onSelect: z.string().optional(),
-      onSpecialAction: z.string().optional(),
-      onTick: z.string().optional(),
-      validate: z.string().optional(),
-      resolveConflicts: z.string().optional(),
-    })
-    .partial()
-    .optional(),
+      availability: z.object({
+        requiresSelection: z.boolean().optional(),
+        pieceTypes: z.array(z.string()).optional(),
+        phase: z.string().optional(),
+        cooldownOk: z.boolean().optional(),
+      }).optional(),
+      targeting: z.object({
+        mode: z.enum(["tile", "piece", "none"]).optional(),
+        validTilesProvider: z.string().optional(),
+      }).optional(),
+      consumesTurn: z.boolean().optional(),
+      cooldown: z.object({
+        perPiece: z.number().optional(),
+        global: z.number().optional(),
+      }).optional(),
+    })),
+  }).optional(),
+  logic: z.object({
+    effects: z.array(z.object({
+      id: z.string(),
+      when: z.string(),
+      if: z.union([z.string(), z.array(z.string())]).optional(),
+      do: z.array(z.object({
+        action: z.string(),
+        params: z.record(z.any()).optional(),
+      })),
+      onFail: z.string().optional(),
+    })),
+  }),
+  state: z.object({
+    namespace: z.string(),
+    initial: z.record(z.any()).optional(),
+  }).optional(),
+  parameters: z.record(z.any()).optional(),
+  assets: z.record(z.any()).optional(),
 });
 
-type EngineRule = z.infer<typeof EngineRuleSchema>;
+type RuleJSON = z.infer<typeof RuleJSONSchema>;
 
 // —— Accès modèle via Lovable AI Gateway ——
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
@@ -83,6 +107,7 @@ async function callModelJSON(
     body: JSON.stringify({
       model: MODEL,
       temperature,
+      max_tokens: 2000,
       messages: [
         {
           role: "system",
@@ -177,118 +202,160 @@ serve(async (rawReq) => {
       MODEL_TIMEOUT_MS,
     );
 
-    // Construit un prompt canonique pour forcer un JSON conforme
+    // Construit un prompt pour générer du RuleJSON directement
     const instruction = `
 Tu es un compilateur de règles de jeu d'échecs variantes.
-Génère UNIQUEMENT un objet JSON valide conforme au format ci-dessous, SANS COMMENTAIRES.
+Génère UNIQUEMENT un objet JSON valide conforme au format RuleJSON ci-dessous.
 
-**STRUCTURE REQUISE** :
-Pour créer une règle avec action UI (bouton), tu dois générer PLUSIEURS effets :
-1. UN effet qui définit le bouton UI (avec trigger "ui.XXX" et les infos du bouton)
-2. UN ou PLUSIEURS effets qui définissent ce qui se passe (avec des actions concrètes)
-
-**Actions disponibles** (pour le champ "type" dans les effets de logique) :
-- vfx.play : joue une animation visuelle
-- audio.play : joue un son
-- ui.toast : affiche un message
-- piece.spawn : crée une pièce
-- piece.capture : capture une pièce
-- piece.move : déplace une pièce
-- piece.duplicate : duplique une pièce
-- piece.setInvisible : rend invisible
-- status.add : ajoute un statut temporisé (frozen, etc.)
-- status.remove : retire un statut
-- tile.setTrap : place un piège sur une case
-- tile.clearTrap : retire un piège
-- tile.resolveTrap : déclenche un piège
-- cooldown.set : met un cooldown
-- turn.end : termine le tour
-- state.set, state.inc, state.delete : gestion de compteurs
-
-**Conditions disponibles** :
-- cooldown.ready, piece.isTypeInScope
-- ctx.hasTargetTile, ctx.hasTargetPiece
-- tile.isEmpty, piece.exists, tile.withinBoard
-- target.isEnemy, target.isFriendly
-- piece.hasStatus, target.hasStatus
-- state.exists, state.equals, state.lessThan
-- random.chance
-
-**Providers pour ciblage** :
-- provider.anyEmptyTile : toutes cases vides
-- provider.neighborsEmpty : cases voisines vides
-- provider.enemyPieces : pièces ennemies
-- provider.friendlyPieces : pièces alliées
-- provider.piecesInRadius : pièces dans un rayon
-- provider.enemiesInLineOfSight : ennemis en ligne de vue
-
-**EXEMPLE DE FORMAT CORRECT** :
+**FORMAT OBLIGATOIRE RuleJSON** :
 {
-  "ruleId": "rule_catapult_${Date.now()}",
-  "ruleName": "Poser une catapulte",
-  "description": "Les pions peuvent poser une catapulte sur une case adjacente vide",
-  "effects": [
-    {
-      "type": "ui_action_definition",
-      "triggers": ["ui.place_catapult"],
-      "payload": {
-        "label": "Poser catapulte",
-        "hint": "Place une catapulte sur une case voisine",
+  "meta": {
+    "ruleId": "rule_unique_${Date.now()}",
+    "ruleName": "Nom court en français",
+    "description": "Description détaillée",
+    "category": "special",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["tag1", "tag2"]
+  },
+  "scope": {
+    "affectedPieces": ["pawn", "rook"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [
+      {
+        "id": "action_unique_id",
+        "label": "Libellé du bouton",
+        "hint": "Description de l'action",
         "icon": "🎯",
-        "pieceTypes": ["pawn"],
-        "targetingMode": "tile",
-        "provider": "provider.neighborsEmpty",
+        "availability": {
+          "requiresSelection": true,
+          "pieceTypes": ["pawn"],
+          "phase": "main",
+          "cooldownOk": true
+        },
+        "targeting": {
+          "mode": "tile",
+          "validTilesProvider": "provider.neighborsEmpty"
+        },
         "consumesTurn": true,
-        "cooldown": 3,
-        "conditions": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"]
+        "cooldown": { "perPiece": 3 }
       }
-    },
-    {
-      "type": "tile.setTrap",
-      "triggers": ["ui.place_catapult"],
-      "payload": {
-        "tile": "$targetTile",
-        "kind": "catapult",
-        "sprite": "catapult_icon"
+    ]
+  },
+  "logic": {
+    "effects": [
+      {
+        "id": "effect_unique",
+        "when": "ui.action_unique_id",
+        "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
+        "do": [
+          { "action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "catapult"} },
+          { "action": "vfx.play", "params": {"sprite": "place_trap"} },
+          { "action": "audio.play", "params": {"id": "place"} },
+          { "action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "action_unique_id", "turns": 3} },
+          { "action": "turn.end", "params": {} }
+        ],
+        "onFail": "blockAction"
       }
-    },
-    {
-      "type": "audio.play",
-      "triggers": ["ui.place_catapult"],
-      "payload": {
-        "id": "place"
-      }
-    },
-    {
-      "type": "cooldown.set",
-      "triggers": ["ui.place_catapult"],
-      "payload": {
-        "pieceId": "$pieceId",
-        "actionId": "place_catapult",
-        "turns": 3
-      }
-    },
-    {
-      "type": "turn.end",
-      "triggers": ["ui.place_catapult"],
-      "payload": {}
-    }
-  ],
-  "visuals": {
+    ]
+  },
+  "state": {
+    "namespace": "rules.unique_id",
+    "initial": {}
+  },
+  "parameters": {},
+  "assets": {
     "icon": "🎯",
     "color": "#ff6600"
-  },
-  "engineAdapters": {}
+  }
 }
 
-**IMPORTANT** :
-- Le PREMIER effet avec trigger "ui.XXX" définit le bouton (son type peut être "ui_action_definition")
-- Les AUTRES effets avec le MÊME trigger "ui.XXX" définissent les actions concrètes
-- Utilise des noms d'actions RÉELS (tile.setTrap, audio.play, etc.)
-- N'oublie JAMAIS turn.end à la fin si consumesTurn est true
+**ACTIONS DISPONIBLES** (pour "do") :
+tile.setTrap, tile.resolveTrap, tile.clearTrap, piece.spawn, piece.capture, 
+piece.move, piece.duplicate, status.add, status.remove, vfx.play, audio.play, 
+ui.toast, cooldown.set, turn.end, state.set, state.inc
+
+**CONDITIONS DISPONIBLES** (pour "if") :
+cooldown.ready, ctx.hasTargetTile, ctx.hasTargetPiece, tile.isEmpty, 
+piece.exists, tile.withinBoard, target.isEnemy, target.isFriendly, 
+piece.hasStatus, state.exists, state.equals, random.chance
+
+**PROVIDERS** (pour validTilesProvider) :
+provider.anyEmptyTile, provider.neighborsEmpty, provider.enemyPieces, 
+provider.friendlyPieces, provider.piecesInRadius, provider.enemiesInLineOfSight
+
+**EXEMPLE COMPLET - Catapultes** :
+{
+  "meta": {
+    "ruleId": "rule_catapult_${Date.now()}",
+    "ruleName": "Poser une catapulte",
+    "description": "Les pions peuvent poser une catapulte sur une case adjacente vide qui permet de projeter des pièces alliées",
+    "category": "special",
+    "version": "1.0.0",
+    "isActive": true,
+    "tags": ["trap", "movement", "pawn"]
+  },
+  "scope": {
+    "affectedPieces": ["pawn"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [
+      {
+        "id": "place_catapult",
+        "label": "Poser catapulte",
+        "hint": "Place une catapulte sur une case voisine vide",
+        "icon": "🎯",
+        "availability": {
+          "requiresSelection": true,
+          "pieceTypes": ["pawn"],
+          "phase": "main",
+          "cooldownOk": true
+        },
+        "targeting": {
+          "mode": "tile",
+          "validTilesProvider": "provider.neighborsEmpty"
+        },
+        "consumesTurn": true,
+        "cooldown": { "perPiece": 3 }
+      }
+    ]
+  },
+  "logic": {
+    "effects": [
+      {
+        "id": "effect_place_catapult",
+        "when": "ui.place_catapult",
+        "if": ["cooldown.ready", "ctx.hasTargetTile", "tile.isEmpty"],
+        "do": [
+          { "action": "tile.setTrap", "params": {"tile": "$targetTile", "kind": "catapult", "sprite": "catapult_icon"} },
+          { "action": "vfx.play", "params": {"sprite": "place_trap"} },
+          { "action": "audio.play", "params": {"id": "place"} },
+          { "action": "cooldown.set", "params": {"pieceId": "$pieceId", "actionId": "place_catapult", "turns": 3} },
+          { "action": "ui.toast", "params": {"message": "Catapulte posée !", "variant": "success"} },
+          { "action": "turn.end", "params": {} }
+        ],
+        "onFail": "blockAction"
+      }
+    ]
+  },
+  "state": {
+    "namespace": "rules.catapult",
+    "initial": {}
+  },
+  "parameters": {},
+  "assets": {
+    "icon": "🎯",
+    "color": "#ff6600"
+  }
+}
 
 **Prompt utilisateur** :
 ${prompt}
+
+Génère UNIQUEMENT le JSON, sans texte avant/après ni markdown.
 `.trim();
 
     let rawJSON = "";
@@ -317,16 +384,16 @@ ${prompt}
       candidate = JSON.parse(match[0]);
     }
 
-    console.log('[generate-chess-rule] Raw JSON from AI:', sanitized.slice(0, 500));
+    console.log('[generate-chess-rule] Raw JSON from AI (preview):', sanitized.slice(0, 300));
 
-    const checked = EngineRuleSchema.safeParse(candidate);
+    const checked = RuleJSONSchema.safeParse(candidate);
     if (!checked.success) {
       console.error('[generate-chess-rule] Validation failed:', checked.error.flatten());
       return withCors(
         json(
           {
             ok: false,
-            error: "InvalidModelJSON",
+            error: "InvalidRuleJSON",
             details: checked.error.flatten(),
             raw: sanitized.slice(0, 2000),
           },
@@ -335,7 +402,13 @@ ${prompt}
       );
     }
 
-    const rule: EngineRule = checked.data;
+    const rule: RuleJSON = checked.data;
+    
+    console.log('[generate-chess-rule] Rule validated:', {
+      ruleId: rule.meta.ruleId,
+      effectsCount: rule.logic.effects.length,
+      hasUI: !!rule.ui
+    });
 
     // Succès
     return withCors(json({ ok: true, rule }, 200));
