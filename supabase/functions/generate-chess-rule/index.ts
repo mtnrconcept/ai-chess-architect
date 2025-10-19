@@ -1,7 +1,10 @@
 // supabase/functions/generate-chess-rule/index.ts
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
-import { invokeChatCompletion } from "../_shared/ai-providers.ts";
+import {
+  invokeChatCompletion,
+  MissingApiKeyError,
+} from "../_shared/ai-providers.ts";
 import { enrichRule } from "../_shared/enrichment.ts";
 import { dryRunRule } from "../_shared/dryRunner.ts";
 import { validateRuleJSON } from "../_shared/validation.ts";
@@ -159,6 +162,28 @@ serve(async (req) => {
 
     return jsonResponse(response, 200);
   } catch (error) {
+    if (error instanceof MissingApiKeyError) {
+      const details =
+        `Missing ${error.envVar} for provider "${error.provider}". ` +
+        "Configure the required secret or update AI_PROVIDER to a provider with valid credentials.";
+
+      trackEvent("generate_chess_rule.failed", {
+        correlationId,
+        error: error.message,
+        code: error.code,
+        provider: error.provider,
+      });
+
+      return jsonResponse(
+        {
+          ok: false,
+          error: "ai_provider_unavailable",
+          details,
+        },
+        503,
+      );
+    }
+
     const message = error instanceof Error ? error.message : String(error);
 
     trackEvent("generate_chess_rule.failed", {
