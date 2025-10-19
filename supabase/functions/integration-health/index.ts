@@ -1,5 +1,13 @@
-import { getSupabaseServiceRoleClient, resolvedServiceRoleKey, resolvedSupabaseUrl } from "../_shared/auth.ts";
-import { handleOptions, jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
+import {
+  getSupabaseServiceRoleClient,
+  resolvedServiceRoleKey,
+  resolvedSupabaseUrl,
+} from "../_shared/auth.ts";
+import {
+  handleOptions,
+  jsonResponse,
+  preflightIfOptions,
+} from "../_shared/cors.ts";
 
 type ApiCategory = "supabase" | "edge_function" | "coach_api" | "http";
 
@@ -56,10 +64,11 @@ type HttpConfig = {
   owner_header?: string;
 };
 
-type ApiRegistryConfig = SupabaseConfig & HttpConfig & {
-  method?: string;
-  description?: string;
-};
+type ApiRegistryConfig = SupabaseConfig &
+  HttpConfig & {
+    method?: string;
+    description?: string;
+  };
 
 const supabase = getSupabaseServiceRoleClient();
 const SUPABASE_URL = resolvedSupabaseUrl;
@@ -70,7 +79,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const coerceRecord = (value: unknown): Record<string, unknown> | null => (isRecord(value) ? value : null);
+const coerceRecord = (value: unknown): Record<string, unknown> | null =>
+  isRecord(value) ? value : null;
 
 const coerceStringRecord = (value: unknown): Record<string, string> | null => {
   if (!isRecord(value)) return null;
@@ -103,7 +113,10 @@ const resolvePath = (base: string, path: string | undefined): string => {
   return `${trimmedBase}${prefix}${path}`;
 };
 
-const applyQueryParams = (url: string, query: Record<string, unknown> | null): string => {
+const applyQueryParams = (
+  url: string,
+  query: Record<string, unknown> | null,
+): string => {
   if (!query || Object.keys(query).length === 0) {
     return url;
   }
@@ -115,7 +128,11 @@ const applyQueryParams = (url: string, query: Record<string, unknown> | null): s
   return resolved.toString();
 };
 
-const fetchWithTimeout = async (input: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
+const fetchWithTimeout = async (
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -126,22 +143,40 @@ const fetchWithTimeout = async (input: string, init: RequestInit, timeoutMs: num
   }
 };
 
-const truncate = (value: string, length = 480) => (value.length > length ? `${value.slice(0, length)}…` : value);
+const truncate = (value: string, length = 480) =>
+  value.length > length ? `${value.slice(0, length)}…` : value;
 
 async function checkSupabaseResource(
   client: SupabaseClient,
   entry: ApiRegistryRow,
   config: ApiRegistryConfig,
 ): Promise<Omit<IntegrationHealthResult, "checkedAt">> {
+  const table =
+    typeof config.table === "string" && config.table.trim().length > 0
+      ? config.table
+      : entry.target;
+  const columns =
+    typeof config.columns === "string" && config.columns.trim().length > 0
+      ? config.columns
+      : "*";
+
   if (!client) {
-    throw new Error("Supabase client unavailable");
+    return {
+      id: entry.id,
+      service: entry.service,
+      category: entry.category,
+      target: table,
+      ok: false,
+      error: "Supabase client unavailable for diagnostics",
+      statusCode: null,
+      latencyMs: null,
+      details: null,
+      notes: entry.notes,
+    } satisfies Omit<IntegrationHealthResult, "checkedAt">;
   }
 
-  const table = typeof config.table === "string" && config.table.trim().length > 0 ? config.table : entry.target;
-  const columns = typeof config.columns === "string" && config.columns.trim().length > 0 ? config.columns : "*";
-
   const startedAt = performance.now();
-  let query = (client.from as any)(table).select(columns).limit(1);
+  let query = client.from(table).select(columns).limit(1);
 
   const filters = coerceRecord(config.filters);
   if (filters) {
@@ -185,15 +220,18 @@ async function checkHttpResource(
   const urlWithPath = resolvePath(baseUrl, path);
   const url = applyQueryParams(urlWithPath, coerceRecord(config.query));
   const method = (config.method ?? entry.method ?? "GET").toUpperCase();
-  const timeoutMs = typeof config.timeout_ms === "number" && Number.isFinite(config.timeout_ms)
-    ? Math.max(0, Math.trunc(config.timeout_ms))
-    : DEFAULT_TIMEOUT_MS;
+  const timeoutMs =
+    typeof config.timeout_ms === "number" && Number.isFinite(config.timeout_ms)
+      ? Math.max(0, Math.trunc(config.timeout_ms))
+      : DEFAULT_TIMEOUT_MS;
   const headers = mergeHeaders(baseHeaders, coerceStringRecord(config.headers));
 
   if (config.owner_id && typeof config.owner_id === "string") {
-    const ownerHeader = typeof config.owner_header === "string" && config.owner_header.trim().length > 0
-      ? config.owner_header
-      : "x-owner-id";
+    const ownerHeader =
+      typeof config.owner_header === "string" &&
+      config.owner_header.trim().length > 0
+        ? config.owner_header
+        : "x-owner-id";
     headers[ownerHeader] = config.owner_id;
   }
 
@@ -211,7 +249,8 @@ async function checkHttpResource(
   try {
     const response = await fetchWithTimeout(url, init, timeoutMs);
     const latencyMs = Math.round(performance.now() - startedAt);
-    const expectStatus = typeof config.expect_status === "number" ? config.expect_status : null;
+    const expectStatus =
+      typeof config.expect_status === "number" ? config.expect_status : null;
     const ok = expectStatus ? response.status === expectStatus : response.ok;
     const result: Omit<IntegrationHealthResult, "checkedAt"> = {
       id: entry.id,
@@ -277,7 +316,10 @@ async function checkEdgeFunction(
   );
 
   const method = (config.method ?? entry.method ?? "POST").toUpperCase();
-  const body = method !== "GET" && method !== "HEAD" ? config.body ?? { ping: true } : config.body;
+  const body =
+    method !== "GET" && method !== "HEAD"
+      ? (config.body ?? { ping: true })
+      : config.body;
 
   return checkHttpResource(
     baseUrl,
@@ -292,8 +334,12 @@ async function checkEdgeFunction(
   );
 }
 
-async function probeEntry(entry: ApiRegistryRow): Promise<IntegrationHealthResult> {
-  const config = (entry.config && isRecord(entry.config) ? entry.config : {}) as ApiRegistryConfig;
+async function probeEntry(
+  entry: ApiRegistryRow,
+): Promise<IntegrationHealthResult> {
+  const config = (
+    entry.config && isRecord(entry.config) ? entry.config : {}
+  ) as ApiRegistryConfig;
   const checkedAt = new Date().toISOString();
 
   try {
@@ -306,9 +352,14 @@ async function probeEntry(entry: ApiRegistryRow): Promise<IntegrationHealthResul
         result = await checkEdgeFunction(entry, config);
         break;
       case "coach_api":
-        result = await checkHttpResource(entry.target, entry, { ...config, path: config.path ?? "/health" }, {
-          "content-type": "application/json",
-        });
+        result = await checkHttpResource(
+          entry.target,
+          entry,
+          { ...config, path: config.path ?? "/health" },
+          {
+            "content-type": "application/json",
+          },
+        );
         break;
       case "http":
       default:
@@ -340,16 +391,29 @@ Deno.serve(async (req: Request) => {
   const preflight = preflightIfOptions(req);
   if (preflight) return preflight;
 
-  if (!supabase || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  const missingConfig: string[] = [];
+  if (!SERVICE_ROLE_KEY) missingConfig.push("SERVICE_ROLE_KEY");
+  if (!SUPABASE_URL) missingConfig.push("SUPABASE_URL");
+  if (!supabase) missingConfig.push("service_role_client");
+
+  if (missingConfig.length > 0) {
     return jsonResponse(
       req,
-      { error: "Supabase client not configured for integration diagnostics" },
-      { status: 500 },
+      {
+        error:
+          "Supabase service role configuration missing for integration diagnostics",
+        missing: missingConfig,
+      },
+      { status: 503 },
     );
   }
 
   if (req.method !== "POST" && req.method !== "GET") {
-    return jsonResponse(req, { error: "Method not allowed" }, { status: 405, headers: { allow: "GET, POST" } });
+    return jsonResponse(
+      req,
+      { error: "Method not allowed" },
+      { status: 405, headers: { allow: "GET, POST" } },
+    );
   }
 
   const { data, error } = await supabase
@@ -359,11 +423,15 @@ Deno.serve(async (req: Request) => {
     .order("service", { ascending: true });
 
   if (error) {
-    return jsonResponse(req, { error: error.message ?? "Unable to load API registry" }, { status: 500 });
+    return jsonResponse(
+      req,
+      { error: error.message ?? "Unable to load API registry" },
+      { status: 500 },
+    );
   }
 
   const results = await Promise.all(data.map(probeEntry));
-  const okCount = results.filter(result => result.ok).length;
+  const okCount = results.filter((result) => result.ok).length;
   const response: IntegrationHealthResponse = {
     checkedAt: new Date().toISOString(),
     summary: {
