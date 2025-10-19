@@ -389,7 +389,13 @@ interface SpecialAbilityOption {
   activation: SpecialAbilityActivation;
   freezeTurns?: number;
   allowOccupied?: boolean;
+  uiActionId: string;
+  cooldown?: number;
 }
+
+type PendingAbility = SpecialAbilityOption & {
+  sourcePieceId?: string | null;
+};
 
 type DeployResult =
   | {
@@ -729,6 +735,25 @@ const Play = () => {
   const variantName = primaryRule?.ruleName ?? "Standard";
   const activeCustomRulesCount = customRules.length;
 
+  const selectedPresetRules = useMemo(() => {
+    if (!dbRulesLoaded || appliedPresetRuleIds.size === 0)
+      return [] as ChessRule[];
+    return dbLoadedRules.filter((rule) =>
+      appliedPresetRuleIds.has(rule.ruleId),
+    );
+  }, [appliedPresetRuleIds, dbLoadedRules, dbRulesLoaded]);
+
+  const combinedActiveRules = useMemo(() => {
+    const dedup = new Map<string, ChessRule>();
+    [...selectedPresetRules, ...customRules].forEach((rule) => {
+      if (!rule) return;
+      if (!dedup.has(rule.ruleId)) {
+        dedup.set(rule.ruleId, rule);
+      }
+    });
+    return Array.from(dedup.values());
+  }, [customRules, selectedPresetRules]);
+
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(() => {
     if (typeof window !== "undefined") {
       const stored = window.localStorage.getItem("ai-difficulty");
@@ -756,8 +781,9 @@ const Play = () => {
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const lastDiscussedMoveRef = useRef(0);
   const initialCoachAnalysisRef = useRef(false);
-  const [pendingAbility, setPendingAbility] =
-    useState<SpecialAbilityOption | null>(null);
+  const [pendingAbility, setPendingAbility] = useState<PendingAbility | null>(
+    null,
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -810,6 +836,25 @@ const Play = () => {
     black: initialTimeSeconds,
   }));
 
+  useEffect(() => {
+    setGameState((prev) => {
+      const prevIds = prev.activeRules.map((rule) => rule.ruleId);
+      const nextIds = combinedActiveRules.map((rule) => rule.ruleId);
+      const unchanged =
+        prevIds.length === nextIds.length &&
+        prevIds.every((id, index) => id === nextIds[index]);
+
+      if (unchanged) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        activeRules: combinedActiveRules,
+      };
+    });
+  }, [combinedActiveRules]);
+
   const capturedPiecesByColor = useMemo(() => {
     const grouped: Record<PieceColor, ChessPiece[]> = { white: [], black: [] };
     for (const piece of gameState.capturedPieces)
@@ -847,58 +892,148 @@ const Play = () => {
     [],
   );
 
+  const activeRuleJsons = useMemo<RuleJSON[]>(() => {
+    const jsons: RuleJSON[] = [];
+    const seen = new Set<string>();
+
+    combinedActiveRules.forEach((rule) => {
+      const ruleAsAny = rule as any;
+      const originalJson = ruleAsAny.__originalRuleJson;
+      if (!originalJson || typeof originalJson !== "object") return;
+
+      const meta = (originalJson as RuleJSON).meta ?? {};
+      const ruleId =
+        (typeof meta.ruleId === "string" && meta.ruleId.length > 0
+          ? meta.ruleId
+          : rule.ruleId) ?? rule.ruleId;
+
+      if (seen.has(ruleId)) return;
+      seen.add(ruleId);
+      jsons.push(originalJson as RuleJSON);
+    });
+
+    return jsons;
+  }, [combinedActiveRules]);
+
+  const { runUIAction } = useRuleEngine(gameState, activeRuleJsons);
+
   const specialAbilities = useMemo<SpecialAbilityOption[]>(() => {
     const options: SpecialAbilityOption[] = [];
     const seen = new Set<string>();
 
-    gameState.activeRules.forEach((rule) => {
-      const ruleAsAny = rule as any;
-      const originalJson = ruleAsAny.__originalRuleJson;
-      if (!originalJson?.ui?.actions) return;
+    combinedActiveRules.forEach((rule) => {
+      rule.effects?.forEach((effect, index) => {
+        if (effect.action !== "addAbility") return;
 
-      originalJson.ui.actions.forEach((uiAction: any, index: number) => {
-        if (!uiAction.id || !uiAction.id.startsWith("special_")) return;
+        const parameters = (effect.parameters ?? {}) as Record<string, unknown>;
+        const abilityName = resolveSpecialAbilityName(parameters);
+        if (!abilityName) return;
 
-        const id = `${rule.ruleId}-${uiAction.id}-${index}`;
-        if (seen.has(id)) return;
-        seen.add(id);
+        const normalized = normalizeSpecialAbilityParameters(
+          abilityName,
+          parameters,
+        );
+        const metadata = getSpecialAbilityMetadata(abilityName);
+        if (!normalized || !metadata) return;
 
-        const icon = uiAction.icon === "❄️" ? "target" : "bomb";
-        const label = uiAction.label || uiAction.hint || "Action spéciale";
-        const cooldown = uiAction.cooldown?.perPiece || 2;
+        const uiActionId =
+          typeof parameters.ability === "string" &&
+          parameters.ability.length > 0
+            ? parameters.ability
+            : `special_${normalized.ability}_${index}`;
+
+        const uniqueId = `${rule.ruleId}-${uiActionId}`;
+        if (seen.has(uniqueId)) return;
+        seen.add(uniqueId);
+
+        const explicitLabel =
+          typeof parameters.label === "string" && parameters.label.length > 0
+            ? parameters.label
+            : undefined;
+        const explicitHint =
+          typeof parameters.hint === "string" && parameters.hint.length > 0
+            ? parameters.hint
+            : undefined;
+        const explicitButtonLabel =
+          typeof parameters.buttonLabel === "string" &&
+          parameters.buttonLabel.length > 0
+            ? parameters.buttonLabel
+            : undefined;
+
+        const cooldownValue = (() => {
+          const direct = parameters.cooldown;
+          if (typeof direct === "number" && Number.isFinite(direct)) {
+            return direct;
+          }
+          if (
+            typeof direct === "object" &&
+            direct !== null &&
+            typeof (direct as { perPiece?: unknown }).perPiece === "number"
+          ) {
+            return (direct as { perPiece: number }).perPiece;
+          }
+          return normalized.countdown;
+        })();
 
         options.push({
-          id,
+          id: uniqueId,
           ruleId: rule.ruleId,
           ruleName: rule.ruleName,
-          ability: "deployBomb" as SpecialAbilityKey,
-          label,
-          description: uiAction.hint || label,
-          icon,
-          trigger: "instant" as SpecialAbilityTrigger, // sera normé au moment du déploiement si besoin
-          radius: 1,
-          countdown: cooldown,
-          damage: 100,
-          animation: "explosion",
-          sound: "explosion",
-          buttonLabel: label,
-          activation: "manual" as SpecialAbilityActivation,
-          freezeTurns: 2,
-          allowOccupied: false,
+          ability: normalized.ability,
+          label: explicitLabel ?? metadata.label,
+          description: explicitHint ?? metadata.description,
+          icon: metadata.icon,
+          trigger: normalized.trigger,
+          radius: normalized.radius,
+          countdown: normalized.countdown,
+          damage: normalized.damage,
+          animation: normalized.animation,
+          sound: normalized.sound,
+          buttonLabel:
+            explicitButtonLabel ??
+            metadata.buttonLabel ??
+            explicitLabel ??
+            metadata.label,
+          activation: normalized.activation,
+          freezeTurns: normalized.freezeTurns,
+          allowOccupied: normalized.allowOccupied,
+          uiActionId,
+          cooldown: cooldownValue,
         });
       });
     });
 
     return options;
-  }, [gameState.activeRules]);
+  }, [combinedActiveRules]);
 
   /* ------------------------------------------------------------------------ */
   /*      Déploiement d’aptitude spéciale — pas de toast dans setState        */
   /* ------------------------------------------------------------------------ */
 
+  const handleAbilitySelect = useCallback(
+    (ability: SpecialAbilityOption) => {
+      const selectedPiece = gameState.selectedPiece;
+      if (!selectedPiece && ability.activation !== "selectCell") {
+        safeToast({
+          title: "Sélection requise",
+          description:
+            "Sélectionnez d'abord une pièce pour utiliser cette aptitude.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const sourcePieceId = selectedPiece
+        ? `p_${selectedPiece.position.row}_${selectedPiece.position.col}`
+        : null;
+      setPendingAbility({ ...ability, sourcePieceId });
+    },
+    [gameState.selectedPiece, safeToast],
+  );
+
   const deploySpecialAttack = useCallback(
     (
-      ability: SpecialAbilityOption,
+      ability: PendingAbility,
       position: Position,
       options?: { allowOccupied?: boolean; clearSelection?: boolean },
     ): DeployResult => {
@@ -986,6 +1121,14 @@ const Play = () => {
           abilityLabel: string;
         };
         if (soundEnabled) playSfx(toSoundEffect(ability.sound, "explosion"));
+        const targetTile = successResult.coordinate;
+        if (ability.uiActionId) {
+          runUIAction(
+            ability.uiActionId,
+            ability.sourcePieceId ?? undefined,
+            targetTile,
+          );
+        }
         safeToast({
           title: "Aptitude déployée",
           description:
@@ -1011,7 +1154,7 @@ const Play = () => {
 
       return result;
     },
-    [playSfx, safeToast, soundEnabled],
+    [playSfx, runUIAction, safeToast, soundEnabled],
   );
 
   /* ------------------------------------------------------------------------ */
@@ -1746,7 +1889,7 @@ const Play = () => {
                   key={opt.id}
                   variant="secondary"
                   className="justify-start"
-                  onClick={() => setPendingAbility(opt)}
+                  onClick={() => handleAbilitySelect(opt)}
                 >
                   <Icon className="mr-2 h-4 w-4" />
                   {opt.buttonLabel ?? opt.label}

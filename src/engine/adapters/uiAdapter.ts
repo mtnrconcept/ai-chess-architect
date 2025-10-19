@@ -1,5 +1,5 @@
-import { UIAPI, UIActionSpec } from '../types';
-import { toast } from '@/hooks/use-toast';
+import { UIAPI, UIActionSpec } from "../types";
+import { toast } from "@/hooks/use-toast";
 
 export class UIAdapter implements UIAPI {
   private actionRegistry: Map<string, UIActionSpec>;
@@ -11,12 +11,16 @@ export class UIAdapter implements UIAPI {
   toast(msg: string): void {
     toast({
       title: msg,
-      duration: 3000
+      duration: 3000,
     });
   }
 
   registerAction(actionSpec: UIActionSpec): void {
     this.actionRegistry.set(actionSpec.id, actionSpec);
+  }
+
+  clearActions(): void {
+    this.actionRegistry.clear();
   }
 
   getAction(actionId: string): UIActionSpec | undefined {
