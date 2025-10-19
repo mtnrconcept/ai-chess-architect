@@ -2,10 +2,15 @@ import { ActionStep } from "./types";
 
 type Context = Record<string, unknown>;
 type EffectParams = Record<string, unknown>;
-type ConditionNode = [string, ...ConditionDescriptor[]];
-export type ConditionDescriptor = string | ConditionNode;
+type LogicalOperator = "not" | "and" | "or";
+type LogicalConditionNode = [LogicalOperator, ...ConditionDescriptor[]];
+type ParameterizedConditionNode = [string, ...unknown[]];
+export type ConditionDescriptor =
+  | string
+  | LogicalConditionNode
+  | ParameterizedConditionNode;
 
-export type ConditionFn = (ctx: Context) => boolean;
+export type ConditionFn = (ctx: Context, ...args: unknown[]) => boolean;
 export type EffectFn = (ctx: Context, params?: EffectParams) => void;
 
 export class Registry {
@@ -29,25 +34,39 @@ export class Registry {
   }
 
   runCondition(id: ConditionDescriptor, ctx: Context): boolean {
-    // Phase 4: Support des opérateurs logiques
     if (Array.isArray(id)) {
-      const [op, ...args] = id as ConditionNode;
+      const [op, ...args] = id as ParameterizedConditionNode;
 
-      if (op === "not") {
-        const target = args[0];
-        return target ? !this.runCondition(target, ctx) : true;
+      if (op === "not" || op === "and" || op === "or") {
+        const logicalArgs = args as ConditionDescriptor[];
+
+        if (op === "not") {
+          const target = logicalArgs[0];
+          return target ? !this.runCondition(target, ctx) : true;
+        }
+
+        if (op === "and") {
+          return logicalArgs.every((cond) => this.runCondition(cond, ctx));
+        }
+
+        if (op === "or") {
+          return logicalArgs.some((cond) => this.runCondition(cond, ctx));
+        }
       }
 
-      if (op === "and") {
-        return args.every((cond) => this.runCondition(cond, ctx));
+      const fn = this.conditions.get(op);
+      if (!fn) {
+        console.warn(`Condition missing: ${op}`);
+        return true;
       }
-
-      if (op === "or") {
-        return args.some((cond) => this.runCondition(cond, ctx));
+      try {
+        return fn(ctx, ...args);
+      } catch (error) {
+        console.error(`Error running condition ${op}:`, error);
+        return false;
       }
     }
 
-    // Condition simple (existant)
     const fn = this.conditions.get(id as string);
     if (!fn) {
       console.warn(`Condition missing: ${id}`);

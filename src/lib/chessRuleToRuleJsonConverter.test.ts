@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { convertChessRuleToRuleJSON } from "./chessRuleToRuleJsonConverter";
 import { ChessRule } from "@/types/chess";
-import { Registry } from "@/engine/registry";
+import { Registry, ConditionDescriptor } from "@/engine/registry";
 import { RuleEngine } from "@/engine/engine";
 import { registerBuiltinEffects } from "@/engine/builtins/effects";
+import { registerBuiltinConditions } from "@/engine/builtins/conditions";
 import type {
   EngineContracts,
   ActionStep,
@@ -252,7 +253,7 @@ describe("Converted rules runtime integration", () => {
       },
     };
 
-    return { engineContracts, pieces, uiActions, stateStore };
+    return { engineContracts, pieces, uiActions, stateStore, matchState };
   }
 
   it("applies statuses and mutates rule state when executing converted ability", () => {
@@ -328,5 +329,82 @@ describe("Converted rules runtime integration", () => {
       | Record<string, unknown>
       | undefined;
     expect(movementState?.windStep).toBe(true);
+  });
+
+  it("maps rule conditions to builtin guards and enforces them at runtime", () => {
+    const chessRule: ChessRule = {
+      ruleId: "runtime_conditions",
+      ruleName: "Conditional Ability",
+      description: "Adds ability only after turn threshold.",
+      category: "special",
+      affectedPieces: ["knight"],
+      trigger: "conditional",
+      conditions: [
+        { type: "pieceType", operator: "equals", value: "knight" },
+        { type: "turnNumber", operator: "greaterOrEqual", value: 2 },
+      ],
+      effects: [
+        {
+          action: "addAbility",
+          target: "self",
+          parameters: { ability: "windStep" },
+        },
+      ],
+      tags: ["test"],
+      priority: 1,
+      isActive: true,
+      validationRules: {
+        allowedWith: [],
+        conflictsWith: [],
+        requiredState: {},
+      },
+    };
+
+    const conversion = convertChessRuleToRuleJSON(chessRule);
+    expect(conversion.success).toBe(true);
+
+    const effect = (conversion.rule?.logic?.effects?.[0] ??
+      null) as LogicStep | null;
+    expect(effect).not.toBeNull();
+    const guards = Array.isArray(effect?.if)
+      ? (effect?.if as ConditionDescriptor[])
+      : [];
+    expect(guards).toContain("piece.isTypeInScope");
+    expect(guards).toContainEqual(["match.turnNumber.atLeast", 2]);
+
+    const { engineContracts, pieces, uiActions, stateStore, matchState } =
+      createTestEngine();
+    const registry = new Registry();
+    registerBuiltinConditions(registry);
+    registerBuiltinEffects(registry);
+    const ruleEngine = new RuleEngine(engineContracts, registry);
+
+    const pieceId = "piece-1";
+    pieces.set(pieceId, {
+      id: pieceId,
+      type: "knight",
+      side: "white",
+      tile: "b1",
+      statuses: {},
+    });
+
+    ruleEngine.loadRules([conversion.rule!]);
+    expect(uiActions.map((a) => a.id)).toContain("special_addAbility_0");
+
+    ruleEngine.runUIAction("special_addAbility_0", pieceId);
+    expect(pieces.get(pieceId)?.statuses?.windStep).toBeUndefined();
+
+    matchState.ply = 2;
+    ruleEngine.runUIAction("special_addAbility_0", pieceId);
+
+    const abilityStatus = pieces.get(pieceId)?.statuses?.windStep;
+    expect(abilityStatus).toMatchObject({
+      active: true,
+      metadata: { ability: "windStep" },
+    });
+
+    // Ensure rule state namespace initialized without unintended mutations
+    const ruleState = stateStore.root[`rules.${chessRule.ruleId}`];
+    expect(ruleState).toBeDefined();
   });
 });
