@@ -20,22 +20,11 @@ type GenerateRuleAdapters = {
   resolveConflicts?: string;
 };
 
-export type GeneratedRule = {
-  ruleId: string;
-  ruleName: string;
-  description: string;
-  visuals?: {
-    icon?: string;
-    color?: string;
-    animations?: string[];
-  };
-  effects: GenerateRuleEffect[];
-  engineAdapters: GenerateRuleAdapters;
-};
+export type GeneratedRule = Record<string, unknown>;
 
 type GenerateRuleSuccess = {
   ok: true;
-  rule: any; // RuleJSON complet depuis la DB
+  rule: unknown; // RuleJSON complet depuis la DB
   meta?: {
     correlationId?: string;
     ruleId?: string;
@@ -56,6 +45,12 @@ type GenerateRuleFailure = {
 };
 
 type GenerateRuleResponse = GenerateRuleSuccess | GenerateRuleFailure;
+
+export type GenerateRuleRequest = {
+  prompt: string;
+  board?: { tiles: string[]; pieces: unknown; occupancy: unknown };
+  options?: { locale?: string; dryRun?: boolean; [key: string]: unknown };
+};
 
 const delay = (ms: number) =>
   new Promise((resolve) => {
@@ -119,14 +114,27 @@ const shouldRetryFromMessage = (message: string): boolean => {
 };
 
 // Appel robuste avec retry & abort
-export async function invokeGenerateRule(body: {
-  prompt: string;
-  locale?: "fr" | "en";
-  temperature?: number;
-  context?: Record<string, unknown>;
-}): Promise<GeneratedRule> {
+export async function invokeGenerateRule(
+  body: GenerateRuleRequest,
+): Promise<GeneratedRule> {
   const MAX_RETRY = 2;
   const baseDelay = 600;
+
+  if (!body || typeof body.prompt !== "string" || !body.prompt.trim()) {
+    throw new Error("generateRule: prompt manquant ou vide");
+  }
+
+  const cleanedBody = JSON.parse(
+    JSON.stringify({
+      prompt: body.prompt.trim(),
+      board: body.board ?? undefined,
+      options: {
+        locale: "fr-CH",
+        dryRun: false,
+        ...(body.options ?? {}),
+      },
+    }),
+  );
 
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     const controller = new AbortController();
@@ -137,7 +145,7 @@ export async function invokeGenerateRule(body: {
         await supabase.functions.invoke<GenerateRuleResponse>(
           "generate-chess-rule",
           {
-            body,
+            body: cleanedBody,
             signal: controller.signal,
             headers: {
               "Content-Type": "application/json",
@@ -148,7 +156,12 @@ export async function invokeGenerateRule(body: {
 
       if (error) {
         const status = getStatusFromError(error);
-        const message = toErrorMessage(error);
+        const raw = await (
+          error as { context?: { response?: Response } }
+        )?.context?.response
+          ?.text?.()
+          .catch(() => undefined);
+        const message = raw?.length ? raw : toErrorMessage(error);
 
         if (
           attempt < MAX_RETRY &&
@@ -162,11 +175,31 @@ export async function invokeGenerateRule(body: {
       }
 
       if (!data || !data.ok) {
-        const reason = (data as any)?.error ?? "UnknownError";
+        const dataRecord =
+          data && typeof data === "object"
+            ? (data as Record<string, unknown>)
+            : undefined;
+        const reason =
+          typeof dataRecord?.error === "string"
+            ? dataRecord.error
+            : "UnknownError";
         throw new Error(`FunctionError: ${reason}`);
       }
 
-      return data.rule;
+      const dataRecord =
+        data && typeof data === "object"
+          ? (data as Record<string, unknown>)
+          : undefined;
+      const resultRecord =
+        dataRecord?.result && typeof dataRecord.result === "object"
+          ? (dataRecord.result as Record<string, unknown>)
+          : undefined;
+      const rule = resultRecord?.rule ?? dataRecord?.rule;
+      if (!rule) {
+        throw new Error("FunctionError: missing rule in response");
+      }
+
+      return rule as GeneratedRule;
     } catch (err) {
       clearTimeout(to);
       const message = toErrorMessage(err);

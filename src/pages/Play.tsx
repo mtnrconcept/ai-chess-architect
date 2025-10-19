@@ -1,32 +1,62 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/Play.tsx
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  ArrowLeft, Bomb, Bot, Loader2, Menu, MessageSquareText, Rocket, RotateCcw,
-  Send, Sparkles, Target, User, Volume2, VolumeX
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import ChessBoard from '@/components/ChessBoard';
-import { ChessEngine } from '@/lib/chessEngine';
+  ArrowLeft,
+  Bomb,
+  Bot,
+  Loader2,
+  Menu,
+  MessageSquareText,
+  Rocket,
+  RotateCcw,
+  Send,
+  Sparkles,
+  Target,
+  User,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import ChessBoard from "@/components/ChessBoard";
+import { ChessEngine } from "@/lib/chessEngine";
 import {
-  GameState, Position, ChessPiece, ChessRule, PieceColor, ChessMove,
-  SpecialAttackInstance, PieceType, VisualEffect
-} from '@/types/chess';
-import { allPresetRules } from '@/lib/presetRules';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { analyzeRuleLogic } from '@/lib/ruleValidation';
-import { getCategoryColor } from '@/lib/ruleCategories';
-import { supabase } from '@/integrations/supabase/client';
-import { getSupabaseFunctionErrorMessage } from '@/integrations/supabase/errors';
-import { buildCoachFallbackMessage } from '@/lib/coachFallback';
+  GameState,
+  Position,
+  ChessPiece,
+  ChessRule,
+  PieceColor,
+  ChessMove,
+  SpecialAttackInstance,
+  PieceType,
+  VisualEffect,
+} from "@/types/chess";
+import { allPresetRules } from "@/lib/presetRules";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { analyzeRuleLogic } from "@/lib/ruleValidation";
+import { getCategoryColor } from "@/lib/ruleCategories";
+import { supabase } from "@/integrations/supabase/client";
+import { getSupabaseFunctionErrorMessage } from "@/integrations/supabase/errors";
+import { buildCoachFallbackMessage } from "@/lib/coachFallback";
 // import { useToast } from '@/hooks/use-toast'; // ⚠️ NE PLUS UTILISER DIRECTEMENT
-import { cn } from '@/lib/utils';
-import { CoachChatMessage, CoachChatResponse } from '@/types/coach';
-import { TIME_CONTROL_SETTINGS, type TimeControlOption, isTimeControlOption } from '@/types/timeControl';
-import { useSoundEffects, type SoundEffect } from '@/hooks/useSoundEffects';
+import { cn } from "@/lib/utils";
+import { CoachChatMessage, CoachChatResponse } from "@/types/coach";
+import {
+  TIME_CONTROL_SETTINGS,
+  type TimeControlOption,
+  isTimeControlOption,
+} from "@/types/timeControl";
+import { useSoundEffects, type SoundEffect } from "@/hooks/useSoundEffects";
 import {
   getSpecialAbilityMetadata,
   normalizeSpecialAbilityParameters,
@@ -34,28 +64,41 @@ import {
   type SpecialAbilityActivation,
   type SpecialAbilityKey,
   type SpecialAbilityTrigger,
-} from '@/lib/specialAbilities';
-import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
-import { useAuth } from '@/contexts/AuthContext';
+} from "@/lib/specialAbilities";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   analyzeCompletedGame,
   deserializeBoardState,
   formatMoveNotation,
   serializeBoardState,
-} from '@/lib/postGameAnalysis';
-import { saveCompletedGame } from '@/lib/gameStorage';
-import { fetchTournamentMatch, requestTournamentMatch } from '@/lib/tournamentApi';
-import { loadPresetRulesFromDatabase, convertRuleJsonToChessRule } from '@/lib/presetRulesAdapter';
-import { useRuleEngine } from '@/hooks/useRuleEngine';
-import { FxProvider, useFxTrigger } from '@/fx/context';
-import type { RuleJSON } from '@/engine/types';
+} from "@/lib/postGameAnalysis";
+import { saveCompletedGame } from "@/lib/gameStorage";
+import {
+  fetchTournamentMatch,
+  requestTournamentMatch,
+} from "@/lib/tournamentApi";
+import {
+  loadPresetRulesFromDatabase,
+  convertRuleJsonToChessRule,
+} from "@/lib/presetRulesAdapter";
+import { useRuleEngine } from "@/hooks/useRuleEngine";
+import { FxProvider, useFxTrigger } from "@/fx/context";
+import type { RuleJSON } from "@/engine/types";
 
 /* -------------------------------------------------------------------------- */
 /*                               Helpers locaux                               */
 /* -------------------------------------------------------------------------- */
 
 /** Garantit que le toast s’affiche après le commit React (pas pendant le render) */
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from "@/hooks/use-toast";
 function useSafeToast() {
   const { toast } = useToast();
   return useCallback(
@@ -63,57 +106,117 @@ function useSafeToast() {
       // rAF décale la mise à jour du Toaster après le commit
       requestAnimationFrame(() => toast(opts));
     },
-    [toast]
+    [toast],
   );
 }
 
+const toRecord = (value: unknown): Record<string, unknown> | undefined => {
+  if (value && typeof value === "object") {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+};
+
+const readErrorResponseText = async (
+  value: unknown,
+): Promise<string | undefined> => {
+  const container = toRecord(value);
+  const context =
+    container?.context && typeof container.context === "object"
+      ? (container.context as Record<string, unknown>)
+      : undefined;
+  if (!context) return undefined;
+
+  const response =
+    context.response && typeof context.response === "object"
+      ? (context.response as Record<string, unknown>)
+      : undefined;
+  if (!response) return undefined;
+
+  const textFn =
+    typeof response.text === "function"
+      ? (response.text as () => Promise<string>)
+      : undefined;
+  if (!textFn) return undefined;
+
+  try {
+    return await textFn.call(response);
+  } catch {
+    return undefined;
+  }
+};
+
 const createChatMessageId = () => {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto)
+    return crypto.randomUUID();
   return Math.random().toString(36).slice(2);
 };
 
 const createWelcomeMessage = (): CoachChatMessage => ({
   id: createChatMessageId(),
-  role: 'system',
-  content: "Le coach conversationnel est prêt. Jouez un coup ou posez une question pour lancer l'analyse.",
+  role: "system",
+  content:
+    "Le coach conversationnel est prêt. Jouez un coup ou posez une question pour lancer l'analyse.",
   createdAt: new Date().toISOString(),
-  trigger: 'initial',
+  trigger: "initial",
 });
 
 const isCarnivorousPlantRule = (rule: ChessRule): boolean => {
   const id = rule.ruleId.toLowerCase();
   const name = rule.ruleName.toLowerCase();
-  const normalizedId = id.replace(/[^a-z0-9]/g, '');
-  const normalizedName = name.replace(/[^a-z0-9]/g, '');
+  const normalizedId = id.replace(/[^a-z0-9]/g, "");
+  const normalizedName = name.replace(/[^a-z0-9]/g, "");
   return (
-    (normalizedId.includes('plante') && normalizedId.includes('carniv')) ||
-    (normalizedName.includes('plante') && normalizedName.includes('carniv'))
+    (normalizedId.includes("plante") && normalizedId.includes("carniv")) ||
+    (normalizedName.includes("plante") && normalizedName.includes("carniv"))
   );
 };
 
-const FILES = 'abcdefgh';
-const AI_COLOR: PieceColor = 'black';
-const HUMAN_COLOR: PieceColor = 'white';
+const FILES = "abcdefgh";
+const AI_COLOR: PieceColor = "black";
+const HUMAN_COLOR: PieceColor = "white";
 
-const PIECE_WEIGHTS: Record<ChessPiece['type'], number> = {
-  king: 20000, queen: 900, rook: 500, bishop: 330, knight: 320, pawn: 100
+const PIECE_WEIGHTS: Record<ChessPiece["type"], number> = {
+  king: 20000,
+  queen: 900,
+  rook: 500,
+  bishop: 330,
+  knight: 320,
+  pawn: 100,
 };
-const PIECE_TYPES: PieceType[] = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
+const PIECE_TYPES: PieceType[] = [
+  "king",
+  "queen",
+  "rook",
+  "bishop",
+  "knight",
+  "pawn",
+];
 const PIECE_TYPE_LABELS: Record<PieceType, string> = {
-  king: 'le roi', queen: 'la reine', rook: 'la tour', bishop: 'le fou', knight: 'le cavalier', pawn: 'le pion',
+  king: "le roi",
+  queen: "la reine",
+  rook: "la tour",
+  bishop: "le fou",
+  knight: "le cavalier",
+  pawn: "le pion",
 };
-const isPieceType = (v: unknown): v is PieceType => typeof v === 'string' && PIECE_TYPES.includes(v as PieceType);
+const isPieceType = (v: unknown): v is PieceType =>
+  typeof v === "string" && PIECE_TYPES.includes(v as PieceType);
 
 const formatPieceList = (pieces: PieceType[]): string => {
-  if (pieces.length === 0) return '';
-  const labels = pieces.map(p => PIECE_TYPE_LABELS[p]);
+  if (pieces.length === 0) return "";
+  const labels = pieces.map((p) => PIECE_TYPE_LABELS[p]);
   if (labels.length === 1) return labels[0];
-  const head = labels.slice(0, -1).join(', ');
+  const head = labels.slice(0, -1).join(", ");
   const tail = labels[labels.length - 1];
   return `${head} et ${tail}`;
 };
 
-type FreezeApplication = { color: PieceColor; positions: Position[]; turns: number };
+type FreezeApplication = {
+  color: PieceColor;
+  positions: Position[];
+  turns: number;
+};
 
 const collectPiecesWithinRadius = (
   board: (ChessPiece | null)[][],
@@ -122,8 +225,16 @@ const collectPiecesWithinRadius = (
   color: PieceColor,
 ): Position[] => {
   const affected: Position[] = [];
-  for (let row = Math.max(0, center.row - radius); row <= Math.min(7, center.row + radius); row++) {
-    for (let col = Math.max(0, center.col - radius); col <= Math.min(7, center.col + radius); col++) {
+  for (
+    let row = Math.max(0, center.row - radius);
+    row <= Math.min(7, center.row + radius);
+    row++
+  ) {
+    for (
+      let col = Math.max(0, center.col - radius);
+      col <= Math.min(7, center.col + radius);
+      col++
+    ) {
       const dRow = Math.abs(row - center.row);
       const dCol = Math.abs(col - center.col);
       if (Math.max(dRow, dCol) > radius) continue;
@@ -135,68 +246,124 @@ const collectPiecesWithinRadius = (
 };
 
 const mergeFreezeEffects = (
-  current: GameState['freezeEffects'],
+  current: GameState["freezeEffects"],
   board: (ChessPiece | null)[][],
   applications: FreezeApplication[],
-): GameState['freezeEffects'] => {
+): GameState["freezeEffects"] => {
   if (applications.length === 0) return current;
-  const updated = current.map(e => ({ ...e }));
+  const updated = current.map((e) => ({ ...e }));
   applications.forEach(({ color, positions, turns }) => {
-    positions.forEach(position => {
+    positions.forEach((position) => {
       const target = ChessEngine.getPieceAt(board, position);
       if (!target || target.color !== color) return;
-      const idx = updated.findIndex(e => e.color === color && e.position.row === position.row && e.position.col === position.col);
+      const idx = updated.findIndex(
+        (e) =>
+          e.color === color &&
+          e.position.row === position.row &&
+          e.position.col === position.col,
+      );
       if (idx >= 0) {
-        if (updated[idx].remainingTurns < turns) updated[idx] = { ...updated[idx], remainingTurns: turns };
+        if (updated[idx].remainingTurns < turns)
+          updated[idx] = { ...updated[idx], remainingTurns: turns };
       } else {
-        updated.push({ color, position: { ...position }, remainingTurns: turns });
+        updated.push({
+          color,
+          position: { ...position },
+          remainingTurns: turns,
+        });
       }
     });
   });
   return updated;
 };
 
-const AI_MOVE_DELAY_RANGES: Record<TimeControlOption, { min: number; max: number }> = {
+const AI_MOVE_DELAY_RANGES: Record<
+  TimeControlOption,
+  { min: number; max: number }
+> = {
   bullet: { min: 500, max: 3000 },
   blitz: { min: 2000, max: 5000 },
   long: { min: 1000, max: 10000 },
   untimed: { min: 1000, max: 10000 },
 };
 
-type AIDifficulty = 'novice' | 'standard' | 'expert';
+type AIDifficulty = "novice" | "standard" | "expert";
 const AI_DIFFICULTY_LEVELS: Record<
   AIDifficulty,
   { depth: number; label: string; description: string; selectionRange: number }
 > = {
-  novice: { depth: 1, label: 'Débutant', description: 'Vision limitée et choix parfois aventureux pour un entraînement détendu.', selectionRange: 3 },
-  standard: { depth: 2, label: 'Intermédiaire', description: 'Équilibre entre temps de réflexion et précision stratégique.', selectionRange: 2 },
-  expert: { depth: 3, label: 'Maître', description: 'Recherche profonde et coups optimisés pour un vrai défi.', selectionRange: 1 }
+  novice: {
+    depth: 1,
+    label: "Débutant",
+    description:
+      "Vision limitée et choix parfois aventureux pour un entraînement détendu.",
+    selectionRange: 3,
+  },
+  standard: {
+    depth: 2,
+    label: "Intermédiaire",
+    description: "Équilibre entre temps de réflexion et précision stratégique.",
+    selectionRange: 2,
+  },
+  expert: {
+    depth: 3,
+    label: "Maître",
+    description: "Recherche profonde et coups optimisés pour un vrai défi.",
+    selectionRange: 1,
+  },
 };
-const isAIDifficulty = (v: string): v is AIDifficulty => v in AI_DIFFICULTY_LEVELS;
+const isAIDifficulty = (v: string): v is AIDifficulty =>
+  v in AI_DIFFICULTY_LEVELS;
 
-type AiMoveResolver = (state: GameState) => { from: Position; to: Position } | null;
+type AiMoveResolver = (
+  state: GameState,
+) => { from: Position; to: Position } | null;
 
-const CAPTURED_PIECE_SYMBOLS: Record<ChessPiece['type'], { white: string; black: string }> = {
-  king: { white: '♔', black: '♚' }, queen: { white: '♕', black: '♛' }, rook: { white: '♖', black: '♜' },
-  bishop: { white: '♗', black: '♝' }, knight: { white: '♘', black: '♞' }, pawn: { white: '♙', black: '♟' }
+const CAPTURED_PIECE_SYMBOLS: Record<
+  ChessPiece["type"],
+  { white: string; black: string }
+> = {
+  king: { white: "♔", black: "♚" },
+  queen: { white: "♕", black: "♛" },
+  rook: { white: "♖", black: "♜" },
+  bishop: { white: "♗", black: "♝" },
+  knight: { white: "♘", black: "♞" },
+  pawn: { white: "♙", black: "♟" },
 };
 
-const ABILITY_ICON_MAP: Record<string, LucideIcon> = { bomb: Bomb, target: Target };
+const ABILITY_ICON_MAP: Record<string, LucideIcon> = {
+  bomb: Bomb,
+  target: Target,
+};
 
-const SPECIAL_SOUND_EFFECTS: readonly SoundEffect[] = ['explosion', 'quantum-explosion', 'mine-detonation'] as const;
+const SPECIAL_SOUND_EFFECTS: readonly SoundEffect[] = [
+  "explosion",
+  "quantum-explosion",
+  "mine-detonation",
+] as const;
 const toSoundEffect = (v: unknown, fb: SoundEffect): SoundEffect =>
-  typeof v === 'string' && (SPECIAL_SOUND_EFFECTS as readonly string[]).includes(v) ? (v as SoundEffect) : fb;
+  typeof v === "string" &&
+  (SPECIAL_SOUND_EFFECTS as readonly string[]).includes(v)
+    ? (v as SoundEffect)
+    : fb;
 const toPositiveNumber = (v: unknown, fb: number): number => {
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  const parsed = Number.parseFloat(String(v ?? ''));
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const parsed = Number.parseFloat(String(v ?? ""));
   return Number.isFinite(parsed) ? parsed : fb;
 };
-const toAnimationName = (v: unknown, fb: string): string => (typeof v === 'string' && v.trim().length > 0 ? v : fb);
+const toAnimationName = (v: unknown, fb: string): string =>
+  typeof v === "string" && v.trim().length > 0 ? v : fb;
 
-const ruleTargetsPiece = (rule: ChessRule, piece: ChessPiece | null): boolean => {
+const ruleTargetsPiece = (
+  rule: ChessRule,
+  piece: ChessPiece | null,
+): boolean => {
   if (!piece) return false;
   if (rule.affectedPieces.length === 0) return true;
-  return rule.affectedPieces.includes('all') || rule.affectedPieces.includes(piece.type);
+  return (
+    rule.affectedPieces.includes("all") ||
+    rule.affectedPieces.includes(piece.type)
+  );
 };
 
 interface SpecialAbilityOption {
@@ -206,7 +373,7 @@ interface SpecialAbilityOption {
   ability: SpecialAbilityKey;
   label: string;
   description: string;
-  icon: 'bomb' | 'target';
+  icon: "bomb" | "target";
   trigger: SpecialAbilityTrigger;
   radius: number;
   countdown: number;
@@ -220,8 +387,14 @@ interface SpecialAbilityOption {
 }
 
 type DeployResult =
-  | { success: true; coordinate: string; trigger: SpecialAbilityTrigger; countdown: number; abilityLabel: string }
-  | { success: false; reason: 'state' | 'occupied' | 'duplicate' | 'invalid' };
+  | {
+      success: true;
+      coordinate: string;
+      trigger: SpecialAbilityTrigger;
+      countdown: number;
+      abilityLabel: string;
+    }
+  | { success: false; reason: "state" | "occupied" | "duplicate" | "invalid" };
 
 /* -------------------------------------------------------------------------- */
 /*                                    Page                                    */
@@ -234,70 +407,133 @@ const Play = () => {
   const safeToast = useSafeToast();
   const { play: playSfx } = useSoundEffects();
 
-  const locationState = location.state as {
-    customRules?: ChessRule[];
-    presetRuleIds?: string[];
-    opponentType?: 'ai' | 'player' | 'local';
-    lobbyId?: string;
-    role?: 'creator' | 'opponent';
-    lobbyName?: string;
-    opponentName?: string;
-    playerName?: string;
-    timeControl?: TimeControlOption;
-    playerElo?: number;
-    opponentElo?: number;
-    matchId?: string;
-    matchStatus?: string;
-    tournamentId?: string;
-  } | undefined;
+  const locationState = location.state as
+    | {
+        customRules?: ChessRule[];
+        presetRuleIds?: string[];
+        opponentType?: "ai" | "player" | "local";
+        lobbyId?: string;
+        role?: "creator" | "opponent";
+        lobbyName?: string;
+        opponentName?: string;
+        playerName?: string;
+        timeControl?: TimeControlOption;
+        playerElo?: number;
+        opponentElo?: number;
+        matchId?: string;
+        matchStatus?: string;
+        tournamentId?: string;
+      }
+    | undefined;
 
   const params = useParams<{ matchId?: string }>();
 
-  const opponentType = locationState?.opponentType === 'player'
-    ? 'player' : locationState?.opponentType === 'local'
-    ? 'local' : 'ai';
+  const opponentType =
+    locationState?.opponentType === "player"
+      ? "player"
+      : locationState?.opponentType === "local"
+        ? "local"
+        : "ai";
 
-  const lobbyId = typeof locationState?.lobbyId === 'string' ? locationState.lobbyId : undefined;
-  const initialLobbyRole = locationState?.role === 'creator' || locationState?.role === 'opponent' ? locationState.role : undefined;
-  const initialLobbyName = typeof locationState?.lobbyName === 'string' ? locationState.lobbyName : undefined;
-  const initialOpponentName = typeof locationState?.opponentName === 'string' ? locationState.opponentName : undefined;
-  const playerName = typeof locationState?.playerName === 'string' ? locationState.playerName : undefined;
-  const routeMatchId = typeof params.matchId === 'string' ? params.matchId : undefined;
-  const stateMatchId = typeof locationState?.matchId === 'string' ? locationState.matchId : undefined;
+  const lobbyId =
+    typeof locationState?.lobbyId === "string"
+      ? locationState.lobbyId
+      : undefined;
+  const initialLobbyRole =
+    locationState?.role === "creator" || locationState?.role === "opponent"
+      ? locationState.role
+      : undefined;
+  const initialLobbyName =
+    typeof locationState?.lobbyName === "string"
+      ? locationState.lobbyName
+      : undefined;
+  const initialOpponentName =
+    typeof locationState?.opponentName === "string"
+      ? locationState.opponentName
+      : undefined;
+  const playerName =
+    typeof locationState?.playerName === "string"
+      ? locationState.playerName
+      : undefined;
+  const routeMatchId =
+    typeof params.matchId === "string" ? params.matchId : undefined;
+  const stateMatchId =
+    typeof locationState?.matchId === "string"
+      ? locationState.matchId
+      : undefined;
   const matchId = stateMatchId ?? routeMatchId;
-  const tournamentId = typeof locationState?.tournamentId === 'string' ? locationState.tournamentId : undefined;
-  const initialMatchStatus = typeof locationState?.matchStatus === 'string' ? locationState.matchStatus : null;
+  const tournamentId =
+    typeof locationState?.tournamentId === "string"
+      ? locationState.tournamentId
+      : undefined;
+  const initialMatchStatus =
+    typeof locationState?.matchStatus === "string"
+      ? locationState.matchStatus
+      : null;
 
-  const [currentLobbyRole, setCurrentLobbyRole] = useState<typeof initialLobbyRole>(initialLobbyRole);
-  const [currentLobbyName, setCurrentLobbyName] = useState<string | undefined>(initialLobbyName);
-  const [currentOpponentName, setCurrentOpponentName] = useState<string | undefined>(initialOpponentName);
-  const [matchStatus, setMatchStatus] = useState<string | null>(initialMatchStatus);
-  const [waitingForOpponent, setWaitingForOpponent] = useState<boolean>(() =>
-    opponentType === 'player' && (initialMatchStatus === 'pending' || (!!initialLobbyRole && initialLobbyRole === 'creator' && !initialOpponentName))
+  const [currentLobbyRole, setCurrentLobbyRole] =
+    useState<typeof initialLobbyRole>(initialLobbyRole);
+  const [currentLobbyName, setCurrentLobbyName] = useState<string | undefined>(
+    initialLobbyName,
+  );
+  const [currentOpponentName, setCurrentOpponentName] = useState<
+    string | undefined
+  >(initialOpponentName);
+  const [matchStatus, setMatchStatus] = useState<string | null>(
+    initialMatchStatus,
+  );
+  const [waitingForOpponent, setWaitingForOpponent] = useState<boolean>(
+    () =>
+      opponentType === "player" &&
+      (initialMatchStatus === "pending" ||
+        (!!initialLobbyRole &&
+          initialLobbyRole === "creator" &&
+          !initialOpponentName)),
   );
 
   useEffect(() => setCurrentLobbyRole(initialLobbyRole), [initialLobbyRole]);
   useEffect(() => setCurrentLobbyName(initialLobbyName), [initialLobbyName]);
-  useEffect(() => setCurrentOpponentName(initialOpponentName), [initialOpponentName]);
+  useEffect(
+    () => setCurrentOpponentName(initialOpponentName),
+    [initialOpponentName],
+  );
 
   useEffect(() => {
     setMatchStatus(initialMatchStatus);
-    if (opponentType === 'player') {
-      const shouldWait = initialMatchStatus === 'pending' || (!!initialLobbyRole && initialLobbyRole === 'creator' && !initialOpponentName);
+    if (opponentType === "player") {
+      const shouldWait =
+        initialMatchStatus === "pending" ||
+        (!!initialLobbyRole &&
+          initialLobbyRole === "creator" &&
+          !initialOpponentName);
       setWaitingForOpponent(shouldWait);
     }
   }, [initialMatchStatus, opponentType, initialLobbyRole, initialOpponentName]);
 
-  const playerDisplayName = playerName ?? 'Vous';
-  const opponentDisplayName = currentOpponentName
-    ?? (opponentType === 'ai' ? 'Cyber IA' : opponentType === 'local' ? 'Joueur local' : 'Adversaire inconnu');
-  const playerElo = typeof locationState?.playerElo === 'number' ? locationState.playerElo : 1500;
-  const opponentElo = typeof locationState?.opponentElo === 'number'
-    ? locationState.opponentElo
-    : opponentType === 'ai' ? 1800 : 1500;
+  const playerDisplayName = playerName ?? "Vous";
+  const opponentDisplayName =
+    currentOpponentName ??
+    (opponentType === "ai"
+      ? "Cyber IA"
+      : opponentType === "local"
+        ? "Joueur local"
+        : "Adversaire inconnu");
+  const playerElo =
+    typeof locationState?.playerElo === "number"
+      ? locationState.playerElo
+      : 1500;
+  const opponentElo =
+    typeof locationState?.opponentElo === "number"
+      ? locationState.opponentElo
+      : opponentType === "ai"
+        ? 1800
+        : 1500;
 
-  const timeControl: TimeControlOption = isTimeControlOption(locationState?.timeControl)
-    ? locationState.timeControl : 'untimed';
+  const timeControl: TimeControlOption = isTimeControlOption(
+    locationState?.timeControl,
+  )
+    ? locationState.timeControl
+    : "untimed";
   const timeControlSettings = TIME_CONTROL_SETTINGS[timeControl];
   const initialTimeSeconds = timeControlSettings.initialSeconds;
 
@@ -309,11 +545,11 @@ const Play = () => {
         forceAiFallback: true,
       });
     } catch (error) {
-      console.error('[play] unable to attach AI fallback', error);
+      console.error("[play] unable to attach AI fallback", error);
       safeToast({
-        title: 'Matchmaking',
+        title: "Matchmaking",
         description: "Impossible de lancer la partie contre l'IA.",
-        variant: 'destructive',
+        variant: "destructive",
       });
     }
   }, [playerDisplayName, safeToast, tournamentId]);
@@ -321,7 +557,7 @@ const Play = () => {
   useEffect(() => {
     if (!matchId) return;
     let cancelled = false;
-    const fallbackHost = initialLobbyRole === 'creator';
+    const fallbackHost = initialLobbyRole === "creator";
 
     const syncMatchDetails = async () => {
       try {
@@ -332,21 +568,25 @@ const Play = () => {
 
         if (details.lobby?.name) setCurrentLobbyName(details.lobby.name);
         if (details.is_ai_match) {
-          setCurrentOpponentName(details.ai_opponent_label ?? 'Voltus AI');
+          setCurrentOpponentName(details.ai_opponent_label ?? "Voltus AI");
         } else if (details.lobby?.opponent_name) {
           setCurrentOpponentName(details.lobby.opponent_name);
         }
 
         if (user?.id) {
-          if (details.player1_id === user.id) setCurrentLobbyRole('creator');
-          else if (details.player2_id === user.id) setCurrentLobbyRole('opponent');
+          if (details.player1_id === user.id) setCurrentLobbyRole("creator");
+          else if (details.player2_id === user.id)
+            setCurrentLobbyRole("opponent");
         }
 
         const hostId = details.player1_id ?? null;
         const isHost = user?.id ? user.id === hostId : fallbackHost;
-        if (opponentType === 'player') setWaitingForOpponent((details.status ?? null) === 'pending' && !!isHost);
+        if (opponentType === "player")
+          setWaitingForOpponent(
+            (details.status ?? null) === "pending" && !!isHost,
+          );
       } catch (error) {
-        console.error('[play] unable to synchroniser le match', error);
+        console.error("[play] unable to synchroniser le match", error);
       }
     };
 
@@ -355,28 +595,42 @@ const Play = () => {
     const channel = supabase
       .channel(`tournament-match-${matchId}`)
       .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'tournament_matches', filter: `id=eq.${matchId}` },
-        payload => {
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "tournament_matches",
+          filter: `id=eq.${matchId}`,
+        },
+        (payload) => {
           const updated = payload.new as {
-            status?: string; player1_id?: string; player2_id?: string;
-            is_ai_match?: boolean | null; ai_opponent_label?: string | null;
+            status?: string;
+            player1_id?: string;
+            player2_id?: string;
+            is_ai_match?: boolean | null;
+            ai_opponent_label?: string | null;
           };
           const updatedStatus = updated?.status ?? null;
           setMatchStatus(updatedStatus);
 
           if (user?.id) {
-            if (updated?.player1_id === user.id) setCurrentLobbyRole('creator');
-            else if (updated?.player2_id === user.id) setCurrentLobbyRole('opponent');
+            if (updated?.player1_id === user.id) setCurrentLobbyRole("creator");
+            else if (updated?.player2_id === user.id)
+              setCurrentLobbyRole("opponent");
           }
 
-          const isHost = user?.id ? updated?.player1_id === user.id : fallbackHost;
-          if (opponentType === 'player') setWaitingForOpponent(updatedStatus === 'pending' && !!isHost);
+          const isHost = user?.id
+            ? updated?.player1_id === user.id
+            : fallbackHost;
+          if (opponentType === "player")
+            setWaitingForOpponent(updatedStatus === "pending" && !!isHost);
 
-          if (updated?.is_ai_match && updated.ai_opponent_label) setCurrentOpponentName(updated.ai_opponent_label);
+          if (updated?.is_ai_match && updated.ai_opponent_label)
+            setCurrentOpponentName(updated.ai_opponent_label);
 
-          if (updatedStatus === 'playing' || updatedStatus === 'finished') void syncMatchDetails();
-        }
+          if (updatedStatus === "playing" || updatedStatus === "finished")
+            void syncMatchDetails();
+        },
       )
       .subscribe();
 
@@ -388,18 +642,23 @@ const Play = () => {
 
   const rawCustomRules = useMemo(() => {
     const custom = locationState?.customRules;
-    return Array.isArray(custom) ? (custom as ChessRule[]) : ([] as ChessRule[]);
+    return Array.isArray(custom)
+      ? (custom as ChessRule[])
+      : ([] as ChessRule[]);
   }, [locationState]);
 
   const initialPresetRuleIds = useMemo(() => {
     const preset = locationState?.presetRuleIds;
     if (!Array.isArray(preset)) return [] as string[];
-    return preset.filter((ruleId): ruleId is string => typeof ruleId === 'string' && ruleId.length > 0);
+    return preset.filter(
+      (ruleId): ruleId is string =>
+        typeof ruleId === "string" && ruleId.length > 0,
+    );
   }, [locationState]);
 
   const analyzedCustomRules = useMemo(
-    () => rawCustomRules.map(rule => analyzeRuleLogic(rule).rule),
-    [rawCustomRules]
+    () => rawCustomRules.map((rule) => analyzeRuleLogic(rule).rule),
+    [rawCustomRules],
   );
 
   const [dbLoadedRules, setDbLoadedRules] = useState<ChessRule[]>([]);
@@ -413,20 +672,20 @@ const Play = () => {
         const aiRules: ChessRule[] = [];
         if (user?.id) {
           const { data: rulesData, error } = await supabase
-            .from('chess_rules')
-            .select('rule_json')
-            .eq('status', 'active')
-            .eq('created_by', user.id)
-            .in('source', ['custom', 'ai_generated']);
+            .from("chess_rules")
+            .select("rule_json")
+            .eq("status", "active")
+            .eq("created_by", user.id)
+            .in("source", ["custom", "ai_generated"]);
 
           if (!error && rulesData) {
-            rulesData.forEach(row => {
+            rulesData.forEach((row) => {
               if (row.rule_json) {
                 try {
                   const converted = convertRuleJsonToChessRule(row.rule_json);
                   aiRules.push(converted);
                 } catch (err) {
-                  console.warn('[Play] Failed to convert AI rule', err);
+                  console.warn("[Play] Failed to convert AI rule", err);
                 }
               }
             });
@@ -436,7 +695,7 @@ const Play = () => {
         setDbLoadedRules([...presetRules, ...aiRules]);
         setDbRulesLoaded(true);
       } catch (error) {
-        console.error('[Play] Failed to load DB rules', error);
+        console.error("[Play] Failed to load DB rules", error);
         setDbLoadedRules(allPresetRules);
         setDbRulesLoaded(true);
       }
@@ -445,38 +704,45 @@ const Play = () => {
     loadDbRules();
   }, [user?.id]);
 
-  const [customRules, setCustomRules] = useState<ChessRule[]>(analyzedCustomRules);
+  const [customRules, setCustomRules] =
+    useState<ChessRule[]>(analyzedCustomRules);
   const activePresetRule = useMemo(() => {
     if (initialPresetRuleIds.length === 0 || !dbRulesLoaded) return null;
     const [firstRuleId] = initialPresetRuleIds;
-    return dbLoadedRules.find(rule => rule.ruleId === firstRuleId) ?? null;
+    return dbLoadedRules.find((rule) => rule.ruleId === firstRuleId) ?? null;
   }, [initialPresetRuleIds, dbLoadedRules, dbRulesLoaded]);
-  const appliedPresetRuleIds = useMemo(() => new Set(initialPresetRuleIds), [initialPresetRuleIds]);
+  const appliedPresetRuleIds = useMemo(
+    () => new Set(initialPresetRuleIds),
+    [initialPresetRuleIds],
+  );
   const primaryRule = customRules[0] ?? activePresetRule ?? null;
-  const variantName = primaryRule?.ruleName ?? 'Standard';
+  const variantName = primaryRule?.ruleName ?? "Standard";
   const activeCustomRulesCount = customRules.length;
 
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = window.localStorage.getItem('ai-difficulty');
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem("ai-difficulty");
       if (stored && isAIDifficulty(stored)) return stored;
     }
-    return 'standard';
+    return "standard";
   });
   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
 
-  const [isDesktop, setIsDesktop] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1024 : false));
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
+  );
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [coachEnabled, setCoachEnabled] = useState(true);
-  const [pendingAbility, setPendingAbility] = useState<SpecialAbilityOption | null>(null);
+  const [pendingAbility, setPendingAbility] =
+    useState<SpecialAbilityOption | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
     const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const aiFallbackTriggeredRef = useRef(false);
@@ -489,12 +755,12 @@ const Play = () => {
     const initialBoard = ChessEngine.initializeBoard();
     return {
       board: initialBoard,
-      currentPlayer: 'white',
+      currentPlayer: "white",
       turnNumber: 1,
       movesThisTurn: 0,
       selectedPiece: null,
       validMoves: [],
-      gameStatus: 'active',
+      gameStatus: "active",
       capturedPieces: [],
       moveHistory: [],
       activeRules: [],
@@ -516,14 +782,22 @@ const Play = () => {
   });
 
   const initialBoardSnapshotRef = useRef(serializeBoardState(gameState.board));
-  const [timeRemaining, setTimeRemaining] = useState(() => ({ white: initialTimeSeconds, black: initialTimeSeconds }));
+  const [timeRemaining, setTimeRemaining] = useState(() => ({
+    white: initialTimeSeconds,
+    black: initialTimeSeconds,
+  }));
 
   const capturedPiecesByColor = useMemo(() => {
     const grouped: Record<PieceColor, ChessPiece[]> = { white: [], black: [] };
-    for (const piece of gameState.capturedPieces) grouped[piece.color].push(piece);
+    for (const piece of gameState.capturedPieces)
+      grouped[piece.color].push(piece);
     return {
-      white: [...grouped.white].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type]),
-      black: [...grouped.black].sort((a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type])
+      white: [...grouped.white].sort(
+        (a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type],
+      ),
+      black: [...grouped.black].sort(
+        (a, b) => PIECE_WEIGHTS[b.type] - PIECE_WEIGHTS[a.type],
+      ),
     };
   }, [gameState.capturedPieces]);
 
@@ -531,38 +805,38 @@ const Play = () => {
     const options: SpecialAbilityOption[] = [];
     const seen = new Set<string>();
 
-    gameState.activeRules.forEach(rule => {
+    gameState.activeRules.forEach((rule) => {
       const ruleAsAny = rule as any;
       const originalJson = ruleAsAny.__originalRuleJson;
       if (!originalJson?.ui?.actions) return;
 
       originalJson.ui.actions.forEach((uiAction: any, index: number) => {
-        if (!uiAction.id || !uiAction.id.startsWith('special_')) return;
+        if (!uiAction.id || !uiAction.id.startsWith("special_")) return;
 
         const id = `${rule.ruleId}-${uiAction.id}-${index}`;
         if (seen.has(id)) return;
         seen.add(id);
 
-        const icon = uiAction.icon === '❄️' ? 'target' : 'bomb';
-        const label = uiAction.label || uiAction.hint || 'Action spéciale';
+        const icon = uiAction.icon === "❄️" ? "target" : "bomb";
+        const label = uiAction.label || uiAction.hint || "Action spéciale";
         const cooldown = uiAction.cooldown?.perPiece || 2;
 
         options.push({
           id,
           ruleId: rule.ruleId,
           ruleName: rule.ruleName,
-          ability: 'deployBomb' as SpecialAbilityKey,
+          ability: "deployBomb" as SpecialAbilityKey,
           label,
           description: uiAction.hint || label,
           icon,
-          trigger: 'instant' as SpecialAbilityTrigger, // sera normé au moment du déploiement si besoin
+          trigger: "instant" as SpecialAbilityTrigger, // sera normé au moment du déploiement si besoin
           radius: 1,
           countdown: cooldown,
           damage: 100,
-          animation: 'explosion',
-          sound: 'explosion',
+          animation: "explosion",
+          sound: "explosion",
           buttonLabel: label,
-          activation: 'manual' as SpecialAbilityActivation,
+          activation: "manual" as SpecialAbilityActivation,
           freezeTurns: 2,
           allowOccupied: false,
         });
@@ -577,32 +851,42 @@ const Play = () => {
   /* ------------------------------------------------------------------------ */
 
   const deploySpecialAttack = useCallback(
-    (ability: SpecialAbilityOption, position: Position, options?: { allowOccupied?: boolean; clearSelection?: boolean }): DeployResult => {
-      let result: DeployResult = { success: false, reason: 'state' };
+    (
+      ability: SpecialAbilityOption,
+      position: Position,
+      options?: { allowOccupied?: boolean; clearSelection?: boolean },
+    ): DeployResult => {
+      let result: DeployResult = { success: false, reason: "state" };
 
-      setGameState(prev => {
-        if (['checkmate', 'stalemate', 'draw', 'timeout'].includes(prev.gameStatus)) {
-          result = { success: false, reason: 'state' };
+      setGameState((prev) => {
+        if (
+          ["checkmate", "stalemate", "draw", "timeout"].includes(
+            prev.gameStatus,
+          )
+        ) {
+          result = { success: false, reason: "state" };
           return prev;
         }
 
         if (!ChessEngine.isValidPosition(position)) {
-          result = { success: false, reason: 'invalid' };
+          result = { success: false, reason: "invalid" };
           return prev;
         }
 
-        const allowOccupied = ability.allowOccupied || options?.allowOccupied || false;
+        const allowOccupied =
+          ability.allowOccupied || options?.allowOccupied || false;
         const occupant = ChessEngine.getPieceAt(prev.board, position);
         if (occupant && !allowOccupied) {
-          result = { success: false, reason: 'occupied' };
+          result = { success: false, reason: "occupied" };
           return prev;
         }
 
         const alreadyArmed = prev.specialAttacks.some(
-          a => a.position.row === position.row && a.position.col === position.col
+          (a) =>
+            a.position.row === position.row && a.position.col === position.col,
         );
         if (alreadyArmed) {
-          result = { success: false, reason: 'duplicate' };
+          result = { success: false, reason: "duplicate" };
           return prev;
         }
 
@@ -616,26 +900,30 @@ const Play = () => {
               ability: ability.ability,
               position: { ...position },
               radius: Math.max(1, ability.radius || 1),
-              trigger: ability.trigger === 'countdown' || ability.trigger === 'contact' ? ability.trigger : 'countdown',
+              trigger:
+                ability.trigger === "countdown" || ability.trigger === "contact"
+                  ? ability.trigger
+                  : "countdown",
               countdown: Math.max(0, ability.countdown ?? 0),
               remaining: Math.max(0, ability.countdown ?? 0),
               damage: Math.max(1, ability.damage || 1),
-              animation: ability.animation || 'explosion',
-              sound: ability.sound || 'explosion',
+              animation: ability.animation || "explosion",
+              sound: ability.sound || "explosion",
               owner: prev.currentPlayer,
               armedAtTurn: prev.turnNumber,
             } satisfies SpecialAttackInstance,
           ],
         };
 
-        const colLetter = FILES[position.col] ?? '?';
+        const colLetter = FILES[position.col] ?? "?";
         const coordinate = `${colLetter}${8 - position.row}`;
         result = {
           success: true,
           coordinate,
           trigger: next.specialAttacks[next.specialAttacks.length - 1].trigger,
-          countdown: next.specialAttacks[next.specialAttacks.length - 1].remaining,
-          abilityLabel: ability.label ?? 'Aptitude',
+          countdown:
+            next.specialAttacks[next.specialAttacks.length - 1].remaining,
+          abilityLabel: ability.label ?? "Aptitude",
         };
 
         return next;
@@ -643,33 +931,33 @@ const Play = () => {
 
       // ⚠️ Les toasts et SFX sont déclenchés **après** l’update, jamais dans l’updater
       if (result.success) {
-        if (soundEnabled) playSfx(toSoundEffect(ability.sound, 'explosion'));
+        if (soundEnabled) playSfx(toSoundEffect(ability.sound, "explosion"));
         safeToast({
-          title: 'Aptitude déployée',
+          title: "Aptitude déployée",
           description:
-            result.trigger === 'countdown'
+            result.trigger === "countdown"
               ? `${result.abilityLabel} sur ${result.coordinate} — explosion dans ${result.countdown} tours.`
               : `${result.abilityLabel} sur ${result.coordinate} — explosion au contact.`,
         });
       } else {
         const reasonLabel =
-          result.reason === 'occupied'
-            ? 'case déjà occupée'
-            : result.reason === 'duplicate'
-            ? 'une aptitude est déjà armée ici'
-            : result.reason === 'invalid'
-            ? 'case invalide'
-            : 'état de partie incompatible';
+          result.reason === "occupied"
+            ? "case déjà occupée"
+            : result.reason === "duplicate"
+              ? "une aptitude est déjà armée ici"
+              : result.reason === "invalid"
+                ? "case invalide"
+                : "état de partie incompatible";
         safeToast({
           title: "Impossible d'armer l'aptitude",
           description: reasonLabel,
-          variant: 'destructive',
+          variant: "destructive",
         });
       }
 
       return result;
     },
-    [playSfx, safeToast, soundEnabled]
+    [playSfx, safeToast, soundEnabled],
   );
 
   /* ------------------------------------------------------------------------ */
@@ -677,50 +965,97 @@ const Play = () => {
   /* ------------------------------------------------------------------------ */
 
   const generateRule = useCallback(
-    async (payload: { prompt: string; locale?: string; temperature?: number }) => {
+    async (payload: {
+      prompt: string;
+      locale?: string;
+      temperature?: number;
+    }) => {
       // Validation minimale locale
-      if (typeof payload.prompt !== 'string' || payload.prompt.trim().length < 8) {
+      if (
+        typeof payload.prompt !== "string" ||
+        payload.prompt.trim().length < 8
+      ) {
         safeToast({
-          title: 'Requête incomplète',
-          description: 'Votre prompt doit contenir au moins 8 caractères.',
-          variant: 'destructive',
+          title: "Requête incomplète",
+          description: "Votre prompt doit contenir au moins 8 caractères.",
+          variant: "destructive",
         });
         return;
       }
 
       try {
-        const { data, error } = await supabase.functions.invoke('generate-chess-rule', { body: payload });
+        const cleanBody = JSON.parse(
+          JSON.stringify({
+            prompt: payload.prompt.trim(),
+            board: undefined,
+            options: {
+              locale: payload.locale ?? "fr-CH",
+              dryRun: false,
+              temperature: payload.temperature,
+            },
+          }),
+        );
+
+        const { data, error } = await supabase.functions.invoke(
+          "generate-chess-rule",
+          {
+            body: cleanBody,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+
         if (error) {
-          const msg =
-            (error as any)?.status === 422
-              ? 'La requête envoyée est invalide pour le générateur de règle.'
-              : getSupabaseFunctionErrorMessage(error) || 'Erreur lors de la génération.';
-          safeToast({ title: 'Génération échouée', description: msg, variant: 'destructive' });
+          const raw = await readErrorResponseText(error);
+          const msg = raw?.trim()?.length
+            ? raw
+            : getSupabaseFunctionErrorMessage(error) ||
+              "Erreur lors de la génération.";
+          safeToast({
+            title: "Génération échouée",
+            description: msg,
+            variant: "destructive",
+          });
           return;
         }
 
-        // Traiter la règle renvoyée (ex: data.rule_json)
-        safeToast({ title: 'Règle générée', description: 'Votre variante a été créée.' });
+        const dataRecord = toRecord(data);
+        const resultRecord = toRecord(dataRecord?.result);
+        const ruleCandidate =
+          resultRecord?.rule ?? dataRecord?.rule ?? dataRecord?.["rule_json"];
 
-        // Exemple d’intégration : convertir et ajouter aux règles custom
-        if ((data as any)?.rule_json) {
-          try {
-            const converted = convertRuleJsonToChessRule((data as any).rule_json as RuleJSON);
-            setCustomRules(prev => [converted, ...prev]);
-          } catch {
-            // Conversion non bloquante
-          }
+        if (!ruleCandidate) {
+          safeToast({
+            title: "Génération échouée",
+            description:
+              "La réponse du générateur ne contient aucune règle exploitable.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        safeToast({
+          title: "Règle générée",
+          description: "Votre variante a été créée.",
+        });
+
+        try {
+          const converted = convertRuleJsonToChessRule(
+            ruleCandidate as RuleJSON,
+          );
+          setCustomRules((prev) => [converted, ...prev]);
+        } catch {
+          // Conversion non bloquante
         }
       } catch (e) {
-        console.error('[generateRule] unexpected error', e);
+        console.error("[generateRule] unexpected error", e);
         safeToast({
-          title: 'Génération échouée',
+          title: "Génération échouée",
           description: "Erreur inattendue lors de l'appel au générateur.",
-          variant: 'destructive',
+          variant: "destructive",
         });
       }
     },
-    [safeToast]
+    [safeToast],
   );
 
   /* ------------------------------------------------------------------------ */
@@ -730,20 +1065,37 @@ const Play = () => {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6">
       <div className="mb-4 flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label="Retour">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate(-1)}
+          aria-label="Retour"
+        >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-xl font-semibold">
           Partie • <span className="text-primary">{variantName}</span>
         </h1>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setSoundEnabled(v => !v)}>
-            {soundEnabled ? <Volume2 className="mr-2 h-4 w-4" /> : <VolumeX className="mr-2 h-4 w-4" />}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSoundEnabled((v) => !v)}
+          >
+            {soundEnabled ? (
+              <Volume2 className="mr-2 h-4 w-4" />
+            ) : (
+              <VolumeX className="mr-2 h-4 w-4" />
+            )}
             Son
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setCoachEnabled(v => !v)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCoachEnabled((v) => !v)}
+          >
             <MessageSquareText className="mr-2 h-4 w-4" />
-            Coach {coachEnabled ? 'on' : 'off'}
+            Coach {coachEnabled ? "on" : "off"}
           </Button>
         </div>
       </div>
@@ -757,7 +1109,9 @@ const Play = () => {
               <div className="font-medium">{playerDisplayName}</div>
               <div className="text-sm opacity-70">{playerElo} Elo</div>
             </div>
-            <Badge variant="outline" className="ml-auto">Blancs</Badge>
+            <Badge variant="outline" className="ml-auto">
+              Blancs
+            </Badge>
           </div>
         </div>
 
@@ -768,7 +1122,9 @@ const Play = () => {
               <div className="font-medium">{opponentDisplayName}</div>
               <div className="text-sm opacity-70">{opponentElo} Elo</div>
             </div>
-            <Badge variant="outline" className="ml-auto">Noirs</Badge>
+            <Badge variant="outline" className="ml-auto">
+              Noirs
+            </Badge>
           </div>
         </div>
 
@@ -779,10 +1135,10 @@ const Play = () => {
               <div className="font-medium">Règles actives</div>
               <div className="text-sm opacity-70">
                 {activeCustomRulesCount > 0
-                  ? `${activeCustomRulesCount} règle${activeCustomRulesCount > 1 ? 's' : ''} perso`
+                  ? `${activeCustomRulesCount} règle${activeCustomRulesCount > 1 ? "s" : ""} perso`
                   : appliedPresetRuleIds.size > 0
-                  ? `${appliedPresetRuleIds.size} préréglage(s)`
-                  : 'Standard'}
+                    ? `${appliedPresetRuleIds.size} préréglage(s)`
+                    : "Standard"}
               </div>
             </div>
           </div>
@@ -801,13 +1157,13 @@ const Play = () => {
               return;
             }
             // Sinon, logique standard de clic sur case (sélection/déplacement)
-            setGameState(prev => {
+            setGameState((prev) => {
               const next = ChessEngine.handleSquareClick(prev, pos);
               return next;
             });
           }}
           onPieceClick={(piece) => {
-            setGameState(prev => ChessEngine.handlePieceClick(prev, piece));
+            setGameState((prev) => ChessEngine.handlePieceClick(prev, piece));
           }}
         />
       </section>
@@ -818,7 +1174,9 @@ const Play = () => {
           <div className="mb-3 font-medium">Actions spéciales</div>
           <div className="grid grid-cols-2 gap-2">
             {specialAbilities.length === 0 && (
-              <div className="col-span-2 text-sm opacity-70">Aucune aptitude disponible.</div>
+              <div className="col-span-2 text-sm opacity-70">
+                Aucune aptitude disponible.
+              </div>
             )}
             {specialAbilities.map((opt) => {
               const Icon = ABILITY_ICON_MAP[opt.icon] ?? Target;
@@ -843,8 +1201,8 @@ const Play = () => {
             onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget as HTMLFormElement);
-              const prompt = String(fd.get('prompt') ?? '');
-              void generateRule({ prompt, locale: 'fr', temperature: 0.4 });
+              const prompt = String(fd.get("prompt") ?? "");
+              void generateRule({ prompt, locale: "fr", temperature: 0.4 });
             }}
             className="flex gap-2"
           >
@@ -862,9 +1220,14 @@ const Play = () => {
             <Button
               variant="outline"
               onClick={() => {
-                setGameState(prev => ChessEngine.resetGame(prev));
-                initialBoardSnapshotRef.current = serializeBoardState(ChessEngine.initializeBoard());
-                safeToast({ title: 'Nouvelle partie', description: 'La partie a été réinitialisée.' });
+                setGameState((prev) => ChessEngine.resetGame(prev));
+                initialBoardSnapshotRef.current = serializeBoardState(
+                  ChessEngine.initializeBoard(),
+                );
+                safeToast({
+                  title: "Nouvelle partie",
+                  description: "La partie a été réinitialisée.",
+                });
               }}
             >
               <RotateCcw className="mr-2 h-4 w-4" />

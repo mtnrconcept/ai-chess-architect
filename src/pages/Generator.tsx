@@ -166,8 +166,9 @@ async function invokeWithTimeoutAndRetry(
     signalExternal?.addEventListener("abort", onAbort, { once: true });
 
     try {
+      const sanitizedBody = JSON.parse(JSON.stringify(body));
       const { data, error } = await supabase.functions.invoke(fn, {
-        body,
+        body: sanitizedBody,
         signal: controller.signal,
         headers: {
           "Content-Type": "application/json",

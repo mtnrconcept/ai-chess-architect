@@ -4,7 +4,10 @@ import {
   invokeGenerateRule,
   type GeneratedRule,
 } from "@/lib/supabase/functions";
-import { transformAiRuleToEngineRule, validateRuleJSONActions } from "@/lib/aiRuleTransformer";
+import {
+  transformAiRuleToEngineRule,
+  validateRuleJSONActions,
+} from "@/lib/aiRuleTransformer";
 import type { RuleJSON } from "@/engine/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,25 +43,25 @@ export default function RuleGenerator() {
     setAiResult(null);
     setEngineResult(null);
     setWarnings([]);
-    
+
     try {
       const aiRule = await invokeGenerateRule({
         prompt,
-        locale: "fr",
-        temperature: 0.4,
+        options: { locale: "fr-CH", dryRun: false },
       });
       setAiResult(aiRule);
-      
+
       // Transformer vers le format moteur
       const engineRule = transformAiRuleToEngineRule(aiRule);
       setEngineResult(engineRule);
-      
+
       // Valider les actions du RuleJSON
       const unknownActions = validateRuleJSONActions(engineRule);
       if (unknownActions.length > 0) {
-        setWarnings([`Actions inconnues détectées : ${unknownActions.join(", ")}`]);
+        setWarnings([
+          `Actions inconnues détectées : ${unknownActions.join(", ")}`,
+        ]);
       }
-      
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
@@ -74,7 +77,9 @@ export default function RuleGenerator() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Description de la règle</label>
+            <label className="text-sm font-medium">
+              Description de la règle
+            </label>
             <Textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -82,12 +87,8 @@ export default function RuleGenerator() {
               rows={3}
             />
           </div>
-          
-          <Button
-            onClick={onGenerate}
-            disabled={loading}
-            className="w-full"
-          >
+
+          <Button onClick={onGenerate} disabled={loading} className="w-full">
             {loading ? "Génération en cours…" : "Générer la règle"}
           </Button>
 
@@ -96,11 +97,13 @@ export default function RuleGenerator() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          
+
           {warnings.length > 0 && (
             <Alert>
               <AlertDescription>
-                {warnings.map((w, i) => <div key={i}>{w}</div>)}
+                {warnings.map((w, i) => (
+                  <div key={i}>{w}</div>
+                ))}
               </AlertDescription>
             </Alert>
           )}
@@ -111,7 +114,7 @@ export default function RuleGenerator() {
                 <TabsTrigger value="engine">Format Moteur</TabsTrigger>
                 <TabsTrigger value="ai">Format IA (brut)</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="engine" className="space-y-2">
                 <p className="text-sm text-muted-foreground">
                   Format compatible avec le moteur de règles
@@ -120,7 +123,7 @@ export default function RuleGenerator() {
                   {JSON.stringify(engineResult, null, 2)}
                 </pre>
               </TabsContent>
-              
+
               <TabsContent value="ai" className="space-y-2">
                 <p className="text-sm text-muted-foreground">
                   JSON brut généré par l'IA (Lovable AI)
