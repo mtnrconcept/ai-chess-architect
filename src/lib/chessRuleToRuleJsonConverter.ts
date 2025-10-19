@@ -249,7 +249,8 @@ function ensureBoolean(value: unknown, type: string): boolean {
 function convertConditions(conditions: RuleCondition[]): ConditionDescriptor[] {
   if (!conditions || conditions.length === 0) return [];
 
-  return conditions.flatMap((condition) => {
+  const results: ConditionDescriptor[] = [];
+  for (const condition of conditions) {
     const mapper = CONDITION_MAPPERS.find((entry) => entry.matches(condition));
     if (!mapper) {
       throw new Error(
@@ -258,6 +259,11 @@ function convertConditions(conditions: RuleCondition[]): ConditionDescriptor[] {
     }
 
     const mapped = mapper.map(condition);
-    return Array.isArray(mapped) ? [mapped] : [mapped];
-  });
+    if (Array.isArray(mapped)) {
+      results.push(...(mapped as ConditionDescriptor[]));
+    } else {
+      results.push(mapped as ConditionDescriptor);
+    }
+  }
+  return results;
 }

@@ -71,16 +71,17 @@ describe("Registry effect resolution", () => {
       captureCalls.push(params);
     });
 
-    const ctx: Record<string, unknown> = {
+    const ctx = {
       pieceId: "piece-123",
       targetTile: "c3",
       targetPieceId: "enemy-7",
       state: {},
+      engine: {} as any,
     };
 
-    getActionSteps(uiEffect).forEach((step) => registry.runEffect(step, ctx));
+    getActionSteps(uiEffect).forEach((step) => registry.runEffect(step, ctx as any));
     getActionSteps(captureEffect).forEach((step) =>
-      registry.runEffect(step, ctx),
+      registry.runEffect(step, ctx as any),
     );
 
     expect(trapCalls[0]).toMatchObject({ tile: "c3" });

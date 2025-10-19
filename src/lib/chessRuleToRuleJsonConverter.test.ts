@@ -8,6 +8,7 @@ import { registerBuiltinConditions } from "@/engine/builtins/conditions";
 import type {
   EngineContracts,
   ActionStep,
+  Side,
   LogicStep,
   UIActionSpec,
   Piece,
@@ -194,7 +195,7 @@ describe("Converted rules runtime integration", () => {
       undo() {},
     };
 
-    const matchState = { ply: 0, turnSide: "white" as const };
+    const matchState: { ply: number; turnSide: Side } = { ply: 0, turnSide: "white" };
 
     const engineContracts: EngineContracts = {
       board: {
@@ -236,7 +237,7 @@ describe("Converted rules runtime integration", () => {
       state: stateStore,
       match: {
         get: () => ({ ply: matchState.ply, turnSide: matchState.turnSide }),
-        setTurn: (side) => {
+        setTurn: (side: Side) => {
           matchState.turnSide = side;
         },
         endTurn: () => {

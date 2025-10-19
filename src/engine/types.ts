@@ -135,7 +135,7 @@ export type UIActionSpec = {
     hasMovesRemaining?: boolean;
   };
   targeting?: {
-    mode: "tile" | "piece" | "none";
+    mode: "tile" | "piece" | "none" | "area";
     validTilesProvider?: string;
   };
   consumesTurn?: boolean;

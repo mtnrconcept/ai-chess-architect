@@ -46,7 +46,7 @@ export const canonicalIntentSchema = z.object({
 
 export type CanonicalIntent = z.infer<typeof canonicalIntentSchema>;
 
-export const canonicalIntentJsonSchema: JSONSchemaType<CanonicalIntent> = {
+export const canonicalIntentJsonSchema: any = {
   title: "CanonicalIntent",
   type: "object",
   required: ["ruleName", "text", "templateId", "affectedPieces", "mechanics"],
