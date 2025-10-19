@@ -147,9 +147,6 @@ export async function invokeGenerateRule(
           {
             body: cleanedBody,
             signal: controller.signal,
-            headers: {
-              "Content-Type": "application/json",
-            },
           },
         );
       clearTimeout(to);
@@ -161,7 +158,7 @@ export async function invokeGenerateRule(
         )?.context?.response
           ?.text?.()
           .catch(() => undefined);
-        
+
         // Try to parse JSON error for better validation messages
         let message = raw?.length ? raw : toErrorMessage(error);
         if (raw) {
