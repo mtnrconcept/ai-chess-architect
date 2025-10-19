@@ -418,11 +418,18 @@ const Generator = () => {
 
       const payloadRecord = isRecord(data) ? data : undefined;
       const nestedDataRecord = isRecord(payloadRecord?.data)
-        ? payloadRecord.data
+        ? (payloadRecord?.data as Record<string, unknown>)
         : undefined;
+      const resultRecord = isRecord(payloadRecord?.result)
+        ? (payloadRecord.result as Record<string, unknown>)
+        : isRecord(nestedDataRecord?.result)
+          ? (nestedDataRecord?.result as Record<string, unknown>)
+          : undefined;
 
-      // La fonction renvoie { rule: ... } OU { ok:true, data:{rule:...} } selon variante backend.
+      // La fonction renvoie { ok:true, result:{rule:...} } depuis l'Edge Function
+      // mais on garde la compatibilité avec d'anciennes variantes { rule } ou { data: { rule } }.
       const ruleEnvelope =
+        resultRecord?.rule ??
         (payloadRecord && "rule" in payloadRecord
           ? payloadRecord.rule
           : undefined) ??
