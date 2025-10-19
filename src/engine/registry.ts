@@ -1,12 +1,17 @@
 import { ActionStep } from "./types";
 
-export type ConditionFn = (ctx: any) => boolean;
-export type EffectFn = (ctx: any, params?: Record<string, any>) => void;
+type Context = Record<string, unknown>;
+type EffectParams = Record<string, unknown>;
+type ConditionNode = [string, ...ConditionDescriptor[]];
+export type ConditionDescriptor = string | ConditionNode;
+
+export type ConditionFn = (ctx: Context) => boolean;
+export type EffectFn = (ctx: Context, params?: EffectParams) => void;
 
 export class Registry {
   conditions = new Map<string, ConditionFn>();
   effects = new Map<string, EffectFn>();
-  providers = new Map<string, (ctx: any, ...args: any[]) => any>();
+  providers = new Map<string, (ctx: Context, ...args: unknown[]) => unknown>();
 
   registerCondition(id: string, fn: ConditionFn) {
     this.conditions.set(id, fn);
@@ -16,28 +21,32 @@ export class Registry {
     this.effects.set(id, fn);
   }
 
-  registerProvider(id: string, fn: (ctx: any, ...args: any[]) => any) {
+  registerProvider(
+    id: string,
+    fn: (ctx: Context, ...args: unknown[]) => unknown,
+  ) {
     this.providers.set(id, fn);
   }
 
-  runCondition(id: string | any[], ctx: any): boolean {
+  runCondition(id: ConditionDescriptor, ctx: Context): boolean {
     // Phase 4: Support des opérateurs logiques
     if (Array.isArray(id)) {
-      const [op, ...args] = id;
-      
+      const [op, ...args] = id as ConditionNode;
+
       if (op === "not") {
-        return !this.runCondition(args[0], ctx);
+        const target = args[0];
+        return target ? !this.runCondition(target, ctx) : true;
       }
-      
+
       if (op === "and") {
-        return args.every(cond => this.runCondition(cond, ctx));
+        return args.every((cond) => this.runCondition(cond, ctx));
       }
-      
+
       if (op === "or") {
-        return args.some(cond => this.runCondition(cond, ctx));
+        return args.some((cond) => this.runCondition(cond, ctx));
       }
     }
-    
+
     // Condition simple (existant)
     const fn = this.conditions.get(id as string);
     if (!fn) {
@@ -52,20 +61,68 @@ export class Registry {
     }
   }
 
-  runEffect(step: ActionStep, ctx: any) {
+  runEffect(step: ActionStep, ctx: Context) {
     const fn = this.effects.get(step.action);
     if (!fn) {
       console.warn(`Effect missing: ${step.action}`);
       return;
     }
     try {
-      fn(ctx, step.params);
+      const resolvedParams = step.params
+        ? this.resolveParams(step.params, ctx)
+        : undefined;
+      fn(ctx, resolvedParams);
     } catch (error) {
       console.error(`Error running effect ${step.action}:`, error);
     }
   }
 
-  runProvider(id: string, ctx: any, ...args: any[]) {
+  private resolveParams(params: unknown, ctx: Context): unknown {
+    if (Array.isArray(params)) {
+      return params.map((p) => this.resolveParams(p, ctx));
+    }
+
+    if (params && typeof params === "object") {
+      const entries = Object.entries(params as Record<string, unknown>).map(
+        ([key, value]) => [key, this.resolveParams(value, ctx)],
+      );
+      return Object.fromEntries(entries);
+    }
+
+    if (typeof params === "string") {
+      return this.resolveToken(params, ctx);
+    }
+
+    return params;
+  }
+
+  private resolveToken(token: string, ctx: Context): unknown {
+    if (token === "$ctx") {
+      return ctx;
+    }
+
+    if (token.startsWith("$ctx.")) {
+      const path = token.slice(5);
+      const segments = path.split(".");
+      let current: unknown = ctx;
+
+      for (const segment of segments) {
+        if (current == null) {
+          return undefined;
+        }
+        if (typeof current !== "object") {
+          return undefined;
+        }
+        current = (current as Record<string, unknown>)[segment];
+      }
+
+      return current;
+    }
+
+    return token;
+  }
+
+  runProvider(id: string, ctx: Context, ...args: unknown[]) {
     const fn = this.providers.get(id);
     if (!fn) {
       console.warn(`Provider missing: ${id}`);
