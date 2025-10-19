@@ -422,7 +422,7 @@ export type Database = {
           match_id: string | null
           points: number | null
           rating: number | null
-          registered_at: string
+          joined_at: string
           score: number | null
           status: string
           tournament_id: string
@@ -438,7 +438,7 @@ export type Database = {
           match_id?: string | null
           points?: number | null
           rating?: number | null
-          registered_at?: string
+          joined_at?: string
           score?: number | null
           status?: string
           tournament_id: string
@@ -454,7 +454,7 @@ export type Database = {
           match_id?: string | null
           points?: number | null
           rating?: number | null
-          registered_at?: string
+          joined_at?: string
           score?: number | null
           status?: string
           tournament_id?: string
