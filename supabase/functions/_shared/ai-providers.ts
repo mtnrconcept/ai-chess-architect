@@ -3,6 +3,24 @@
 
 export type AiProviderName = "openai" | "gemini" | "groq" | "lovable";
 
+const PROVIDER_ENV_VARS: Record<AiProviderName, string> = {
+  openai: "OPENAI_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  groq: "GROQ_API_KEY",
+  lovable: "LOVABLE_API_KEY",
+};
+
+export class MissingApiKeyError extends Error {
+  readonly code = "missing_api_key" as const;
+  constructor(
+    public readonly provider: AiProviderName,
+    public readonly envVar: string,
+  ) {
+    super(`[${provider}] Missing ${envVar} in environment`);
+    this.name = "MissingApiKeyError";
+  }
+}
+
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type Message = ChatMessage;
 
@@ -18,11 +36,44 @@ type InvokeResult = { content: string };
 
 const DEFAULT_MAX_TOKENS = 1200;
 
+const FALLBACK_PROVIDERS: AiProviderName[] = ["openai", "gemini", "groq"];
+
+function hasEnvVar(name: string): boolean {
+  return (Deno.env.get(name) ?? "").trim().length > 0;
+}
+
 function providerFromEnv(): AiProviderName {
   const p = (Deno.env.get("AI_PROVIDER") || "").toLowerCase();
-  if (p === "openai" || p === "gemini" || p === "groq" || p === "lovable") return p as AiProviderName;
+  if (p === "openai" || p === "gemini" || p === "groq") {
+    return p;
+  }
+
+  const lovableKeyPresent = hasEnvVar(PROVIDER_ENV_VARS.lovable);
+
+  if (p === "lovable" || !p) {
+    if (lovableKeyPresent) {
+      return "lovable";
+    }
+    const fallback = FALLBACK_PROVIDERS.find((provider) =>
+      hasEnvVar(PROVIDER_ENV_VARS[provider])
+    );
+    if (fallback) {
+      return fallback;
+    }
+    throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
+  }
+
   // défaut : lovable => routeur géré côté Lovable
-  return "lovable";
+  if (lovableKeyPresent) {
+    return "lovable";
+  }
+  const fallback = FALLBACK_PROVIDERS.find((provider) =>
+    hasEnvVar(PROVIDER_ENV_VARS[provider])
+  );
+  if (fallback) {
+    return fallback;
+  }
+  throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
 }
 
 export async function invokeChatCompletion(args: InvokeArgs): Promise<InvokeResult> {
