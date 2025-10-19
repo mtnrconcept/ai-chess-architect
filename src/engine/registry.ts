@@ -1,6 +1,18 @@
-import { ActionStep } from "./types";
+import { ActionStep, EngineContracts, MatchInfo, RuleJSON, Piece, Tile } from "./types";
 
-type Context = Record<string, unknown>;
+export interface EngineContext extends Record<string, any> {
+  engine: any;
+  match?: any;
+  piece?: any;
+  rule?: any;
+  scope?: any;
+  state: Record<string, any>;
+  params?: Record<string, any>;
+  targetTile?: any;
+  targetPieceId?: string;
+  baseActionId?: string;
+}
+
 type EffectParams = Record<string, unknown>;
 type LogicalOperator = "not" | "and" | "or";
 type LogicalConditionNode = [LogicalOperator, ...ConditionDescriptor[]];
@@ -10,13 +22,13 @@ export type ConditionDescriptor =
   | LogicalConditionNode
   | ParameterizedConditionNode;
 
-export type ConditionFn = (ctx: Context, ...args: unknown[]) => boolean;
-export type EffectFn = (ctx: Context, params?: EffectParams) => void;
+export type ConditionFn = (ctx: EngineContext, ...args: unknown[]) => boolean;
+export type EffectFn = (ctx: EngineContext, params?: EffectParams) => void;
 
 export class Registry {
   conditions = new Map<string, ConditionFn>();
   effects = new Map<string, EffectFn>();
-  providers = new Map<string, (ctx: Context, ...args: unknown[]) => unknown>();
+  providers = new Map<string, (ctx: EngineContext, ...args: unknown[]) => unknown>();
 
   registerCondition(id: string, fn: ConditionFn) {
     this.conditions.set(id, fn);
@@ -28,12 +40,12 @@ export class Registry {
 
   registerProvider(
     id: string,
-    fn: (ctx: Context, ...args: unknown[]) => unknown,
+    fn: (ctx: EngineContext, ...args: unknown[]) => unknown,
   ) {
     this.providers.set(id, fn);
   }
 
-  runCondition(id: ConditionDescriptor, ctx: Context): boolean {
+  runCondition(id: ConditionDescriptor, ctx: EngineContext): boolean {
     if (Array.isArray(id)) {
       const [op, ...args] = id as ParameterizedConditionNode;
 
@@ -80,7 +92,7 @@ export class Registry {
     }
   }
 
-  runEffect(step: ActionStep, ctx: Context) {
+  runEffect(step: ActionStep, ctx: EngineContext) {
     const fn = this.effects.get(step.action);
     if (!fn) {
       console.warn(`Effect missing: ${step.action}`);
@@ -90,13 +102,13 @@ export class Registry {
       const resolvedParams = step.params
         ? this.resolveParams(step.params, ctx)
         : undefined;
-      fn(ctx, resolvedParams);
+      fn(ctx, resolvedParams as EffectParams);
     } catch (error) {
       console.error(`Error running effect ${step.action}:`, error);
     }
   }
 
-  private resolveParams(params: unknown, ctx: Context): unknown {
+  private resolveParams(params: unknown, ctx: EngineContext): unknown {
     if (Array.isArray(params)) {
       return params.map((p) => this.resolveParams(p, ctx));
     }
@@ -115,7 +127,7 @@ export class Registry {
     return params;
   }
 
-  private resolveToken(token: string, ctx: Context): unknown {
+  private resolveToken(token: string, ctx: EngineContext): unknown {
     if (token === "$ctx") {
       return ctx;
     }
@@ -141,7 +153,7 @@ export class Registry {
     return token;
   }
 
-  runProvider(id: string, ctx: Context, ...args: unknown[]) {
+  runProvider(id: string, ctx: EngineContext, ...args: unknown[]) {
     const fn = this.providers.get(id);
     if (!fn) {
       console.warn(`Provider missing: ${id}`);
