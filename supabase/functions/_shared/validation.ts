@@ -129,7 +129,7 @@ const KNOWN_ACTIONS = new Set([
   "cooldown.set", 
   "turn.end", 
   "state.set", "state.inc", "state.delete", "state.pushUndo",
-  "board.capture", "board.areaEffect",
+  "board.capture", "board.areaEffect", // board.capture = alias de piece.capture
   "vfx.spawnDecal", "vfx.clearDecal", "vfx.playAnimation", "vfx.playAudio",
   "decal.set", "decal.clear",
   "area.forEachTile", "composite",

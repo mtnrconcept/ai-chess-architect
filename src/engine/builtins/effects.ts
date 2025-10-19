@@ -165,6 +165,21 @@ export function registerBuiltinEffects(reg: Registry) {
     ctx.engine.state.pushUndo();
   });
 
+  // Alias pour compatibilité : board.capture → piece.capture
+  reg.registerEffect("board.capture", (ctx, p) => {
+    const pieceId = p?.pieceId || ctx.targetPieceId;
+    if (!pieceId) {
+      console.warn("[effect] board.capture: aucun pieceId fourni");
+      return;
+    }
+    
+    // Déléguer à piece.capture via runEffect
+    reg.runEffect({
+      action: "piece.capture",
+      params: { pieceId, reason: p?.reason }
+    }, ctx);
+  });
+
   reg.registerEffect("ui.toast", (ctx, p) => {
     if (p?.message) {
       ctx.engine.ui.toast(p.message);

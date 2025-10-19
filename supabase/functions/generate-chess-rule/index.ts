@@ -341,7 +341,8 @@ Le "when" dans logic.effects doit référencer "ui.special_xxx" pour correspondr
 **ACTIONS DISPONIBLES** (pour "do") :
 • Tuiles : tile.setTrap, tile.clearTrap, tile.hasTrap, tile.trapMetadata, tile.isEmpty
 • Pièces : piece.move, piece.spawn, piece.capture, piece.remove, piece.hasStatus, piece.isType, piece.transform, piece.damage
-• Plateau : board.capture, board.move, board.areaCapture
+• Plateau : board.areaEffect (zone), board.move
+• Pièces : piece.capture (recommandé pour capturer), piece.move, piece.spawn, piece.duplicate, piece.setInvisible
 • Statuts : status.add, status.remove, status.tickAll
 • État : state.set, state.inc, state.delete, state.exists, state.equals, state.greaterThan
 • VFX/Audio : vfx.play, audio.play
