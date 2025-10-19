@@ -87,7 +87,9 @@ const ChessBoard = ({
 
   return (
     <div className="relative flex w-full justify-center">
-      <div className="relative mx-auto w-full max-w-full aspect-square">
+      <div
+        className="relative mx-auto aspect-square w-full max-w-[min(92vw,520px)] sm:max-w-[min(85vw,560px)] lg:max-w-[520px]"
+      >
         <div className="pointer-events-none absolute inset-0 rounded-[32px] bg-[conic-gradient(at_top,_rgba(34,211,238,0.55),rgba(236,72,153,0.4),rgba(129,140,248,0.45),rgba(34,211,238,0.55))] blur-3xl opacity-70 animate-neonPulse" />
         <div className="relative h-full w-full overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.18),rgba(2,6,23,0.92))] shadow-[0_24px_60px_-25px_rgba(236,72,153,0.55)]">
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-fuchsia-500/10" />
@@ -197,7 +199,7 @@ const ChessBoard = ({
                           className={cn(
                             'relative z-[1] bg-gradient-to-br',
                             pieceGradients[piece.color],
-                            'bg-clip-text text-[clamp(1.65rem,8vw,3.6rem)] font-black tracking-tight text-transparent',
+                            'bg-clip-text text-[clamp(1.65rem,6vw,3.25rem)] font-black tracking-tight text-transparent',
                             'drop-shadow-[0_0_18px_rgba(34,211,238,0.8)] group-hover:drop-shadow-[0_0_24px_rgba(236,72,153,0.75)]'
                           )}
                         >

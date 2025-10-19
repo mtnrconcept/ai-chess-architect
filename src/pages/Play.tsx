@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft,
   Bomb,
@@ -50,7 +51,11 @@ import { getSupabaseFunctionErrorMessage } from "@/integrations/supabase/errors"
 import { buildCoachFallbackMessage } from "@/lib/coachFallback";
 // import { useToast } from '@/hooks/use-toast'; // ⚠️ NE PLUS UTILISER DIRECTEMENT
 import { cn } from "@/lib/utils";
-import { CoachChatMessage, CoachChatResponse } from "@/types/coach";
+import {
+  CoachChatHistoryEntry,
+  CoachChatMessage,
+  CoachChatResponse,
+} from "@/types/coach";
 import {
   TIME_CONTROL_SETTINGS,
   type TimeControlOption,
@@ -396,6 +401,10 @@ type DeployResult =
     }
   | { success: false; reason: "state" | "occupied" | "duplicate" | "invalid" };
 
+const samePos = (a: Position | null | undefined, b: Position | null | undefined) =>
+  !!a && !!b && a.row === b.row && a.col === b.col;
+
+
 /* -------------------------------------------------------------------------- */
 /*                                    Page                                    */
 /* -------------------------------------------------------------------------- */
@@ -735,6 +744,17 @@ const Play = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [coachEnabled, setCoachEnabled] = useState(true);
+  const [coachMessages, setCoachMessages] = useState<CoachChatMessage[]>(() => [
+    createWelcomeMessage(),
+  ]);
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const coachMessagesRef = useRef<CoachChatMessage[]>(coachMessages);
+  const coachAbortControllerRef = useRef<AbortController | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastDiscussedMoveRef = useRef(0);
+  const initialCoachAnalysisRef = useRef(false);
   const [pendingAbility, setPendingAbility] =
     useState<SpecialAbilityOption | null>(null);
 
@@ -781,6 +801,8 @@ const Play = () => {
     };
   });
 
+  const latestGameStateRef = useRef(gameState);
+
   const initialBoardSnapshotRef = useRef(serializeBoardState(gameState.board));
   const [timeRemaining, setTimeRemaining] = useState(() => ({
     white: initialTimeSeconds,
@@ -800,6 +822,50 @@ const Play = () => {
       ),
     };
   }, [gameState.capturedPieces]);
+
+  useEffect(() => {
+    coachMessagesRef.current = coachMessages;
+  }, [coachMessages]);
+
+  useEffect(() => {
+    latestGameStateRef.current = gameState;
+  }, [gameState]);
+
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+  }, [coachMessages]);
+
+  useEffect(() => {
+    if (!coachEnabled) {
+      coachAbortControllerRef.current?.abort();
+      setCoachLoading(false);
+      setCoachError(null);
+      initialCoachAnalysisRef.current = false;
+      return;
+    }
+
+    if (!initialCoachAnalysisRef.current) {
+      initialCoachAnalysisRef.current = true;
+      void requestCoachUpdate("initial", "");
+    }
+  }, [coachEnabled, requestCoachUpdate]);
+
+  useEffect(() => {
+    if (!coachEnabled) return;
+    const moveCount = gameState.moveHistory.length;
+    if (moveCount === 0) return;
+    if (moveCount === lastDiscussedMoveRef.current) return;
+    lastDiscussedMoveRef.current = moveCount;
+    void requestCoachUpdate("auto", "");
+  }, [coachEnabled, gameState.moveHistory.length, requestCoachUpdate]);
+
+  useEffect(() => () => {
+    coachAbortControllerRef.current?.abort();
+  }, []);
 
   const specialAbilities = useMemo<SpecialAbilityOption[]>(() => {
     const options: SpecialAbilityOption[] = [];
@@ -1065,6 +1131,349 @@ const Play = () => {
     [safeToast],
   );
 
+  const handleSquareClick = useCallback(
+    (position: Position) => {
+      if (pendingAbility) {
+        const outcome = deploySpecialAttack(pendingAbility, position);
+        if (outcome.success) setPendingAbility(null);
+        return;
+      }
+
+      setGameState((prev) => {
+        if (prev.gameStatus !== "active") return prev;
+
+        const clickedPiece = ChessEngine.getPieceAt(prev.board, position);
+        if (clickedPiece && clickedPiece.color === prev.currentPlayer) {
+          const stateForPiece: GameState = {
+            ...prev,
+            selectedPiece: clickedPiece,
+          };
+          const validMoves = ChessEngine.getValidMoves(
+            prev.board,
+            clickedPiece,
+            stateForPiece,
+          );
+          selectionTimestampRef.current =
+            typeof performance !== "undefined" ? performance.now() : Date.now();
+          return {
+            ...prev,
+            selectedPiece: clickedPiece,
+            validMoves,
+          };
+        }
+
+        if (prev.selectedPiece) {
+          const isValidMove = prev.validMoves.some((move) => samePos(move, position));
+          if (!isValidMove) {
+            selectionTimestampRef.current = null;
+            return { ...prev, selectedPiece: null, validMoves: [] };
+          }
+
+          const selectionDuration =
+            typeof performance !== "undefined" && selectionTimestampRef.current != null
+              ? performance.now() - selectionTimestampRef.current
+              : null;
+          selectionTimestampRef.current = null;
+
+          const move = ChessEngine.createMove(
+            prev.board,
+            prev.selectedPiece,
+            position,
+            prev,
+          );
+          move.timestamp = new Date().toISOString();
+          if (selectionDuration != null) {
+            move.durationMs = Math.round(selectionDuration);
+          }
+
+          const updatedBoard = ChessEngine.executeMove(prev.board, move, prev);
+          const capturedPieces = move.captured
+            ? [...prev.capturedPieces, move.captured]
+            : prev.capturedPieces;
+
+          const nextPlayer: PieceColor =
+            prev.currentPlayer === "white" ? "black" : "white";
+          const signature = ChessEngine.getBoardSignature(updatedBoard);
+          const updatedHistory = {
+            ...prev.positionHistory,
+            [signature]: (prev.positionHistory[signature] ?? 0) + 1,
+          };
+
+          const baseState: GameState = {
+            ...prev,
+            board: updatedBoard,
+            capturedPieces,
+            moveHistory: [...prev.moveHistory, move],
+            currentPlayer: nextPlayer,
+            turnNumber:
+              prev.currentPlayer === "black" ? prev.turnNumber + 1 : prev.turnNumber,
+            movesThisTurn: 0,
+            selectedPiece: null,
+            validMoves: [],
+            lastMoveByColor: {
+              ...prev.lastMoveByColor,
+              [prev.currentPlayer]: move,
+            },
+            positionHistory: updatedHistory,
+          };
+
+          const stateForStatus: GameState = {
+            ...baseState,
+            board: updatedBoard,
+            currentPlayer: nextPlayer,
+            selectedPiece: null,
+            validMoves: [],
+          };
+
+          const inCheck = ChessEngine.isInCheck(
+            updatedBoard,
+            nextPlayer,
+            stateForStatus,
+          );
+          const hasMoves = ChessEngine.hasAnyLegalMoves(
+            updatedBoard,
+            nextPlayer,
+            stateForStatus,
+          );
+
+          let gameStatus: GameState["gameStatus"] = "active";
+          if (inCheck && !hasMoves) gameStatus = "checkmate";
+          else if (!inCheck && !hasMoves) gameStatus = "stalemate";
+          else if (inCheck) gameStatus = "check";
+
+          const nextState: GameState = {
+            ...baseState,
+            gameStatus,
+          };
+
+          queueMicrotask(() => {
+            if (!soundEnabled) return;
+            playSfx(move.captured ? "capture" : "move");
+          });
+
+          return nextState;
+        }
+
+        return prev;
+      });
+    },
+    [deploySpecialAttack, pendingAbility, playSfx, soundEnabled],
+  );
+
+  const serializeBoardForAi = useCallback(
+    (board: (ChessPiece | null)[][]) =>
+      board
+        .map((row) =>
+          row
+            .map((piece) => {
+              if (!piece) return ".";
+              const symbols: Record<PieceColor, Record<ChessPiece["type"], string>> = {
+                white: {
+                  king: "K",
+                  queen: "Q",
+                  rook: "R",
+                  bishop: "B",
+                  knight: "N",
+                  pawn: "P",
+                },
+                black: {
+                  king: "k",
+                  queen: "q",
+                  rook: "r",
+                  bishop: "b",
+                  knight: "n",
+                  pawn: "p",
+                },
+              };
+              return symbols[piece.color][piece.type];
+            })
+            .join(""),
+        )
+        .join(" / "),
+    [],
+  );
+
+  const positionToNotation = useCallback((pos: Position) => {
+    const file = FILES[pos.col] ?? "?";
+    const rank = 8 - pos.row;
+    return `${file}${rank}`;
+  }, []);
+
+  const formatMoveForAi = useCallback(
+    (move: ChessMove) => {
+      const separator = move.captured ? "x" : "-";
+      const promotion = move.promotion ? `=${String(move.promotion).toUpperCase()}` : "";
+      const special = move.isCastling
+        ? " (roque)"
+        : move.isEnPassant
+          ? " (prise en passant)"
+          : "";
+      return `${positionToNotation(move.from)}${separator}${positionToNotation(move.to)}${promotion}${special}`;
+    },
+    [positionToNotation],
+  );
+
+  const requestCoachUpdate = useCallback(
+    async (
+      trigger: CoachChatMessage["trigger"],
+      userMessage: string,
+      historyOverride?: CoachChatHistoryEntry[],
+    ) => {
+      if (!coachEnabled) {
+        safeToast({
+          title: "Coach désactivé",
+          description: "Activez le coach pour solliciter une analyse.",
+        });
+        return;
+      }
+
+      coachAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      coachAbortControllerRef.current = controller;
+
+      const currentState = latestGameStateRef.current;
+      const board = serializeBoardForAi(currentState.board);
+      const moveHistory = currentState.moveHistory.map(formatMoveForAi);
+      const activeRules = currentState.activeRules.map((rule) => rule.ruleName);
+
+      const baseHistory: CoachChatHistoryEntry[] =
+        historyOverride ??
+        coachMessagesRef.current
+          .filter((message) => message.role !== "system")
+          .slice(-8)
+          .map<CoachChatHistoryEntry>((message) => ({
+            role: message.role === "coach" ? "assistant" : "user",
+            content: message.content,
+          }));
+
+      setCoachLoading(true);
+      setCoachError(null);
+
+      try {
+        const { data, error } = await supabase.functions.invoke<CoachChatResponse>(
+          "chess-insights",
+          {
+            body: {
+              board,
+              moveHistory,
+              currentPlayer: currentState.currentPlayer,
+              turnNumber: currentState.turnNumber,
+              gameStatus: currentState.gameStatus,
+              activeRules,
+              trigger,
+              userMessage,
+              history: baseHistory,
+            },
+            signal: controller.signal,
+          },
+        );
+
+        if (controller.signal.aborted) return;
+
+        if (error) {
+          throw new Error(error.message ?? "Erreur lors de la réponse du coach");
+        }
+
+        const content = data?.message?.trim();
+        if (!content) throw new Error("Réponse vide du coach");
+
+        setCoachMessages((prev) => [
+          ...prev,
+          {
+            id: createChatMessageId(),
+            role: "coach",
+            content,
+            createdAt: new Date().toISOString(),
+            trigger,
+          },
+        ]);
+        setCoachError(null);
+        lastDiscussedMoveRef.current = currentState.moveHistory.length;
+      } catch (error) {
+        if (controller.signal.aborted) return;
+
+        const fallbackReason = getSupabaseFunctionErrorMessage(
+          error,
+          "Le coach IA est indisponible pour le moment",
+        );
+        setCoachError(fallbackReason);
+        safeToast({
+          title: "Coach IA indisponible",
+          description: fallbackReason,
+          variant: "destructive",
+        });
+
+        const fallbackMessage = buildCoachFallbackMessage({
+          board,
+          moveHistory,
+          currentPlayer: currentState.currentPlayer,
+          turnNumber: currentState.turnNumber,
+          gameStatus: currentState.gameStatus,
+          trigger,
+          reason: fallbackReason,
+        });
+
+        setCoachMessages((prev) => [
+          ...prev,
+          {
+            id: createChatMessageId(),
+            role: "coach",
+            content: fallbackMessage,
+            createdAt: new Date().toISOString(),
+            trigger,
+          },
+        ]);
+        lastDiscussedMoveRef.current = currentState.moveHistory.length;
+      } finally {
+        if (!controller.signal.aborted) {
+          setCoachLoading(false);
+        }
+      }
+    },
+    [
+      coachEnabled,
+      formatMoveForAi,
+      safeToast,
+      serializeBoardForAi,
+    ],
+  );
+
+  const handleSendCoachMessage = useCallback(() => {
+    const trimmed = chatInput.trim();
+    if (trimmed.length === 0) return;
+
+    if (!coachEnabled) {
+      safeToast({
+        title: "Coach désactivé",
+        description: "Activez le coach pour discuter.",
+      });
+      return;
+    }
+
+    const historyEntries: CoachChatHistoryEntry[] = [
+      ...coachMessagesRef.current
+        .filter((message) => message.role !== "system")
+        .slice(-8)
+        .map((message) => ({
+          role: message.role === "coach" ? "assistant" : "user",
+          content: message.content,
+        })),
+      { role: "user", content: trimmed },
+    ].slice(-8);
+
+    const userMessage: CoachChatMessage = {
+      id: createChatMessageId(),
+      role: "player",
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+      trigger: "manual",
+    };
+
+    setCoachMessages((prev) => [...prev, userMessage]);
+    setChatInput("");
+    void requestCoachUpdate("manual", trimmed, historyEntries);
+  }, [chatInput, coachEnabled, requestCoachUpdate, safeToast]);
+
   /* ------------------------------------------------------------------------ */
   /*                              Rendu de la page                             */
   /* ------------------------------------------------------------------------ */
@@ -1152,31 +1561,142 @@ const Play = () => {
         </div>
       </section>
 
-      {/* Echiquier */}
-      <section className="mb-6">
-        <ChessBoard
-          board={gameState.board}
-          selected={gameState.selectedPiece?.position || null}
-          validMoves={gameState.validMoves}
-          visualEffects={gameState.visualEffects}
-          specialAttacks={gameState.specialAttacks}
-          lastMove={gameState.moveHistory[gameState.moveHistory.length - 1]}
-          currentPlayer={gameState.currentPlayer}
-          onSquareClick={(pos) => {
-            // Exemple d’usage: déploiement “manuel” si une aptitude est en attente
-            if (pendingAbility) {
-              deploySpecialAttack(pendingAbility, pos);
-              setPendingAbility(null);
-              return;
-            }
-            // Sinon, logique standard de clic sur case (sélection/déplacement)
-            // TODO: Implémenter la logique de sélection/déplacement
-            // setGameState((prev) => {
-            //   const next = ChessEngine.handleSquareClick(prev, pos);
-            //   return next;
-            // });
-          }}
-        />
+      {/* Echiquier + Coach */}
+      <section className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+          <ChessBoard
+            board={gameState.board}
+            selected={gameState.selectedPiece?.position || null}
+            validMoves={gameState.validMoves}
+            visualEffects={gameState.visualEffects}
+            specialAttacks={gameState.specialAttacks}
+            lastMove={gameState.moveHistory[gameState.moveHistory.length - 1]}
+            currentPlayer={gameState.currentPlayer}
+            onSquareClick={handleSquareClick}
+          />
+        </div>
+
+        <aside className="flex min-h-[420px] flex-col rounded-lg border border-white/10 bg-black/25 p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Coach IA</h2>
+              <p className="text-xs text-white/60">
+                Analyse contextuelle et réponses à vos questions.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!coachEnabled || coachLoading}
+              onClick={() => {
+                void requestCoachUpdate("manual", "Peux-tu analyser la position actuelle ?");
+              }}
+            >
+              {coachLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {coachLoading ? "Analyse…" : "Actualiser"}
+            </Button>
+          </div>
+
+          <div
+            ref={chatContainerRef}
+            className="flex-1 space-y-3 overflow-y-auto rounded-md border border-white/5 bg-black/20 p-3"
+          >
+            {coachMessages.map((message) => {
+              const isCoach = message.role === "coach";
+              const isPlayer = message.role === "player";
+              const bubbleClass = isCoach
+                ? "self-start rounded-2xl bg-fuchsia-500/20 text-fuchsia-100"
+                : isPlayer
+                  ? "self-end rounded-2xl bg-cyan-500/20 text-cyan-100"
+                  : "self-center rounded-2xl bg-slate-500/20 text-slate-100";
+
+              const label =
+                message.role === "coach"
+                  ? "Coach"
+                  : message.role === "player"
+                    ? "Vous"
+                    : "Système";
+
+              return (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex w-full flex-col gap-1 text-xs",
+                    isPlayer ? "items-end" : "items-start",
+                  )}
+                >
+                  <span className="text-[0.65rem] uppercase tracking-[0.25em] text-white/60">
+                    {label}
+                  </span>
+                  <p className={cn("w-full whitespace-pre-wrap px-4 py-3", bubbleClass)}>
+                    {message.content}
+                  </p>
+                </div>
+              );
+            })}
+
+            {coachLoading && (
+              <p className="text-center text-xs text-white/60">
+                Le coach réfléchit à votre position…
+              </p>
+            )}
+          </div>
+
+          {coachError && (
+            <p className="mt-3 rounded-md border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+              {coachError}
+            </p>
+          )}
+
+          <form
+            className="mt-3 flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSendCoachMessage();
+            }}
+          >
+            <Textarea
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              placeholder={coachEnabled ? "Posez une question au coach…" : "Activez le coach pour discuter."}
+              disabled={!coachEnabled || coachLoading}
+              className="min-h-[80px] resize-none bg-black/30 text-sm"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (!coachEnabled) {
+                    safeToast({
+                      title: "Coach désactivé",
+                      description: "Activez le coach pour déclencher une analyse.",
+                    });
+                    return;
+                  }
+                  void requestCoachUpdate("manual", "Peux-tu me donner un plan de jeu ?");
+                }}
+                disabled={!coachEnabled || coachLoading}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Analyse rapide
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!coachEnabled || coachLoading || chatInput.trim().length === 0}
+              >
+                Envoyer
+              </Button>
+            </div>
+          </form>
+        </aside>
       </section>
 
       {/* Barre d’actions */}
