@@ -5,7 +5,7 @@ This document captures connectivity failures encountered when running Supabase-r
 ## Observed symptoms
 
 - `nslookup db.ucaqbhmyutlnitnedowk.supabase.co` returns `NXDOMAIN`.
-- `npm run db:migrate` fails because the Supabase database hostname cannot be resolved.
+- `pnpm run db:migrate` fails because the Supabase database hostname cannot be resolved.
 - `npx supabase --version` succeeds, confirming the CLI is installed, but other commands cannot run due to missing network connectivity.
 
 ## Investigation checklist
@@ -18,7 +18,7 @@ This document captures connectivity failures encountered when running Supabase-r
    - Execute `npx supabase --version` to ensure the Supabase CLI is installed. A valid version output indicates the binary is available locally, so connectivity is the primary blocker.
 
 3. **Retry the migration**
-   - After DNS connectivity is restored, rerun `npm run db:migrate` to verify that migrations can reach the database.
+   - After DNS connectivity is restored, rerun `pnpm run db:migrate` to verify that migrations can reach the database.
 
 ## Recommended mitigations
 
@@ -30,7 +30,7 @@ This document captures connectivity failures encountered when running Supabase-r
 
 Once DNS resolution succeeds:
 
-- Re-run `npm run db:migrate` to apply outstanding migrations.
+- Re-run `pnpm run db:migrate` to apply outstanding migrations.
 - Execute other Supabase CLI commands (e.g., `supabase db remote commit`) to confirm full connectivity.
 
 Documenting these steps should streamline future investigations when network-related deployment issues arise.

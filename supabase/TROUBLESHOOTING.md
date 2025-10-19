@@ -44,7 +44,7 @@ testing the UI again:
   select pg_notify('pgrst', 'reload schema');
   ```
 
-  Depuis le dépôt, tu peux déclencher cette notification sans passer par psql en exécutant `npm run postgrest:reload`, qui se c
+  Depuis le dépôt, tu peux déclencher cette notification sans passer par psql en exécutant `pnpm run postgrest:reload`, qui se c
   onnecte via `SUPABASE_DB_URL` et envoie la commande `NOTIFY` automatiquement.
 * Edge function preflight:
   ```bash
@@ -63,7 +63,7 @@ Certains environnements de build ou de test ne fournissent pas le binaire Supaba
 Utilise le script Node déjà inclus dans ce dépôt :
 
 ```bash
-npm run db:migrate
+pnpm run db:migrate
 ```
 
 Ce script se connecte directement à la base configurée via `SUPABASE_DB_URL`, applique uniquement les migrations SQL encore inédites (grâce à la table `public.__lovable_schema_migrations`), et assure le chiffrement TLS (`sslmode=require`). Il constitue une alternative drop-in à `supabase db push` dans les pipelines CI/CD ou les conteneurs minimalistes.
@@ -336,7 +336,7 @@ sur une fonction edge (`sync-tournaments`) qui écrit dans les tables `public.to
    autre environnement, renseigne `SUPABASE_PROJECT_ID`/`SUPABASE_URL` avec l'identifiant exact ou adapte le code. Sans cela, la
    fonction écrira dans un projet vide et l'UI ne verra aucun tournoi.
 3. **Migrations non appliquées** – Sans les tables/vues de `supabase/migrations`, la fonction lève `feature_unavailable`. Exécute
-   `npm run db:push` (ou `npm run db:migrate`) et force un `NOTIFY pgrst, 'reload schema';` pour que `/rest/v1/tournaments` soit
+   `pnpm run db:push` (ou `pnpm run db:migrate`) et force un `NOTIFY pgrst, 'reload schema';` pour que `/rest/v1/tournaments` soit
    exposé immédiatement.
 4. **Edge function non déployée** – Un coach fonctionnel prouve que les API REST répondent, mais pas que la fonction `sync-tournaments`
    est à jour. Redeploie-la explicitement : `npx supabase functions deploy sync-tournaments` (ou via l'interface Supabase) afin qu'elle

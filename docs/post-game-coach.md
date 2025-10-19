@@ -45,7 +45,7 @@ Copy `.env.example` to `.env` and configure the following secrets:
 Apply the migrations with the provided helper script (requires network access to Supabase):
 
 ```bash
-npm run db:migrate
+pnpm run db:migrate
 ```
 
 The `000_post_game_coach.sql` migration creates the `games`, `moves`, `analyses`, `move_evals`, `coach_reports`, and `provider_logs` tables, alongside the `move_quality` enum and RLS policies matching the ownership model.

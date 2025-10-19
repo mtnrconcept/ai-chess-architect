@@ -18,7 +18,7 @@ Changes made via Lovable will be committed automatically to this repo.
 
 If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+The only requirement is having Node.js & pnpm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating) and [pnpm](https://pnpm.io/installation).
 
 Follow these steps:
 
@@ -30,10 +30,10 @@ git clone <YOUR_GIT_URL>
 cd <YOUR_PROJECT_NAME>
 
 # Step 3: Install the necessary dependencies.
-npm i
+pnpm install
 
 # Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+pnpm run dev
 ```
 
 **Edit a file directly in GitHub**
@@ -114,7 +114,7 @@ Le fichier `.env` (ainsi que ses variantes `preview` et `production`) inclut mai
 Pour créer les tables manquantes et appliquer les migrations SQL présentes dans `supabase/migrations`, tu peux maintenant t'appuyer sur la commande officielle Supabase (ce qui garantit le bon fonctionnement du coach IA, du générateur de règles et des tournois connectés au projet Lovable) :
 
 ```bash
-npm run db:push
+pnpm run db:push
 ```
 
 La commande encapsule `npx supabase db push` en ciblant automatiquement la base Lovable (`SUPABASE_DB_URL`) et le projet `ucaqbhmyutlnitnedowk`. Elle peut être utilisée telle quelle dans GitHub Actions ou sur ta machine locale.
@@ -122,7 +122,7 @@ La commande encapsule `npx supabase db push` en ciblant automatiquement la base 
 Si tu travailles dans un environnement dépourvu du CLI Supabase, l'ancien script reste disponible :
 
 ```bash
-npm run db:migrate
+pnpm run db:migrate
 ```
 
 Ce dernier constitue une alternative directe qui n'a besoin que de Node.js.
@@ -132,7 +132,7 @@ Le script `scripts/run-supabase-migrations.mjs` applique chaque fichier `.sql` d
 Une fois les nouvelles tables et vues créées, force un rafraîchissement du cache PostgREST afin que `/rest/v1/tournaments` et les vues associées soient visibles immédiatement :
 
 ```bash
-npm run postgrest:reload
+pnpm run postgrest:reload
 ```
 
 La commande exécute `select pg_notify('pgrst','reload schema');` via la même connexion SSL, ce qui évite d'avoir à redémarrer manuellement l'API depuis le tableau de bord Supabase.
@@ -167,13 +167,13 @@ Simply open [Lovable](https://lovable.dev/projects/1e794698-feca-4fca-ab3b-11990
 
 ### Synchroniser le build Lovable depuis la CLI
 
-Le script `npm run build` déclenche désormais automatiquement un webhook Lovable si l'une des variables suivantes est définie :
+Le script `pnpm run build` déclenche désormais automatiquement un webhook Lovable si l'une des variables suivantes est définie :
 
 - `LOVABLE_DEPLOY_HOOK`
 - `LOVABLE_DEPLOY_URL`
 - `LOVABLE_DEPLOY_ENDPOINT`
 
-Configure ce hook (généralement disponible dans l'onglet **Settings → Deploy hooks** de Lovable) dans ton environnement CI/CD afin qu'un `npm run build` local ou sur GitHub Actions rafraîchisse instantanément le build Lovable. Des options supplémentaires sont disponibles :
+Configure ce hook (généralement disponible dans l'onglet **Settings → Deploy hooks** de Lovable) dans ton environnement CI/CD afin qu'un `pnpm run build` local ou sur GitHub Actions rafraîchisse instantanément le build Lovable. Des options supplémentaires sont disponibles :
 
 - `LOVABLE_DEPLOY_METHOD` (par défaut `POST`)
 - `LOVABLE_DEPLOY_HEADERS` (objet JSON sérialisé pour ajouter des en-têtes personnalisés)
