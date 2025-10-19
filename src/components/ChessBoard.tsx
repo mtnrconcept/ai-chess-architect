@@ -71,6 +71,9 @@ const ChessBoard = ({
   readOnly = false,
   highlightSquares = [],
 }: ChessBoardProps) => {
+  // Protection : si board est undefined, on utilise un plateau vide 8x8
+  const safeBoard = board || Array.from({ length: 8 }, () => Array(8).fill(null));
+
   const isValidMove = (row: number, col: number) =>
     (validMoves ?? []).some(m => samePos(getMovePos(m), { row, col }));
 
@@ -90,7 +93,7 @@ const ChessBoard = ({
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-fuchsia-500/10" />
           <div className="pointer-events-none absolute inset-0 -translate-x-full bg-white/10 mix-blend-screen animate-neonShimmer" />
           <div className="relative grid h-full w-full grid-cols-8 gap-[2px] p-3 sm:p-4">
-            {board.map((row, rowIndex) =>
+            {safeBoard.map((row, rowIndex) =>
               row.map((piece, colIndex) => {
                 const isLight = (rowIndex + colIndex) % 2 === 0;
                 const selectedSq = isSelected(rowIndex, colIndex);
