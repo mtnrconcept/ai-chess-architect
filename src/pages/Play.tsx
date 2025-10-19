@@ -1148,7 +1148,13 @@ const Play = () => {
       {/* Echiquier */}
       <section className="mb-6">
         <ChessBoard
-          gameState={gameState}
+          board={gameState.board}
+          selected={gameState.selectedPiece}
+          validMoves={gameState.validMoves}
+          visualEffects={gameState.visualEffects}
+          specialAttacks={gameState.specialAttacks}
+          lastMove={gameState.moveHistory[gameState.moveHistory.length - 1]}
+          currentPlayer={gameState.currentPlayer}
           onSquareClick={(pos) => {
             // Exemple d’usage: déploiement “manuel” si une aptitude est en attente
             if (pendingAbility) {
@@ -1157,13 +1163,14 @@ const Play = () => {
               return;
             }
             // Sinon, logique standard de clic sur case (sélection/déplacement)
-            setGameState((prev) => {
-              const next = ChessEngine.handleSquareClick(prev, pos);
-              return next;
-            });
+            // TODO: Implémenter la logique de sélection/déplacement
+            // setGameState((prev) => {
+            //   const next = ChessEngine.handleSquareClick(prev, pos);
+            //   return next;
+            // });
           }}
-          onPieceClick={(piece) => {
-            setGameState((prev) => ChessEngine.handlePieceClick(prev, piece));
+          onPieceClick={() => {
+            // TODO: Implémenter la logique de clic sur pièce
           }}
         />
       </section>
@@ -1220,10 +1227,34 @@ const Play = () => {
             <Button
               variant="outline"
               onClick={() => {
-                setGameState((prev) => ChessEngine.resetGame(prev));
-                initialBoardSnapshotRef.current = serializeBoardState(
-                  ChessEngine.initializeBoard(),
-                );
+                const newBoard = ChessEngine.initializeBoard();
+                setGameState({
+                  board: newBoard,
+                  currentPlayer: "white",
+                  turnNumber: 1,
+                  movesThisTurn: 0,
+                  selectedPiece: null,
+                  validMoves: [],
+                  gameStatus: "active",
+                  capturedPieces: [],
+                  moveHistory: [],
+                  activeRules: [],
+                  extraMoves: 0,
+                  pendingExtraMoves: { white: 0, black: 0 },
+                  freezeEffects: [],
+                  freezeUsage: { white: false, black: false },
+                  positionHistory: { [ChessEngine.getBoardSignature(newBoard)]: 1 },
+                  pendingTransformations: { white: false, black: false },
+                  lastMoveByColor: {},
+                  replayOpportunities: {},
+                  vipTokens: { white: 0, black: 0 },
+                  forcedMirrorResponse: null,
+                  secretSetupApplied: false,
+                  blindOpeningRevealed: { white: false, black: false },
+                  specialAttacks: [],
+                  visualEffects: [],
+                });
+                initialBoardSnapshotRef.current = serializeBoardState(newBoard);
                 safeToast({
                   title: "Nouvelle partie",
                   description: "La partie a été réinitialisée.",

@@ -886,9 +886,13 @@ const MatchAnalysis = () => {
               <div className="rounded-3xl border border-cyan-400/30 bg-black/40 p-4 shadow-inner shadow-cyan-500/20">
                 {replayState ? (
                   <ChessBoard
-                    gameState={replayState}
-                    onPieceClick={() => {}}
+                    board={replayState.board}
+                    selected={null}
+                    validMoves={[]}
+                    visualEffects={replayState.visualEffects || []}
+                    specialAttacks={replayState.specialAttacks || []}
                     onSquareClick={() => {}}
+                    lastMove={replayState.moveHistory[replayState.moveHistory.length - 1]}
                     readOnly
                     highlightSquares={highlightSquares}
                   />
