@@ -7,14 +7,17 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error("Missing Supabase env vars: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  console.error(
+    "Missing Supabase env vars: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
+  );
 }
 
-const admin = SUPABASE_URL && SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    })
-  : null;
+const admin =
+  SUPABASE_URL && SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      })
+    : null;
 
 const BLOCK_DURATION_MS = 1000 * 60 * 60 * 2; // 2 hours
 const TOURNAMENTS_PER_BLOCK = 10;
@@ -100,7 +103,9 @@ const FALLBACK_VARIANTS: VariantCandidate[] = [
   },
 ];
 
-const cloneVariant = (variant: VariantCandidate): VariantCandidate => ({ ...variant });
+const cloneVariant = (variant: VariantCandidate): VariantCandidate => ({
+  ...variant,
+});
 
 const mergeVariantPools = (primary: VariantCandidate[]): VariantCandidate[] => {
   const seen = new Set<string>();
@@ -123,18 +128,25 @@ const floorToBlock = (date: Date): Date => {
   return new Date(Math.floor(ms / BLOCK_DURATION_MS) * BLOCK_DURATION_MS);
 };
 
-const addBlockDuration = (date: Date): Date => new Date(date.getTime() + BLOCK_DURATION_MS);
+const addBlockDuration = (date: Date): Date =>
+  new Date(date.getTime() + BLOCK_DURATION_MS);
 
-const formatBlockLabel = (date: Date): string => date.toISOString().slice(0, 13).replace(/[-:]/g, "");
+const formatBlockLabel = (date: Date): string =>
+  date.toISOString().slice(0, 13).replace(/[-:]/g, "");
 
-const handleErrorResponse = (request: Request, error: unknown, status = 500) => {
-  const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+const handleErrorResponse = (
+  request: Request,
+  error: unknown,
+  status = 500,
+) => {
+  const message =
+    error instanceof Error ? error.message : String(error ?? "Unknown error");
   console.error("sync-tournaments error", message);
   return withCors(
-    new Response(JSON.stringify({ error: message }), { 
-      status, 
-      headers: { "Content-Type": "application/json" } 
-    })
+    new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
   );
 };
 
@@ -159,7 +171,11 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
 
   const nowIso = now.toISOString();
 
-  const [{ count: completedToClosed = 0 }, { count: scheduledToActive = 0 }, { count: futureNormalised = 0 }] = await Promise.all([
+  const [
+    { count: completedToClosed = 0 },
+    { count: scheduledToActive = 0 },
+    { count: futureNormalised = 0 },
+  ] = await Promise.all([
     (async () => {
       const { error } = await admin
         .from("tournaments")
@@ -168,7 +184,10 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
         .neq("status", "completed");
 
       if (error) {
-        console.warn("[sync-tournaments] Unable to mark completed tournaments:", error.message);
+        console.warn(
+          "[sync-tournaments] Unable to mark completed tournaments:",
+          error.message,
+        );
         return { count: 0 };
       }
 
@@ -191,7 +210,10 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
         .neq("status", "completed");
 
       if (error) {
-        console.warn("[sync-tournaments] Unable to promote tournaments to active:", error.message);
+        console.warn(
+          "[sync-tournaments] Unable to promote tournaments to active:",
+          error.message,
+        );
         return { count: 0 };
       }
 
@@ -214,7 +236,10 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
         .neq("status", "completed");
 
       if (error) {
-        console.warn("[sync-tournaments] Unable to normalise future tournaments:", error.message);
+        console.warn(
+          "[sync-tournaments] Unable to normalise future tournaments:",
+          error.message,
+        );
         return { count: 0 };
       }
 
@@ -231,6 +256,18 @@ const syncLifecycle = async (now: Date): Promise<LifecycleSummary> => {
   return { completedToClosed, scheduledToActive, futureNormalised };
 };
 
+type ChessRuleVariantRow = {
+  rule_id: string | null;
+  rule_name: string | null;
+  description: string | null;
+  tags: unknown;
+  status: string | null;
+  category: string | null;
+  usage_count: number | null;
+  is_functional: boolean | null;
+  source: string | null;
+};
+
 const fetchVariantPool = async (): Promise<VariantCandidate[]> => {
   if (!admin) {
     return FALLBACK_VARIANTS.map(cloneVariant);
@@ -238,41 +275,60 @@ const fetchVariantPool = async (): Promise<VariantCandidate[]> => {
 
   try {
     const { data, error } = await admin
-      .from("custom_chess_rules")
-      .select("rule_id, rule_name, description, tags, is_active, category, usage_count")
+      .from("chess_rules")
+      .select(
+        "rule_id, rule_name, description, tags, status, is_functional, category, usage_count, source",
+      )
+      .in("source", ["custom", "ai_generated"])
+      .eq("status", "active")
       .order("usage_count", { ascending: false, nullsFirst: false })
       .limit(60);
 
     if (error) {
-      console.warn("[sync-tournaments] Unable to load lobby variants:", error.message);
+      console.warn(
+        "[sync-tournaments] Unable to load lobby variants:",
+        error.message,
+      );
       return FALLBACK_VARIANTS.map(cloneVariant);
     }
 
-    const candidates = (data ?? [])
-      .filter(entry => entry?.rule_id)
-      .filter(entry => entry.is_active !== false)
-      .filter(entry => {
+    const candidates = ((data ?? []) as ChessRuleVariantRow[])
+      .filter((entry) => entry?.rule_id)
+      .filter((entry) => (entry.is_functional ?? true) !== false)
+      .filter((entry) => {
         const tags = Array.isArray(entry.tags) ? entry.tags : [];
-        if (tags.some(tag => ["lobby", "tournament", "featured"].includes(tag))) {
+        if (
+          tags.some((tag) => ["lobby", "tournament", "featured"].includes(tag))
+        ) {
           return true;
         }
-        return typeof entry.category === "string" && entry.category.toLowerCase().includes("variant");
+        return (
+          typeof entry.category === "string" &&
+          entry.category.toLowerCase().includes("variant")
+        );
       })
-      .map(entry => ({
+      .map((entry) => ({
         ruleId: String(entry.rule_id),
-        name: typeof entry.rule_name === "string" && entry.rule_name.trim().length > 0
-          ? entry.rule_name.trim()
-          : `Variante ${entry.rule_id}`,
-        description: typeof entry.description === "string" && entry.description.trim().length > 0
-          ? entry.description.trim()
-          : null,
+        name:
+          typeof entry.rule_name === "string" &&
+          entry.rule_name.trim().length > 0
+            ? entry.rule_name.trim()
+            : `Variante ${entry.rule_id}`,
+        description:
+          typeof entry.description === "string" &&
+          entry.description.trim().length > 0
+            ? entry.description.trim()
+            : null,
         source: "lobby" as const,
         lobbyId: null,
       }));
 
     return mergeVariantPools(candidates);
   } catch (error) {
-    console.warn("[sync-tournaments] Unexpected error while loading variants:", error);
+    console.warn(
+      "[sync-tournaments] Unexpected error while loading variants:",
+      error,
+    );
     return FALLBACK_VARIANTS.map(cloneVariant);
   }
 };
@@ -305,7 +361,9 @@ const ensureBlockInventory = async (
     .lt("starts_at", blockEndIso);
 
   if (existingError) {
-    throw new Error(`Unable to fetch tournaments for block: ${existingError.message}`);
+    throw new Error(
+      `Unable to fetch tournaments for block: ${existingError.message}`,
+    );
   }
 
   const existingCount = existing?.length ?? 0;
@@ -321,7 +379,8 @@ const ensureBlockInventory = async (
 
     newEntries.push({
       title: `${variant.name} - Series ${formatBlockLabel(blockStart)} - ${ordinal}`,
-      description: variant.description ?? `Theme tournament featuring ${variant.name}.`,
+      description:
+        variant.description ?? `Theme tournament featuring ${variant.name}.`,
       variant_name: variant.name,
       variant_rules: [variant.ruleId],
       variant_source: variant.source,
@@ -333,9 +392,13 @@ const ensureBlockInventory = async (
   }
 
   if (newEntries.length > 0) {
-    const { error: insertError } = await admin.from("tournaments").insert(newEntries);
+    const { error: insertError } = await admin
+      .from("tournaments")
+      .insert(newEntries);
     if (insertError) {
-      throw new Error(`Unable to seed tournaments for block: ${insertError.message}`);
+      throw new Error(
+        `Unable to seed tournaments for block: ${insertError.message}`,
+      );
     }
   }
 
@@ -349,7 +412,9 @@ const ensureBlockInventory = async (
     .neq("status", "completed");
 
   if (statusError) {
-    throw new Error(`Unable to align tournament statuses for block: ${statusError.message}`);
+    throw new Error(
+      `Unable to align tournament statuses for block: ${statusError.message}`,
+    );
   }
 
   return {
@@ -367,19 +432,19 @@ serve(async (request: Request): Promise<Response> => {
 
   if (request.method !== "POST") {
     return withCors(
-      new Response(JSON.stringify({ error: "Method Not Allowed" }), { 
-        status: 405, 
-        headers: { "Content-Type": "application/json" } 
-      })
+      new Response(JSON.stringify({ error: "Method Not Allowed" }), {
+        status: 405,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
   }
 
   if (!admin) {
     return withCors(
-      new Response(JSON.stringify({ error: "Server misconfiguration" }), { 
-        status: 500, 
-        headers: { "Content-Type": "application/json" } 
-      })
+      new Response(JSON.stringify({ error: "Server misconfiguration" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
   }
 
@@ -399,28 +464,43 @@ serve(async (request: Request): Promise<Response> => {
     const baseBlockStart = floorToBlock(now);
     const blockSummaries: BlockSummary[] = [];
 
-    let cursor = Math.floor(Math.random() * (variantPool.length || FALLBACK_VARIANTS.length));
+    let cursor = Math.floor(
+      Math.random() * (variantPool.length || FALLBACK_VARIANTS.length),
+    );
 
-    const activeSummary = await ensureBlockInventory(baseBlockStart, "active", variantPool, cursor);
+    const activeSummary = await ensureBlockInventory(
+      baseBlockStart,
+      "active",
+      variantPool,
+      cursor,
+    );
     cursor += activeSummary.created;
     blockSummaries.push(activeSummary);
 
     const nextBlockStart = addBlockDuration(baseBlockStart);
-    const upcomingSummary = await ensureBlockInventory(nextBlockStart, "scheduled", variantPool, cursor);
+    const upcomingSummary = await ensureBlockInventory(
+      nextBlockStart,
+      "scheduled",
+      variantPool,
+      cursor,
+    );
     cursor += upcomingSummary.created;
     blockSummaries.push(upcomingSummary);
 
     return withCors(
-      new Response(JSON.stringify({
-        ok: true,
-        now: now.toISOString(),
-        variantPoolSize: variantPool.length,
-        lifecycle,
-        blocks: blockSummaries,
-      }), { 
-        status: 200, 
-        headers: { "Content-Type": "application/json" } 
-      })
+      new Response(
+        JSON.stringify({
+          ok: true,
+          now: now.toISOString(),
+          variantPoolSize: variantPool.length,
+          lifecycle,
+          blocks: blockSummaries,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
   } catch (error) {
     return handleErrorResponse(request, error);
