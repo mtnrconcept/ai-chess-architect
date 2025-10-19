@@ -167,6 +167,8 @@ async function invokeWithTimeoutAndRetry(
 
     try {
       const sanitizedBody = JSON.parse(JSON.stringify(body));
+      console.log("[invokeWithTimeoutAndRetry] Sanitized body:", sanitizedBody, "Original body:", body);
+      
       const { data, error } = await supabase.functions.invoke(fn, {
         body: sanitizedBody,
         signal: controller.signal,
@@ -359,6 +361,8 @@ const Generator = () => {
 
   const generateRule = async () => {
     const trimmed = prompt.trim();
+    console.log("[Generator] generateRule called, prompt value:", { prompt, trimmed, isEmpty: !trimmed });
+    
     if (!trimmed) {
       toast({
         title: "Erreur",
@@ -383,6 +387,8 @@ const Generator = () => {
     console.log(
       "[Generator] Invoking generate-chess-rule with prompt:",
       trimmed.slice(0, 50) + "...",
+      "Full payload:",
+      { prompt: trimmed }
     );
 
     try {
