@@ -1,0 +1,58 @@
+import type { CanonicalIntent } from "../schemas/canonicalIntent";
+
+export const fewShotIntents: CanonicalIntent[] = [
+  {
+    ruleName: "Missile de glace",
+    text: "La reine tire un projectile de glace qui gèle la première pièce ennemie touchée.",
+    templateId: "queen_ice_missile",
+    category: "projectile",
+    affectedPieces: ["queen"],
+    mechanics: ["projectile", "status:frozen"],
+    targeting: {
+      mode: "tile",
+      provider: "provider.raycastFirstHits",
+      params: { directions: ["ortho", "diag"], maxRange: 7 },
+    },
+    limits: { cooldownPerPiece: 3 },
+    statuses: ["frozen"],
+    sfx: ["ice_cast", "freeze_pop"],
+    vfx: ["ice_trail", "ice_burst"],
+    textHints: ["Fait fondre les défenses ennemies à distance."],
+    requirements: { kingSafety: true },
+  },
+  {
+    ruleName: "Blink du fou",
+    text: "Le fou peut se téléporter sur une case qu'il voit.",
+    templateId: "bishop_blink",
+    category: "mobility",
+    affectedPieces: ["bishop"],
+    mechanics: ["teleport"],
+    targeting: {
+      mode: "tile",
+      provider: "provider.teleportDestinations",
+      params: { inSightOnly: true, emptyOnly: true },
+    },
+    limits: { cooldownPerPiece: 2 },
+    sfx: ["warp"],
+    vfx: ["warp_blink"],
+    requirements: { kingSafety: true, pathClear: true },
+  },
+  {
+    ruleName: "Mur de pion",
+    text: "Un pion peut ériger une muraille temporaire devant lui.",
+    templateId: "pawn_wall",
+    category: "terrain",
+    affectedPieces: ["pawn"],
+    mechanics: ["hazard:wall"],
+    targeting: {
+      mode: "area",
+      provider: "provider.areaFill",
+      params: { shape: "line", length: 3, forwardOnly: true },
+    },
+    limits: { cooldownPerPiece: 4, duration: 3 },
+    hazards: ["wall"],
+    sfx: ["stone_growl"],
+    vfx: ["wall_raise"],
+    textHints: ["Bloque les charges adverses."],
+  },
+];
