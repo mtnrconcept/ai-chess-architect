@@ -795,7 +795,7 @@ export const fetchUserTournamentRegistrations = async (userId: string): Promise<
       )
     `)
     .eq("user_id", userId)
-    .order("registered_at", { ascending: false });
+    .order("joined_at", { ascending: false });
 
   if (error) {
     if (isRelationMissing(error)) {
