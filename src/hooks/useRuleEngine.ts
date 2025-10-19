@@ -1,29 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { createRuleEngine, EventBus, Cooldown, StateStore } from '@/engine/bootstrap';
-import { EngineContracts, RuleJSON, UIActionSpec } from '@/engine/types';
-import { ChessBoardAdapter } from '@/engine/adapters/chessBoardAdapter';
-import { UIAdapter } from '@/engine/adapters/uiAdapter';
-import { VFXAdapter } from '@/engine/adapters/vfxAdapter';
-import { MatchAdapter } from '@/engine/adapters/matchAdapter';
-import { GameState } from '@/types/chess';
-import { useSoundEffects } from './useSoundEffects';
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  createRuleEngine,
+  EventBus,
+  Cooldown,
+  StateStore,
+} from "@/engine/bootstrap";
+import { EngineContracts, RuleJSON, UIActionSpec } from "@/engine/types";
+import { ChessBoardAdapter } from "@/engine/adapters/chessBoardAdapter";
+import { UIAdapter } from "@/engine/adapters/uiAdapter";
+import { VFXAdapter } from "@/engine/adapters/vfxAdapter";
+import { MatchAdapter } from "@/engine/adapters/matchAdapter";
+import { GameState } from "@/types/chess";
+import { useSoundEffects } from "./useSoundEffects";
 
 export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
   const { playSound } = useSoundEffects();
   const engineRef = useRef<ReturnType<typeof createRuleEngine> | null>(null);
   const contractsRef = useRef<EngineContracts | null>(null);
+  const rulesSignatureRef = useRef<string | null>(null);
 
   const boardAdapter = useMemo(
     () => new ChessBoardAdapter(gameState.board),
-    [gameState.board]
+    [gameState.board],
   );
 
   const uiAdapter = useMemo(() => new UIAdapter(), []);
   const vfxAdapter = useMemo(() => new VFXAdapter(), []);
   const matchAdapter = useMemo(
     () => new MatchAdapter(gameState.currentPlayer),
-    [gameState.currentPlayer]
+    [gameState.currentPlayer],
   );
+
+  const rulesSignature = useMemo(() => JSON.stringify(rules ?? []), [rules]);
 
   useEffect(() => {
     vfxAdapter.setPlaySoundCallback(playSound);
@@ -38,11 +46,16 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
   }, [matchAdapter, gameState.currentPlayer]);
 
   const initializeEngine = useCallback(() => {
-    if (engineRef.current) return engineRef.current;
+    const signature = rulesSignature;
+    if (engineRef.current && rulesSignatureRef.current === signature) {
+      return engineRef.current;
+    }
 
     const eventBus = new EventBus();
     const cooldown = new Cooldown();
     const stateStore = new StateStore();
+
+    uiAdapter.clearActions();
 
     const contracts: EngineContracts = {
       board: boardAdapter,
@@ -53,68 +66,80 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
       state: stateStore,
       eventBus,
       util: {
-        uuid: () => crypto.randomUUID()
+        uuid: () => crypto.randomUUID(),
       },
       capturePiece: (id: string, reason?: string) => {
-        console.log(`Capturing piece ${id} - ${reason || 'rule effect'}`);
+        console.log(`Capturing piece ${id} - ${reason || "rule effect"}`);
         boardAdapter.removePiece(id);
-      }
+      },
     };
 
     contractsRef.current = contracts;
     const engine = createRuleEngine(contracts, rules);
     engineRef.current = engine;
+    rulesSignatureRef.current = signature;
 
     return engine;
-  }, [boardAdapter, uiAdapter, vfxAdapter, matchAdapter, rules]);
+  }, [
+    boardAdapter,
+    matchAdapter,
+    rules,
+    rulesSignature,
+    uiAdapter,
+    vfxAdapter,
+  ]);
 
   const engine = useMemo(() => initializeEngine(), [initializeEngine]);
 
   const triggerLifecycleEvent = useCallback(
-    (event: string, payload: any) => {
+    (event: string, payload: unknown) => {
       if (contractsRef.current) {
         contractsRef.current.eventBus.emit(event, payload);
       }
     },
-    []
+    [],
   );
 
   const onEnterTile = useCallback(
     (pieceId: string, to: string) => {
-      triggerLifecycleEvent('lifecycle.onEnterTile', { pieceId, to });
+      triggerLifecycleEvent("lifecycle.onEnterTile", { pieceId, to });
     },
-    [triggerLifecycleEvent]
+    [triggerLifecycleEvent],
   );
 
   const onMoveCommitted = useCallback(
     (payload: { pieceId: string; from: string; to: string }) => {
-      triggerLifecycleEvent('lifecycle.onMoveCommitted', payload);
+      triggerLifecycleEvent("lifecycle.onMoveCommitted", payload);
     },
-    [triggerLifecycleEvent]
+    [triggerLifecycleEvent],
   );
 
   const onUndo = useCallback(() => {
-    triggerLifecycleEvent('lifecycle.onUndo', {});
+    triggerLifecycleEvent("lifecycle.onUndo", {});
   }, [triggerLifecycleEvent]);
 
   const onPromote = useCallback(
     (pieceId: string, fromType: string, toType: string) => {
-      triggerLifecycleEvent('lifecycle.onPromote', { pieceId, fromType, toType });
+      triggerLifecycleEvent("lifecycle.onPromote", {
+        pieceId,
+        fromType,
+        toType,
+      });
     },
-    [triggerLifecycleEvent]
+    [triggerLifecycleEvent],
   );
 
   const runUIAction = useCallback(
     (actionId: string, pieceId?: string, targetTile?: string) => {
       if (contractsRef.current) {
-        contractsRef.current.eventBus.emit('ui.runAction', {
+        contractsRef.current.eventBus.emit("ui.runAction", {
           actionId,
           pieceId,
-          targetTile
+          targetTile,
         });
       }
     },
-    []
+    [],
   );
 
   const tickCooldowns = useCallback(() => {
@@ -131,17 +156,18 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     if (!contractsRef.current) return null;
     return {
       rules: contractsRef.current.state.serialize(),
-      cooldowns: contractsRef.current.cooldown.serialize()
+      cooldowns: contractsRef.current.cooldown.serialize(),
     };
   }, []);
 
-  const deserializeState = useCallback((state: any) => {
-    if (!contractsRef.current) return;
-    if (state.rules) {
-      contractsRef.current.state.deserialize(state.rules);
+  const deserializeState = useCallback((state: unknown) => {
+    if (!contractsRef.current || !state || typeof state !== "object") return;
+    const payload = state as { rules?: unknown; cooldowns?: unknown };
+    if (payload.rules) {
+      contractsRef.current.state.deserialize(payload.rules);
     }
-    if (state.cooldowns) {
-      contractsRef.current.cooldown.deserialize(state.cooldowns);
+    if (payload.cooldowns) {
+      contractsRef.current.cooldown.deserialize(payload.cooldowns);
     }
   }, []);
 
@@ -151,14 +177,11 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     onMoveCommitted,
     onUndo,
     onPromote,
-    onTurnStart: useCallback(
-      (side: string) => {
-        if (contractsRef.current) {
-          contractsRef.current.eventBus.emit('lifecycle.onTurnStart', { side });
-        }
-      },
-      []
-    ),
+    onTurnStart: useCallback((side: string) => {
+      if (contractsRef.current) {
+        contractsRef.current.eventBus.emit("lifecycle.onTurnStart", { side });
+      }
+    }, []),
     runUIAction,
     tickCooldowns,
     getUIActions,
@@ -166,6 +189,6 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     deserializeState,
     boardAdapter,
     uiAdapter,
-    vfxAdapter
+    vfxAdapter,
   };
 };

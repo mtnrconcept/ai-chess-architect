@@ -167,8 +167,13 @@ async function invokeWithTimeoutAndRetry(
 
     try {
       const sanitizedBody = JSON.parse(JSON.stringify(body));
-      console.log("[invokeWithTimeoutAndRetry] Sanitized body:", sanitizedBody, "Original body:", body);
-      
+      console.log(
+        "[invokeWithTimeoutAndRetry] Sanitized body:",
+        sanitizedBody,
+        "Original body:",
+        body,
+      );
+
       const { data, error } = await supabase.functions.invoke(fn, {
         body: sanitizedBody,
         signal: controller.signal,
@@ -361,8 +366,12 @@ const Generator = () => {
 
   const generateRule = async () => {
     const trimmed = prompt.trim();
-    console.log("[Generator] generateRule called, prompt value:", { prompt, trimmed, isEmpty: !trimmed });
-    
+    console.log("[Generator] generateRule called, prompt value:", {
+      prompt,
+      trimmed,
+      isEmpty: !trimmed,
+    });
+
     if (!trimmed) {
       toast({
         title: "Erreur",
@@ -388,7 +397,7 @@ const Generator = () => {
       "[Generator] Invoking generate-chess-rule with prompt:",
       trimmed.slice(0, 50) + "...",
       "Full payload:",
-      { prompt: trimmed }
+      { prompt: trimmed },
     );
 
     try {
@@ -497,112 +506,217 @@ const Generator = () => {
         }
       }
 
-      // L'Edge Function retourne l'objet complet de la DB : { id, rule_json: {...}, status, ... }
-      const dbRecord = isRecord(ruleEnvelope) ? ruleEnvelope : undefined;
-      const ruleJsonCandidate =
-        dbRecord && "rule_json" in dbRecord ? dbRecord.rule_json : undefined;
-      const actualRuleJSONRecord = isRecord(ruleJsonCandidate)
-        ? ruleJsonCandidate
-        : isRecord(ruleEnvelope)
-          ? (ruleEnvelope as Record<string, unknown>)
-          : undefined;
+      if (!isRecord(rawRule)) {
+        throw new Error("La règle générée est invalide (format inattendu).");
+      }
 
-      const actualRuleJSON = actualRuleJSONRecord ?? {};
+      const normalizedRule = rawRule;
+      const sanitizedRuleJSON = JSON.parse(
+        JSON.stringify(normalizedRule),
+      ) as Record<string, unknown>;
 
-      // Créer une version ChessRule pour l'affichage (adapté du nouveau format)
-      const meta = isRecord(actualRuleJSON.meta) ? actualRuleJSON.meta : {};
-      const scope = isRecord(actualRuleJSON.scope) ? actualRuleJSON.scope : {};
-      const logic = isRecord(actualRuleJSON.logic) ? actualRuleJSON.logic : {};
-      const ui = isRecord(actualRuleJSON.ui) ? actualRuleJSON.ui : {};
-      const assets = isRecord(actualRuleJSON.assets)
-        ? actualRuleJSON.assets
+      const metaRecord = isRecord(normalizedRule.meta)
+        ? (normalizedRule.meta as Record<string, unknown>)
+        : {};
+      const scopeRecord = isRecord(normalizedRule.scope)
+        ? (normalizedRule.scope as Record<string, unknown>)
         : {};
 
-      const affectedPieces = Array.isArray(scope.affectedPieces)
-        ? scope.affectedPieces.filter(
+      const allowedCategories = new Set([
+        "movement",
+        "capture",
+        "special",
+        "condition",
+        "victory",
+        "restriction",
+        "defense",
+        "behavior",
+        "vip",
+      ]);
+
+      const resolvedRuleId =
+        typeof metaRecord.ruleId === "string" && metaRecord.ruleId.length > 0
+          ? (metaRecord.ruleId as string)
+          : crypto.randomUUID();
+      const resolvedRuleName =
+        typeof metaRecord.ruleName === "string" &&
+        metaRecord.ruleName.length > 0
+          ? (metaRecord.ruleName as string)
+          : "Variante IA";
+      const resolvedDescription =
+        typeof metaRecord.description === "string"
+          ? (metaRecord.description as string)
+          : "";
+      const rawCategory =
+        typeof metaRecord.category === "string"
+          ? (metaRecord.category as string)
+          : "";
+      const resolvedCategory = allowedCategories.has(rawCategory)
+        ? rawCategory
+        : "special";
+      const resolvedPriority =
+        typeof metaRecord.priority === "number" &&
+        Number.isFinite(metaRecord.priority)
+          ? (metaRecord.priority as number)
+          : null;
+
+      const tags = Array.isArray(metaRecord.tags)
+        ? metaRecord.tags.filter(
+            (tag): tag is string => typeof tag === "string" && tag.length > 0,
+          )
+        : [];
+      const affectedPieces = Array.isArray(scopeRecord.affectedPieces)
+        ? scopeRecord.affectedPieces.filter(
             (piece): piece is string => typeof piece === "string",
           )
         : [];
 
-      const tags = Array.isArray(meta.tags)
-        ? meta.tags.filter((tag): tag is string => typeof tag === "string")
-        : [];
+      const promptHashValue =
+        typeof resultRecord?.promptHash === "string"
+          ? (resultRecord.promptHash as string)
+          : null;
+      const rawModelResponse = isRecord(resultRecord?.rawModelResponse)
+        ? (resultRecord?.rawModelResponse as Record<string, unknown>)
+        : undefined;
+      const aiModel =
+        rawModelResponse && typeof rawModelResponse.provider === "string"
+          ? (rawModelResponse.provider as string)
+          : null;
+      const generationDuration =
+        rawModelResponse && typeof rawModelResponse.durationMs === "number"
+          ? (rawModelResponse.durationMs as number)
+          : null;
 
+      const sanitizedAssetsValue =
+        (
+          sanitizedRuleJSON as {
+            assets?: Database["public"]["Tables"]["chess_rules"]["Insert"]["assets"];
+          }
+        ).assets ?? null;
+
+      const insertPayload: Database["public"]["Tables"]["chess_rules"]["Insert"] =
+        {
+          rule_id: resolvedRuleId,
+          rule_name: resolvedRuleName,
+          description: resolvedDescription,
+          category: resolvedCategory,
+          rule_json:
+            sanitizedRuleJSON as Database["public"]["Tables"]["chess_rules"]["Insert"]["rule_json"],
+          source: "ai_generated",
+          status: "active",
+          is_functional: true,
+          created_by: user.id,
+          tags,
+          affected_pieces,
+          priority: resolvedPriority,
+          assets: sanitizedAssetsValue,
+          prompt: payload.prompt.trim(),
+          prompt_key: promptHashValue,
+          ai_model: aiModel,
+          generation_duration_ms: generationDuration,
+        };
+
+      setSaving(true);
+
+      const { data: upsertedRow, error: upsertError } = await supabase
+        .from("chess_rules")
+        .upsert(insertPayload, { onConflict: "rule_id" })
+        .select("*")
+        .single();
+
+      if (upsertError || !upsertedRow) {
+        throw upsertError ?? new Error("Insertion de la règle impossible.");
+      }
+
+      const dbRecord =
+        upsertedRow as Database["public"]["Tables"]["chess_rules"]["Row"];
+      const actualRuleJSON = isRecord(dbRecord.rule_json)
+        ? (dbRecord.rule_json as Record<string, unknown>)
+        : sanitizedRuleJSON;
+
+      const persistedRuleId =
+        typeof dbRecord.rule_id === "string" && dbRecord.rule_id.length > 0
+          ? dbRecord.rule_id
+          : resolvedRuleId;
+      const persistedRuleName =
+        typeof dbRecord.rule_name === "string" && dbRecord.rule_name.length > 0
+          ? dbRecord.rule_name
+          : resolvedRuleName;
+      const persistedDescription =
+        typeof dbRecord.description === "string"
+          ? dbRecord.description
+          : resolvedDescription;
+      const persistedCategory =
+        typeof dbRecord.category === "string" &&
+        allowedCategories.has(dbRecord.category)
+          ? dbRecord.category
+          : resolvedCategory;
+      const persistedPriority =
+        typeof dbRecord.priority === "number" &&
+        Number.isFinite(dbRecord.priority)
+          ? dbRecord.priority
+          : (resolvedPriority ?? 1);
+
+      const actualMeta = isRecord(actualRuleJSON.meta)
+        ? (actualRuleJSON.meta as Record<string, unknown>)
+        : {};
+      const actualScope = isRecord(actualRuleJSON.scope)
+        ? (actualRuleJSON.scope as Record<string, unknown>)
+        : {};
+      const logic = isRecord(actualRuleJSON.logic)
+        ? (actualRuleJSON.logic as Record<string, unknown>)
+        : {};
+      const ui = isRecord(actualRuleJSON.ui)
+        ? (actualRuleJSON.ui as Record<string, unknown>)
+        : {};
+      const assets = isRecord(actualRuleJSON.assets)
+        ? actualRuleJSON.assets
+        : (dbRecord.assets ?? {});
+
+      const displayAffectedPieces = Array.isArray(actualScope.affectedPieces)
+        ? actualScope.affectedPieces.filter(
+            (piece): piece is string => typeof piece === "string",
+          )
+        : affectedPieces;
+      const displayTags = Array.isArray(actualMeta.tags)
+        ? actualMeta.tags.filter(
+            (tag): tag is string => typeof tag === "string" && tag.length > 0,
+          )
+        : tags;
       const uiActions = Array.isArray(ui.actions) ? ui.actions : [];
       const effects = Array.isArray((logic as { effects?: unknown }).effects)
         ? ((logic as { effects?: unknown[] }).effects as ChessRule["effects"])
         : [];
 
-      const resolvedPriority =
-        typeof meta.priority === "number"
-          ? meta.priority
-          : typeof (dbRecord && dbRecord.priority) === "number"
-            ? (dbRecord.priority as number)
-            : 1;
-
-      const dbId =
-        typeof (dbRecord && dbRecord.id) === "string"
-          ? (dbRecord.id as string)
-          : undefined;
-      const dbRuleId =
-        typeof (dbRecord && dbRecord.rule_id) === "string"
-          ? (dbRecord.rule_id as string)
-          : undefined;
-      const dbRuleName =
-        typeof (dbRecord && dbRecord.rule_name) === "string"
-          ? (dbRecord.rule_name as string)
-          : undefined;
-      const dbDescription =
-        typeof (dbRecord && dbRecord.description) === "string"
-          ? (dbRecord.description as string)
-          : undefined;
-      const dbCategory =
-        typeof (dbRecord && dbRecord.category) === "string"
-          ? (dbRecord.category as string)
-          : undefined;
-
       const displayRule: ChessRule = {
-        id: dbId,
-        ruleId:
-          (typeof meta.ruleId === "string" && meta.ruleId.length > 0
-            ? meta.ruleId
-            : dbRuleId) ?? "unknown",
-        ruleName:
-          (typeof meta.ruleName === "string" && meta.ruleName.length > 0
-            ? meta.ruleName
-            : dbRuleName) ?? "Règle sans nom",
-        description:
-          (typeof meta.description === "string" && meta.description.length > 0
-            ? meta.description
-            : dbDescription) ?? "",
-        category:
-          typeof meta.category === "string" && meta.category.length > 0
-            ? (meta.category as ChessRule["category"])
-            : ((dbCategory as ChessRule["category"]) ?? "special"),
-        affectedPieces,
-        trigger: "always", // Le nouveau format n'a pas de trigger global
-        conditions: [], // Les conditions sont maintenant dans logic.effects[].if
+        id: dbRecord.id,
+        ruleId: persistedRuleId,
+        ruleName: persistedRuleName,
+        description: persistedDescription,
+        category: persistedCategory as ChessRule["category"],
+        affectedPieces: displayAffectedPieces,
+        trigger: "always",
+        conditions: [],
         effects,
-        tags,
-        priority: resolvedPriority,
-        isActive: typeof meta.isActive === "boolean" ? meta.isActive : true,
+        tags: displayTags,
+        priority: persistedPriority,
+        isActive:
+          typeof actualMeta.isActive === "boolean"
+            ? (actualMeta.isActive as boolean)
+            : true,
         validationRules: {
           allowedWith: [],
           conflictsWith: [],
           requiredState: null,
         },
-        // Ajouter les assets pour l'affichage
         assets,
         uiActions,
       };
 
       setGeneratedRule(displayRule);
-      setGeneratedIssues([]); // Pas d'issues car la règle a été validée côté serveur
+      setGeneratedIssues([]);
 
-      console.log(
-        "[Generator] Rule generated and saved by Edge Function:",
-        dbRecord?.id,
-      );
+      console.log("[Generator] Rule generated and persisted:", dbRecord.id);
 
       toast({
         title: "Succès !",
@@ -621,12 +735,12 @@ const Generator = () => {
       );
       toast({ title: "Erreur", description, variant: "destructive" });
     } finally {
+      setSaving(false);
       setLoading(false);
     }
   };
 
-  // SUPPRIMÉ : La fonction saveRule n'est plus nécessaire car l'Edge Function
-  // insère déjà la règle dans chess_rules. Le bouton "Sauvegarder" a été retiré.
+  // La sauvegarde est effectuée automatiquement lors de la génération via Supabase.
 
   return (
     <NeonBackground contentClassName="px-4 py-10 sm:px-6 lg:px-8">
