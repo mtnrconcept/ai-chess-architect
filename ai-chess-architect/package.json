@@ -1,8 +1,0 @@
-{
-  "name": "ai-chess-architects",
-  "private": true,
-  "scripts": {
-    "build": "pnpm -r --filter ./packages/** run build",
-    "dev": "echo \"Run apps individually: coach-api, coach-worker\""
-  }
-}

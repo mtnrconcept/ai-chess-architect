@@ -60,6 +60,18 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Workspace layout
+
+The repository follows a lightweight monorepo layout so that the API, worker, SDK, and UI can iterate at their own pace. The two
+top-level folders you will interact with are:
+
+- `apps/` – runtime entry points. `coach-api` exposes the REST facade while `coach-worker` hosts the Stockfish + LLM analysis
+  pipeline.
+- `packages/` – shared libraries. `engine` ships the WASM and UCI bridges to Stockfish, `llm` orchestrates providers, `sdk`
+  wraps the REST endpoints, and `ui-coach` exposes composable React widgets.
+
+Each package can be built and tested independently with `pnpm -r run build` / `pnpm -r run test` from the repository root.
+
 ## FX runtime (GSAP + Pixi.js)
 
 The repository includes a modular FX system located under `src/fx`. It exposes:

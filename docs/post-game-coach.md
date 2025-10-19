@@ -1,22 +1,22 @@
 # Post-Game Coach Integration Guide
 
-This document explains how to run the new post-game coaching pipeline inside the `ai-chess-architect` monorepo.
+This document explains how to run the post-game coaching pipeline inside the workspace. The project is organised as a classic
+`apps/` + `packages/` monorepo so that the worker, API, SDK, and UI can evolve independently.
 
 ## Project layout
 
 ```
-ai-chess-architect/
-  apps/
-    coach-api/          # REST facade, usable as Supabase Edge Function or Node microservice
-    coach-worker/       # Analysis pipeline (queue worker)
-  packages/
-    engine/             # Stockfish WASM bridge (with deterministic fallback)
-    llm/                # Provider-agnostic LLM abstraction (Lovable, Groq, Gemini)
-    sdk/                # TypeScript SDK for easy client integration
-    ui-coach/           # React components to render a Chess.com-style review
-  supabase/
-    migrations/000_post_game_coach.sql
-  docs/post-game-coach.md
+apps/
+  coach-api/          # REST facade, usable as Supabase Edge Function or Node microservice
+  coach-worker/       # Analysis pipeline (queue worker)
+packages/
+  engine/             # Stockfish bridges (WASM controller + UCI wrapper)
+  llm/                # Provider-agnostic LLM abstraction (Lovable, Groq, Gemini)
+  sdk/                # TypeScript SDK for easy client integration
+  ui-coach/           # React components to render a Chess.com-style review
+supabase/
+  migrations/000_post_game_coach.sql
+docs/post-game-coach.md
 ```
 
 ## Installation
@@ -67,14 +67,14 @@ The API is exposed under the `/api/coach` prefix. Example workflow:
 3. `GET /api/coach/analyses/:gameId/status` – Poll until the status is `done`.
 4. `GET /api/coach/analyses/:gameId/report` – Fetch the aggregated move evaluations and executive summary.
 
-The included SDK wraps these calls via `packages/sdk/src/coach.ts`.
+The included SDK wraps these calls via `packages/sdk`.
 
 ## UI components
 
 Import the React components from `packages/ui-coach` to display the post-game review:
 
 ```tsx
-import { ReportViewer } from '@ai-chess-architect/ui-coach';
+import { ReportViewer } from 'packages/ui-coach';
 ```
 
 Populate the props with the data returned by the REST API or SDK.
