@@ -31,24 +31,37 @@ const EFFECT_ACTION_MAP: Record<string, (effect: RuleEffect) => ActionStep[]> =
         },
       },
     ],
-    addAbility: (e) => [
-      {
-        action: "status.add",
-        params: {
-          pieceId: "$ctx.pieceId",
-          status: e.parameters?.ability,
-          duration: e.parameters?.countdown,
+    addAbility: (e) => {
+      const abilityKey = e.parameters?.ability ?? "ability";
+      return [
+        {
+          action: "status.add",
+          params: {
+            pieceId: "$ctx.pieceId",
+            key: abilityKey,
+            duration: e.parameters?.countdown,
+            metadata: {
+              ability: abilityKey,
+              ...(e.parameters?.metadata ?? {}),
+            },
+          },
         },
-      },
-    ],
-    modifyMovement: (e) => [
-      {
-        action: "state.set",
-        params: { key: `movement_${e.parameters?.ability}`, value: true },
-      },
-    ],
+      ];
+    },
+    modifyMovement: (e) => {
+      const abilityKey = e.parameters?.ability ?? "ability";
+      return [
+        {
+          action: "state.set",
+          params: {
+            path: `movement.${abilityKey}`,
+            value: true,
+          },
+        },
+      ];
+    },
     extraMove: (e) => [
-      { action: "state.set", params: { key: "extraMove", value: true } },
+      { action: "state.set", params: { path: "extraMove", value: true } },
     ],
     capture: (e) => [
       { action: "piece.capture", params: { pieceId: "$ctx.targetPieceId" } },
