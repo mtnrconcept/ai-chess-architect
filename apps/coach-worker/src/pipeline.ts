@@ -1,16 +1,16 @@
-import type { Engine, EngineEvaluation } from '../../../packages/engine/src/stockfishWasm';
-import { StockfishWasmEngine } from '../../../packages/engine/src/stockfishWasm';
-import { LLMProvider } from '../../../packages/llm/src';
+import type { Engine, EngineEvaluation } from "packages/engine";
+import { StockfishWasmEngine } from "packages/engine";
+import { LLMProvider } from "packages/llm";
 
 export type MoveQuality =
-  | 'brilliant'
-  | 'excellent'
-  | 'good'
-  | 'inaccuracy'
-  | 'mistake'
-  | 'blunder'
-  | 'book'
-  | 'forced';
+  | "brilliant"
+  | "excellent"
+  | "good"
+  | "inaccuracy"
+  | "mistake"
+  | "blunder"
+  | "book"
+  | "forced";
 
 export interface MoveInput {
   readonly ply: number;
@@ -61,22 +61,22 @@ export interface PipelineOptions {
 }
 
 const DEFAULT_THEMES = [
-  'fork',
-  'pin',
-  'skewer',
-  'discovered attack',
-  'zwischenzug',
-  'overload',
-  'deflection',
-  'clearance',
-  'weak squares',
-  'isolated pawn',
-  'doubled pawns',
-  'passed pawn',
-  'minority attack',
-  'bishop pair',
-  'king safety',
-  'space advantage',
+  "fork",
+  "pin",
+  "skewer",
+  "discovered attack",
+  "zwischenzug",
+  "overload",
+  "deflection",
+  "clearance",
+  "weak squares",
+  "isolated pawn",
+  "doubled pawns",
+  "passed pawn",
+  "minority attack",
+  "bishop pair",
+  "king safety",
+  "space advantage",
 ];
 
 interface ScoredMove {
@@ -93,12 +93,17 @@ export class AnalysisPipeline {
 
   public constructor(options: PipelineOptions) {
     this.options = options;
-    this.engine = options.engineFactory ? options.engineFactory() : new StockfishWasmEngine();
+    this.engine = options.engineFactory
+      ? options.engineFactory()
+      : new StockfishWasmEngine();
     this.llmProvider = options.llmProvider;
   }
 
   public async run(moves: MoveInput[]): Promise<AnalysisResult> {
-    await this.engine.init({ threads: this.options.threads, hashMB: this.options.hashMB });
+    await this.engine.init({
+      threads: this.options.threads,
+      hashMB: this.options.hashMB,
+    });
 
     const scored: ScoredMove[] = [];
     let previousScore = 0;
@@ -108,8 +113,15 @@ export class AnalysisPipeline {
         depth: this.options.depth,
         multiPV: this.options.multiPV,
       });
-      const scoreCp = evaluation.score.cp ?? convertMateScoreToCentipawns(evaluation.score.mate ?? 0, previousScore);
-      scored.push({ ply: move.ply, scoreBefore: previousScore, scoreAfter: scoreCp, evaluation });
+      const scoreCp =
+        evaluation.score.cp ??
+        convertMateScoreToCentipawns(evaluation.score.mate ?? 0, previousScore);
+      scored.push({
+        ply: move.ply,
+        scoreBefore: previousScore,
+        scoreAfter: scoreCp,
+        evaluation,
+      });
       previousScore = scoreCp;
     }
 
@@ -121,7 +133,10 @@ export class AnalysisPipeline {
     return { moveEvaluations, report };
   }
 
-  private async enrichMoves(moves: MoveInput[], scored: ScoredMove[]): Promise<MoveEvaluation[]> {
+  private async enrichMoves(
+    moves: MoveInput[],
+    scored: ScoredMove[],
+  ): Promise<MoveEvaluation[]> {
     const results: MoveEvaluation[] = [];
 
     for (let i = 0; i < moves.length; i += 1) {
@@ -133,7 +148,12 @@ export class AnalysisPipeline {
 
       let explanation: CoachExplanation | undefined;
       if (this.llmProvider) {
-        explanation = await this.generateExplanation(move, score, classification, themes);
+        explanation = await this.generateExplanation(
+          move,
+          score,
+          classification,
+          themes,
+        );
       }
 
       results.push({
@@ -154,8 +174,13 @@ export class AnalysisPipeline {
     return results;
   }
 
-  private async buildReport(moveEvaluations: MoveEvaluation[]): Promise<CoachReport> {
-    const keyMoments = moveEvaluations.filter((move) => Math.abs(move.delta) >= 200 || move.classification === 'brilliant');
+  private async buildReport(
+    moveEvaluations: MoveEvaluation[],
+  ): Promise<CoachReport> {
+    const keyMoments = moveEvaluations.filter(
+      (move) =>
+        Math.abs(move.delta) >= 200 || move.classification === "brilliant",
+    );
     const summary = buildSummaryMarkdown(moveEvaluations, keyMoments);
 
     const accuracy = computeAccuracy(moveEvaluations);
@@ -180,12 +205,22 @@ export class AnalysisPipeline {
     themes: string[],
   ): Promise<CoachExplanation> {
     if (!this.llmProvider) {
-      throw new Error('LLM provider not configured.');
+      throw new Error("LLM provider not configured.");
     }
 
     const delta = score.scoreAfter - score.scoreBefore;
-    const prompt = buildExplanationPrompt({ move, delta, classification, themes, evaluation: score.evaluation });
-    const response = await this.llmProvider.complete({ prompt, maxTokens: 400, temperature: 0.3 });
+    const prompt = buildExplanationPrompt({
+      move,
+      delta,
+      classification,
+      themes,
+      evaluation: score.evaluation,
+    });
+    const response = await this.llmProvider.complete({
+      prompt,
+      maxTokens: 400,
+      temperature: 0.3,
+    });
 
     try {
       const json = JSON.parse(response.output);
@@ -196,7 +231,11 @@ export class AnalysisPipeline {
   }
 }
 
-function classifyMove(delta: number, score: ScoredMove, ply: number): MoveQuality {
+function classifyMove(
+  delta: number,
+  score: ScoredMove,
+  ply: number,
+): MoveQuality {
   const absDelta = Math.abs(delta);
   const isWhiteMove = ply % 2 === 1;
   const scoreBefore = score.scoreBefore;
@@ -204,44 +243,44 @@ function classifyMove(delta: number, score: ScoredMove, ply: number): MoveQualit
   const mateAfter = score.evaluation.score.mate ?? null;
 
   if (mateAfter && Math.abs(mateAfter) === 1) {
-    return 'brilliant';
+    return "brilliant";
   }
 
   if (Math.abs(scoreBefore) <= 20 && absDelta <= 20 && ply <= 20) {
-    return 'book';
+    return "book";
   }
 
   if (delta > 80) {
-    return 'brilliant';
+    return "brilliant";
   }
 
   if (delta > 50) {
-    return 'excellent';
+    return "excellent";
   }
 
   if (absDelta <= 50) {
-    return 'good';
+    return "good";
   }
 
   if (absDelta <= 150) {
-    return 'inaccuracy';
+    return "inaccuracy";
   }
 
   if (absDelta <= 300) {
-    return 'mistake';
+    return "mistake";
   }
 
   if (wasWinning && delta < -150) {
-    return 'blunder';
+    return "blunder";
   }
 
-  return 'blunder';
+  return "blunder";
 }
 
 function detectThemes(move: MoveInput): string[] {
   const selected: string[] = [];
   for (const theme of DEFAULT_THEMES) {
-    if (move.san.toLowerCase().includes(theme.split(' ')[0])) {
+    if (move.san.toLowerCase().includes(theme.split(" ")[0])) {
       selected.push(theme);
     }
   }
@@ -263,7 +302,7 @@ function buildExplanationPrompt({
 }): string {
   return JSON.stringify(
     {
-      role: 'coach-explanation',
+      role: "coach-explanation",
       fenBefore: move.fenBefore,
       fenAfter: move.fenAfter,
       san: move.san,
@@ -280,17 +319,24 @@ function buildExplanationPrompt({
   );
 }
 
-function validateExplanation(payload: any): CoachExplanation {
-  if (!payload || typeof payload !== 'object') {
-    throw new Error('LLM response must be an object.');
+function validateExplanation(payload: unknown): CoachExplanation {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("LLM response must be an object.");
   }
 
-  const headline = String(payload.headline ?? '');
-  const whyBadOrGood = String(payload.why_bad_or_good ?? payload.whyBadOrGood ?? '');
-  const whatToLearn = Array.isArray(payload.what_to_learn ?? payload.whatToLearn)
-    ? (payload.what_to_learn ?? payload.whatToLearn).map((item: unknown) => String(item))
+  const record = payload as Record<string, unknown>;
+
+  const headline = String(record.headline ?? "");
+  const whyBadOrGood = String(
+    record.why_bad_or_good ?? record.whyBadOrGood ?? "",
+  );
+  const sourceList = (record.what_to_learn ?? record.whatToLearn) as unknown;
+  const whatToLearn = Array.isArray(sourceList)
+    ? sourceList.map((item: unknown) => String(item))
     : [];
-  const bestLineExplained = String(payload.best_line_explained ?? payload.bestLineExplained ?? '');
+  const bestLineExplained = String(
+    record.best_line_explained ?? record.bestLineExplained ?? "",
+  );
 
   return {
     headline,
@@ -300,7 +346,10 @@ function validateExplanation(payload: any): CoachExplanation {
   };
 }
 
-function computeAccuracy(moves: MoveEvaluation[]): { white: number; black: number } {
+function computeAccuracy(moves: MoveEvaluation[]): {
+  white: number;
+  black: number;
+} {
   let whitePenalty = 0;
   let blackPenalty = 0;
 
@@ -313,7 +362,8 @@ function computeAccuracy(moves: MoveEvaluation[]): { white: number; black: numbe
     }
   }
 
-  const normalize = (penalty: number): number => Math.max(0, 100 - penalty / 50);
+  const normalize = (penalty: number): number =>
+    Math.max(0, 100 - penalty / 50);
   return {
     white: Number(normalize(whitePenalty).toFixed(2)),
     black: Number(normalize(blackPenalty).toFixed(2)),
@@ -332,7 +382,7 @@ function summariseMistakes(moves: MoveEvaluation[]): {
   let inaccuraciesBlack = 0;
 
   for (const move of moves) {
-    if (move.classification === 'blunder') {
+    if (move.classification === "blunder") {
       if (move.ply % 2 === 1) {
         blundersWhite += 1;
       } else {
@@ -340,7 +390,7 @@ function summariseMistakes(moves: MoveEvaluation[]): {
       }
     }
 
-    if (move.classification === 'inaccuracy') {
+    if (move.classification === "inaccuracy") {
       if (move.ply % 2 === 1) {
         inaccuraciesWhite += 1;
       } else {
@@ -352,22 +402,27 @@ function summariseMistakes(moves: MoveEvaluation[]): {
   return { blundersWhite, blundersBlack, inaccuraciesWhite, inaccuraciesBlack };
 }
 
-function buildSummaryMarkdown(moves: MoveEvaluation[], keyMoments: MoveEvaluation[]): string {
+function buildSummaryMarkdown(
+  moves: MoveEvaluation[],
+  keyMoments: MoveEvaluation[],
+): string {
   const lines: string[] = [];
-  lines.push('# Post-game report');
-  lines.push('');
+  lines.push("# Post-game report");
+  lines.push("");
   lines.push(`Total moves analysed: ${moves.length}`);
-  lines.push('');
-  lines.push('## Key moments');
+  lines.push("");
+  lines.push("## Key moments");
   for (const moment of keyMoments.slice(0, 5)) {
-    lines.push(`- Ply ${moment.ply}: ${moment.classification} (Δ ${moment.delta} cp)`);
+    lines.push(
+      `- Ply ${moment.ply}: ${moment.classification} (Δ ${moment.delta} cp)`,
+    );
   }
-  lines.push('');
-  lines.push('## Highlights');
-  lines.push('- Maintain initiative when advantage exceeds +150 cp.');
-  lines.push('- Convert winning endgames by pushing passed pawns.');
-  lines.push('- Re-evaluate forcing moves every turn.');
-  return lines.join('\n');
+  lines.push("");
+  lines.push("## Highlights");
+  lines.push("- Maintain initiative when advantage exceeds +150 cp.");
+  lines.push("- Convert winning endgames by pushing passed pawns.");
+  lines.push("- Re-evaluate forcing moves every turn.");
+  return lines.join("\n");
 }
 
 function convertMateScoreToCentipawns(mate: number, fallback: number): number {
