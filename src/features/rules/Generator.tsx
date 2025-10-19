@@ -38,6 +38,12 @@ export default function RuleGenerator() {
   const [warnings, setWarnings] = useState<string[]>([]);
 
   const onGenerate = async () => {
+    // Validation client-side
+    if (!prompt || !prompt.trim()) {
+      setError("Veuillez entrer une description de règle");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setAiResult(null);
@@ -88,7 +94,7 @@ export default function RuleGenerator() {
             />
           </div>
 
-          <Button onClick={onGenerate} disabled={loading} className="w-full">
+          <Button onClick={onGenerate} disabled={loading || !prompt.trim()} className="w-full">
             {loading ? "Génération en cours…" : "Générer la règle"}
           </Button>
 

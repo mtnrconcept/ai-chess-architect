@@ -161,7 +161,22 @@ export async function invokeGenerateRule(
         )?.context?.response
           ?.text?.()
           .catch(() => undefined);
-        const message = raw?.length ? raw : toErrorMessage(error);
+        
+        // Try to parse JSON error for better validation messages
+        let message = raw?.length ? raw : toErrorMessage(error);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed.error) {
+              message = parsed.error;
+            }
+            if (parsed.details) {
+              message += ` - ${JSON.stringify(parsed.details)}`;
+            }
+          } catch {
+            // Keep raw message if parsing fails
+          }
+        }
 
         if (
           attempt < MAX_RETRY &&
