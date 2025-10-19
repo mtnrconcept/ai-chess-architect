@@ -3,7 +3,7 @@
 ## Attempt on 2025-10-13 13:33:46Z
 
 ### Summary
-- Ran `npm run db:migrate` to apply the SQL migrations from `supabase/migrations`.
+- Ran `pnpm run db:migrate` to apply the SQL migrations from `supabase/migrations`.
 - Confirmed that connectivity problems persist when reaching the Supabase-hosted PostgreSQL instance.
 
 ### Observations
@@ -13,7 +13,7 @@
 
 ### Error log excerpts
 ```
-$ npm run db:migrate
+$ pnpm run db:migrate
 Utilisation des migrations depuis /workspace/ai-chess-architect/supabase/migrations
 Connexion à postgresql://postgres:***@db.ucaqbhmyutlnitnedowk.supabase.co:5432/postgres?sslmode=require
 Impossible de résoudre une adresse IPv4 pour postgresql://postgres:***@db.ucaqbhmyutlnitnedowk.supabase.co:5432/postgres?sslmode=require. Détail: getaddrinfo ENOTFOUND db.ucaqbhmyutlnitnedowk.supabase.co
@@ -29,5 +29,5 @@ $ nslookup db.ucaqbhmyutlnitnedowk.supabase.co
 
 ### Recommended follow-up
 - Restore outbound DNS/network connectivity so the host `db.ucaqbhmyutlnitnedowk.supabase.co` can resolve and accept TCP connections.
-- After connectivity is fixed, rerun `npm run db:migrate` to apply outstanding migrations.
+- After connectivity is fixed, rerun `pnpm run db:migrate` to apply outstanding migrations.
 - Once migrations are successful, proceed with any required Supabase CLI operations (e.g., edge function deployments) using authenticated credentials.
