@@ -405,7 +405,7 @@ const Play = () => {
   const location = useLocation();
   const { user } = useAuth();
   const safeToast = useSafeToast();
-  const { play: playSfx } = useSoundEffects();
+  const { playSound: playSfx } = useSoundEffects();
 
   const locationState = location.state as
     | {
@@ -910,7 +910,7 @@ const Play = () => {
               animation: ability.animation || "explosion",
               sound: ability.sound || "explosion",
               owner: prev.currentPlayer,
-              armedAtTurn: prev.turnNumber,
+              ruleName: ability.ruleName || "Aptitude spéciale",
             } satisfies SpecialAttackInstance,
           ],
         };
@@ -1008,8 +1008,7 @@ const Play = () => {
           const raw = await readErrorResponseText(error);
           const msg = raw?.trim()?.length
             ? raw
-            : getSupabaseFunctionErrorMessage(error) ||
-              "Erreur lors de la génération.";
+            : getSupabaseFunctionErrorMessage(error, "Erreur lors de la génération.");
           safeToast({
             title: "Génération échouée",
             description: msg,
@@ -1149,7 +1148,7 @@ const Play = () => {
       <section className="mb-6">
         <ChessBoard
           board={gameState.board}
-          selected={gameState.selectedPiece}
+          selected={gameState.selectedPiece?.position || null}
           validMoves={gameState.validMoves}
           visualEffects={gameState.visualEffects}
           specialAttacks={gameState.specialAttacks}
@@ -1168,9 +1167,6 @@ const Play = () => {
             //   const next = ChessEngine.handleSquareClick(prev, pos);
             //   return next;
             // });
-          }}
-          onPieceClick={() => {
-            // TODO: Implémenter la logique de clic sur pièce
           }}
         />
       </section>
