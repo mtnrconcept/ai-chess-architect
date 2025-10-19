@@ -177,10 +177,6 @@ async function invokeWithTimeoutAndRetry(
       const { data, error } = await supabase.functions.invoke(fn, {
         body: sanitizedBody,
         signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
       });
 
       clearTimeout(timer);

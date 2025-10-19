@@ -1197,7 +1197,6 @@ const Play = () => {
           "generate-chess-rule",
           {
             body: cleanBody,
-            headers: { "Content-Type": "application/json" },
           },
         );
 
