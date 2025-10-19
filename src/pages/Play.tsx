@@ -931,13 +931,21 @@ const Play = () => {
 
       // ⚠️ Les toasts et SFX sont déclenchés **après** l’update, jamais dans l’updater
       if (result.success) {
+        // Type assertion car TypeScript narrow incorrectement
+        const successResult = result as {
+          success: true;
+          coordinate: string;
+          trigger: SpecialAbilityTrigger;
+          countdown: number;
+          abilityLabel: string;
+        };
         if (soundEnabled) playSfx(toSoundEffect(ability.sound, "explosion"));
         safeToast({
           title: "Aptitude déployée",
           description:
-            result.trigger === "countdown"
-              ? `${result.abilityLabel} sur ${result.coordinate} — explosion dans ${result.countdown} tours.`
-              : `${result.abilityLabel} sur ${result.coordinate} — explosion au contact.`,
+            successResult.trigger === "countdown"
+              ? `${successResult.abilityLabel} sur ${successResult.coordinate} — explosion dans ${successResult.countdown} tours.`
+              : `${successResult.abilityLabel} sur ${successResult.coordinate} — explosion au contact.`,
         });
       } else {
         const reasonLabel =

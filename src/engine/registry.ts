@@ -13,7 +13,7 @@ export interface EngineContext extends Record<string, any> {
   baseActionId?: string;
 }
 
-type EffectParams = Record<string, unknown>;
+type EffectParams = any;
 type LogicalOperator = "not" | "and" | "or";
 type LogicalConditionNode = [LogicalOperator, ...ConditionDescriptor[]];
 type ParameterizedConditionNode = [string, ...unknown[]];

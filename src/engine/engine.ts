@@ -127,6 +127,7 @@ export class RuleEngine {
       ...base,
       engine,
       registry,
+      state: {}, // State global par défaut
       get piece() {
         return base.pieceId ? engine.board.getPiece(base.pieceId) : null;
       },

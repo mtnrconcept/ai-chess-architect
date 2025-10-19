@@ -60,7 +60,8 @@ export function registerBuiltinProviders(reg: Registry) {
       .filter(pid => pid !== null);
   });
 
-  reg.registerProvider("provider.enemiesInLineOfSight", (ctx, maxRange = 8) => {
+  reg.registerProvider("provider.enemiesInLineOfSight", (ctx, ...args: unknown[]) => {
+    const maxRange = typeof args[0] === 'number' ? args[0] : 8;
     if (!ctx.piece) return [];
     const b = ctx.engine.board;
     const startTile = ctx.piece.tile;

@@ -2,27 +2,27 @@ import { Registry } from "../registry";
 import { Tile } from "../types";
 
 export function registerBuiltinEffects(reg: Registry) {
-  reg.registerEffect("vfx.play", (ctx, p) => {
+  reg.registerEffect("vfx.play", (ctx, p: any) => {
     if (p?.sprite && p?.tile) {
       ctx.engine.vfx.playAnimation(p.sprite, p.tile);
     }
   });
 
-  reg.registerEffect("audio.play", (ctx, p) => {
+  reg.registerEffect("audio.play", (ctx, p: any) => {
     if (p?.id) {
       ctx.engine.vfx.playAudio(p.id);
     }
   });
 
-  reg.registerEffect("decal.set", (ctx, p) => {
+  reg.registerEffect("decal.set", (ctx, p: any) => {
     if (p?.tile && p?.sprite) {
-      ctx.engine.board.setDecal(p.tile, p.sprite);
+      ctx.engine.board.setDecal(p.tile as Tile, p.sprite as string);
     }
   });
 
-  reg.registerEffect("decal.clear", (ctx, p) => {
+  reg.registerEffect("decal.clear", (ctx, p: any) => {
     if (p?.tile) {
-      ctx.engine.board.clearDecal(p.tile);
+      ctx.engine.board.clearDecal(p.tile as Tile);
     }
   });
 
@@ -76,12 +76,12 @@ export function registerBuiltinEffects(reg: Registry) {
     }
   });
 
-  reg.registerEffect("piece.setStatus", (ctx, p) => {
+  reg.registerEffect("piece.setStatus", (ctx, p: any) => {
     if (p?.pieceId && p?.key) {
       try {
         const piece = ctx.engine.board.getPiece(p.pieceId);
         piece.statuses = piece.statuses ?? {};
-        piece.statuses[p.key] = p.value;
+        piece.statuses[p.key as string] = p.value;
       } catch (error) {
         console.warn('Failed to set status:', error);
       }
