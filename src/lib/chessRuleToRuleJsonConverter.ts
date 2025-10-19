@@ -1,5 +1,6 @@
 import { ChessRule, RuleEffect, RuleCondition } from "@/types/chess";
 import { RuleJSON, ActionStep, LogicStep } from "@/engine/types";
+import { ConditionDescriptor } from "@/engine/registry";
 
 // Registry trigger→event
 const TRIGGER_EVENT_MAP: Record<string, string[]> = {
@@ -182,7 +183,81 @@ function generateIcon(effect: RuleEffect): string {
   return icons[effect.action] || "🎯";
 }
 
-function convertConditions(conditions: RuleCondition[]): string[] {
+type ConditionMapper = {
+  matches: (condition: RuleCondition) => boolean;
+  map: (
+    condition: RuleCondition,
+  ) => ConditionDescriptor | ConditionDescriptor[];
+};
+
+const CONDITION_MAPPERS: ConditionMapper[] = [
+  {
+    matches: (condition) =>
+      condition.type === "pieceType" && condition.operator === "equals",
+    map: () => "piece.isTypeInScope",
+  },
+  {
+    matches: (condition) =>
+      condition.type === "turnNumber" &&
+      (condition.operator === "greaterOrEqual" ||
+        condition.operator === "greaterThan"),
+    map: (condition) => [
+      "match.turnNumber.atLeast",
+      ensureNumber(condition.value, condition.type) +
+        (condition.operator === "greaterThan" ? 1 : 0),
+    ],
+  },
+  {
+    matches: (condition) =>
+      condition.type === "turnNumber" &&
+      (condition.operator === "lessThan" ||
+        condition.operator === "lessOrEqual"),
+    map: (condition) => [
+      "match.turnNumber.lessThan",
+      ensureNumber(condition.value, condition.type) +
+        (condition.operator === "lessOrEqual" ? 1 : 0),
+    ],
+  },
+  {
+    matches: (condition) =>
+      condition.type === "hasMoved" && condition.operator === "equals",
+    map: (condition) => [
+      "piece.hasMoved.equals",
+      ensureBoolean(condition.value, condition.type),
+    ],
+  },
+];
+
+function ensureNumber(value: unknown, type: string): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`Unsupported numeric value for condition ${type}`);
+  }
+  return numeric;
+}
+
+function ensureBoolean(value: unknown, type: string): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (value === "true" || value === "false") {
+    return value === "true";
+  }
+  throw new Error(`Unsupported boolean value for condition ${type}`);
+}
+
+function convertConditions(conditions: RuleCondition[]): ConditionDescriptor[] {
   if (!conditions || conditions.length === 0) return [];
-  return conditions.map((c) => `condition.${c.type}_${c.operator}(${c.value})`);
+
+  return conditions.flatMap((condition) => {
+    const mapper = CONDITION_MAPPERS.find((entry) => entry.matches(condition));
+    if (!mapper) {
+      throw new Error(
+        `No condition mapper available for type "${condition.type}" with operator "${condition.operator}"`,
+      );
+    }
+
+    const mapped = mapper.map(condition);
+    return Array.isArray(mapped) ? [mapped] : [mapped];
+  });
 }

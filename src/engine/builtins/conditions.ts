@@ -20,10 +20,17 @@ export function registerBuiltinConditions(reg: Registry) {
     return ctx.rule.scope.affectedPieces.includes(ctx.piece.type);
   });
 
+  reg.registerCondition("piece.hasMoved.equals", (ctx, expected) => {
+    if (!ctx.piece) return false;
+    const hasMoved = Boolean((ctx.piece as { hasMoved?: boolean }).hasMoved);
+    if (expected === undefined) return hasMoved;
+    return hasMoved === Boolean(expected);
+  });
+
   reg.registerCondition("status.targetNotFrozen", (ctx) => {
     if (!ctx.targetPieceId) return true;
     const p = ctx.engine.board.getPiece(ctx.targetPieceId);
-    return !(p.statuses?.frozen);
+    return !p.statuses?.frozen;
   });
 
   reg.registerCondition("random.50", () => Math.random() < 0.5);
@@ -54,7 +61,7 @@ export function registerBuiltinConditions(reg: Registry) {
     if (!ctx.pieceId || !key) return false;
     try {
       const piece = ctx.engine.board.getPiece(ctx.pieceId);
-      return !!(piece.statuses?.[key]?.active);
+      return !!piece.statuses?.[key]?.active;
     } catch {
       return false;
     }
@@ -62,17 +69,17 @@ export function registerBuiltinConditions(reg: Registry) {
 
   reg.registerCondition("target.hasStatus", (ctx) => {
     let key = ctx.params?.statusKey || ctx.params?.key;
-    
+
     // Résoudre les références $params.*
-    if (typeof key === 'string' && key.startsWith('$params.')) {
+    if (typeof key === "string" && key.startsWith("$params.")) {
       const paramPath = key.slice(8); // "freezeKey" depuis "$params.freezeKey"
       key = ctx.params?.[paramPath];
     }
-    
+
     if (!ctx.targetPieceId || !key) return false;
     try {
       const piece = ctx.engine.board.getPiece(ctx.targetPieceId);
-      return !!(piece.statuses?.[key]?.active);
+      return !!piece.statuses?.[key]?.active;
     } catch {
       return false;
     }
@@ -82,7 +89,9 @@ export function registerBuiltinConditions(reg: Registry) {
   reg.registerCondition("ctx.hasTargetPiece", (ctx) => {
     const hasTarget = !!ctx.targetPieceId;
     if (!hasTarget) {
-      console.warn("[condition] ctx.hasTargetPiece failed - no targetPieceId in context");
+      console.warn(
+        "[condition] ctx.hasTargetPiece failed - no targetPieceId in context",
+      );
     }
     return hasTarget;
   });
@@ -111,15 +120,15 @@ export function registerBuiltinConditions(reg: Registry) {
   reg.registerCondition("state.exists", (ctx) => {
     const path = ctx.params?.path;
     if (!path) return false;
-    
-    const keys = path.split('.');
+
+    const keys = path.split(".");
     let current = ctx.state;
-    
+
     for (const key of keys) {
-      if (!current || typeof current !== 'object') return false;
+      if (!current || typeof current !== "object") return false;
       current = current[key];
     }
-    
+
     return current !== undefined;
   });
 
@@ -127,15 +136,15 @@ export function registerBuiltinConditions(reg: Registry) {
     const path = ctx.params?.path;
     const value = ctx.params?.value;
     if (!path) return false;
-    
-    const keys = path.split('.');
+
+    const keys = path.split(".");
     let current = ctx.state;
-    
+
     for (const key of keys) {
-      if (!current || typeof current !== 'object') return false;
+      if (!current || typeof current !== "object") return false;
       current = current[key];
     }
-    
+
     return current === value;
   });
 
@@ -143,21 +152,43 @@ export function registerBuiltinConditions(reg: Registry) {
     const path = ctx.params?.path;
     const value = ctx.params?.value;
     if (!path || value === undefined) return false;
-    
-    const keys = path.split('.');
+
+    const keys = path.split(".");
     let current = ctx.state;
-    
+
     for (const key of keys) {
-      if (!current || typeof current !== 'object') return false;
+      if (!current || typeof current !== "object") return false;
       current = current[key];
     }
-    
-    return typeof current === 'number' && current < value;
+
+    return typeof current === "number" && current < value;
   });
 
   // Phase 4: Probabilistic conditions
   reg.registerCondition("random.chance", (ctx) => {
     const percent = ctx.params?.percent ?? 50;
     return Math.random() * 100 < percent;
+  });
+
+  reg.registerCondition("match.turnNumber.atLeast", (ctx, value) => {
+    if (typeof value !== "number") return false;
+    try {
+      const match = ctx.engine.match.get?.();
+      const ply = typeof match?.ply === "number" ? match.ply : 0;
+      return ply >= value;
+    } catch {
+      return false;
+    }
+  });
+
+  reg.registerCondition("match.turnNumber.lessThan", (ctx, value) => {
+    if (typeof value !== "number") return false;
+    try {
+      const match = ctx.engine.match.get?.();
+      const ply = typeof match?.ply === "number" ? match.ply : 0;
+      return ply < value;
+    } catch {
+      return false;
+    }
   });
 }
