@@ -94,7 +94,7 @@ const normaliseVariantRules = (value: unknown) => {
     } catch (_error) {
       value
         .split(",")
-        .map(segment => segment.trim())
+        .map((segment) => segment.trim())
         .forEach(pushRule);
     }
   }
@@ -129,26 +129,51 @@ const normaliseTournamentStatus = (value: unknown): TournamentStatus => {
 
 const normaliseTournamentOverviewRow = (
   raw: Record<string, unknown>,
-  overrides: Partial<Pick<TournamentOverview, "player_count" | "active_match_count" | "completed_match_count">> = {},
+  overrides: Partial<
+    Pick<
+      TournamentOverview,
+      "player_count" | "active_match_count" | "completed_match_count"
+    >
+  > = {},
 ): TournamentOverview => {
   const startsAt = normaliseIsoDate(
     raw.starts_at ?? raw.start_time ?? raw.startAt ?? raw.startsAt,
-    normaliseIsoDate(raw.created_at ?? raw.createdAt ?? raw.start_time ?? raw.startAt ?? new Date()),
+    normaliseIsoDate(
+      raw.created_at ??
+        raw.createdAt ??
+        raw.start_time ??
+        raw.startAt ??
+        new Date(),
+    ),
   );
   const endsAt = normaliseIsoDate(
     raw.ends_at ?? raw.end_time ?? raw.endAt ?? raw.endsAt,
-    normaliseIsoDate(raw.updated_at ?? raw.updatedAt ?? raw.end_time ?? raw.endAt ?? startsAt),
+    normaliseIsoDate(
+      raw.updated_at ?? raw.updatedAt ?? raw.end_time ?? raw.endAt ?? startsAt,
+    ),
   );
 
-  const createdAt = normaliseIsoDate(raw.created_at ?? raw.createdAt ?? startsAt, startsAt);
-  const updatedAt = normaliseIsoDate(raw.updated_at ?? raw.updatedAt ?? createdAt, createdAt);
+  const createdAt = normaliseIsoDate(
+    raw.created_at ?? raw.createdAt ?? startsAt,
+    startsAt,
+  );
+  const updatedAt = normaliseIsoDate(
+    raw.updated_at ?? raw.updatedAt ?? createdAt,
+    createdAt,
+  );
 
   const basePlayerCount =
     overrides.player_count ??
-    normaliseNumber(raw.player_count ?? raw.players ?? raw.playerCount ?? raw.total_players, 0);
+    normaliseNumber(
+      raw.player_count ?? raw.players ?? raw.playerCount ?? raw.total_players,
+      0,
+    );
   const baseActiveMatches =
     overrides.active_match_count ??
-    normaliseNumber(raw.active_match_count ?? raw.active_matches ?? raw.activeMatchCount, 0);
+    normaliseNumber(
+      raw.active_match_count ?? raw.active_matches ?? raw.activeMatchCount,
+      0,
+    );
 
   const completedFromRaw =
     raw.completed_match_count ??
@@ -157,19 +182,32 @@ const normaliseTournamentOverviewRow = (
     raw.matches ??
     raw.total_matches;
 
-  const baseCompletedMatches = overrides.completed_match_count ?? normaliseNumber(completedFromRaw, 0);
+  const baseCompletedMatches =
+    overrides.completed_match_count ?? normaliseNumber(completedFromRaw, 0);
 
   const variantName = normaliseString(raw.variant_name, FALLBACK_VARIANT_NAME);
-  const variantSource = normaliseString(raw.variant_source ?? (raw.variant_lobby_id ? "lobby" : ""), "") || null;
-  const variantLobbyId = normaliseString(raw.variant_lobby_id ?? raw.variantLobbyId ?? "", "") || null;
+  const variantSource =
+    normaliseString(
+      raw.variant_source ?? (raw.variant_lobby_id ? "lobby" : ""),
+      "",
+    ) || null;
+  const variantLobbyId =
+    normaliseString(raw.variant_lobby_id ?? raw.variantLobbyId ?? "", "") ||
+    null;
 
   return {
     id: normaliseString(raw.id ?? raw.tournament_id ?? "", "__unknown__"),
-    title: normaliseString(raw.title ?? raw.name ?? raw.tournament_title, "Tournoi Voltus"),
-    description: normaliseString(raw.description ?? raw.details ?? "", "") || null,
+    title: normaliseString(
+      raw.title ?? raw.name ?? raw.tournament_title,
+      "Tournoi Voltus",
+    ),
+    description:
+      normaliseString(raw.description ?? raw.details ?? "", "") || null,
     variant_name: variantName,
     variant_source: variantSource,
-    variant_rules: normaliseVariantRules(raw.variant_rules ?? raw.variantRules ?? []),
+    variant_rules: normaliseVariantRules(
+      raw.variant_rules ?? raw.variantRules ?? [],
+    ),
     variant_lobby_id: variantLobbyId,
     starts_at: startsAt,
     ends_at: endsAt,
@@ -184,17 +222,26 @@ const normaliseTournamentOverviewRow = (
 };
 
 const sortByStartDate = (rows: TournamentOverview[]) =>
-  [...rows].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
+  [...rows].sort(
+    (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
+  );
 
 const normaliseMatchStatus = (value: unknown) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
 
 const FINISHED_MATCH_STATUSES = new Set(["finished", "completed", "done"]);
 
-const ACTIVE_MATCH_STATUSES = new Set(["pending", "playing", "in_progress", "running"]);
+const ACTIVE_MATCH_STATUSES = new Set([
+  "pending",
+  "playing",
+  "in_progress",
+  "running",
+]);
 
 export class TournamentFeatureUnavailableError extends Error {
-  constructor(message = "Les tournois ne sont pas disponibles : configurez Supabase pour activer cette fonctionnalité.") {
+  constructor(
+    message = "Les tournois ne sont pas disponibles : configurez Supabase pour activer cette fonctionnalité.",
+  ) {
     super(message);
     this.name = "TournamentFeatureUnavailableError";
   }
@@ -208,7 +255,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const normaliseSupabaseFunctionsBase = () => {
-  const configuredBase = supabaseFunctionsUrl ?? supabaseDiagnostics.functionsUrl ?? null;
+  const configuredBase =
+    supabaseFunctionsUrl ?? supabaseDiagnostics.functionsUrl ?? null;
   if (configuredBase && configuredBase.trim().length > 0) {
     return configuredBase;
   }
@@ -243,11 +291,18 @@ const isFetchNetworkError = (error: unknown): error is TypeError => {
     return false;
   }
 
-  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
-  return message.includes("fetch") || message.includes("network") || message.includes("failed");
+  const message =
+    typeof error.message === "string" ? error.message.toLowerCase() : "";
+  return (
+    message.includes("fetch") ||
+    message.includes("network") ||
+    message.includes("failed")
+  );
 };
 
-const readFunctionErrorPayload = async (response: Response): Promise<unknown> => {
+const readFunctionErrorPayload = async (
+  response: Response,
+): Promise<unknown> => {
   const contentType = response.headers.get("content-type") ?? "";
 
   if (contentType.includes("application/json")) {
@@ -320,9 +375,13 @@ const extractFunctionErrorCode = (payload: unknown): string | undefined => {
 const invokeSyncTournamentsViaDirectFetch = async (
   supabaseClient: ReturnType<typeof requireTournamentSupabase>,
 ): Promise<void> => {
-  const endpoint = resolveSupabaseFunctionsEndpoint(SYNC_TOURNAMENTS_FUNCTION_PATH);
+  const endpoint = resolveSupabaseFunctionsEndpoint(
+    SYNC_TOURNAMENTS_FUNCTION_PATH,
+  );
   if (!endpoint) {
-    throw new TournamentFeatureUnavailableError(SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE);
+    throw new TournamentFeatureUnavailableError(
+      SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE,
+    );
   }
 
   const headers = new Headers({
@@ -367,13 +426,16 @@ const invokeSyncTournamentsViaDirectFetch = async (
   const message = normaliseFunctionErrorMessage(payload);
 
   if (response.status === 404) {
-    throw new TournamentFeatureUnavailableError(SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE);
+    throw new TournamentFeatureUnavailableError(
+      SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE,
+    );
   }
 
   const code = extractFunctionErrorCode(payload);
   if (response.status === 503 && code === "feature_unavailable") {
     throw new TournamentFeatureUnavailableError(
-      message || "La synchronisation des tournois n'est pas disponible. Vérifiez votre déploiement Supabase.",
+      message ||
+        "La synchronisation des tournois n'est pas disponible. Vérifiez votre déploiement Supabase.",
     );
   }
 
@@ -381,12 +443,17 @@ const invokeSyncTournamentsViaDirectFetch = async (
     throw new Error(message);
   }
 
-  throw new Error(`La fonction 'sync-tournaments' a renvoyé le statut ${response.status}.`);
+  throw new Error(
+    `La fonction 'sync-tournaments' a renvoyé le statut ${response.status}.`,
+  );
 };
 
 const requireTournamentSupabase = () => {
   if (!supabase) {
-    const details = supabaseEnvProblems.length > 0 ? ` Détails : ${supabaseEnvProblems.join(" | ")}.` : "";
+    const details =
+      supabaseEnvProblems.length > 0
+        ? ` Détails : ${supabaseEnvProblems.join(" | ")}.`
+        : "";
     throw new TournamentFeatureUnavailableError(
       `Supabase n'est pas configuré pour les tournois.${details || " Configurez vos variables d'environnement Supabase."}`,
     );
@@ -451,7 +518,8 @@ const isOverviewViewMissing = (error: PostgrestError | null) => {
     return true;
   }
 
-  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  const message =
+    typeof error.message === "string" ? error.message.toLowerCase() : "";
   return message.includes("tournament_overview");
 };
 
@@ -470,8 +538,10 @@ const isRelationMissing = (error: PostgrestError | null) => {
     return true;
   }
 
-  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
-  const details = typeof error.details === "string" ? error.details.toLowerCase() : "";
+  const message =
+    typeof error.message === "string" ? error.message.toLowerCase() : "";
+  const details =
+    typeof error.details === "string" ? error.details.toLowerCase() : "";
 
   if (!message && !details) {
     return false;
@@ -486,7 +556,9 @@ const isRelationMissing = (error: PostgrestError | null) => {
   );
 };
 
-const isFunctionUnavailable = (error: { message?: string | null; code?: string | null } & ErrorWithStatus) => {
+const isFunctionUnavailable = (
+  error: { message?: string | null; code?: string | null } & ErrorWithStatus,
+) => {
   if (!error) {
     return false;
   }
@@ -497,11 +569,15 @@ const isFunctionUnavailable = (error: { message?: string | null; code?: string |
   }
 
   const code = normaliseErrorCode(error.code);
-  if (code && (code === "FEATURE_UNAVAILABLE" || MISSING_RELATION_ERROR_CODES.has(code))) {
+  if (
+    code &&
+    (code === "FEATURE_UNAVAILABLE" || MISSING_RELATION_ERROR_CODES.has(code))
+  ) {
     return true;
   }
 
-  const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+  const message =
+    typeof error.message === "string" ? error.message.toLowerCase() : "";
   if (!message) {
     return false;
   }
@@ -516,7 +592,9 @@ const isFunctionUnavailable = (error: { message?: string | null; code?: string |
   );
 };
 
-const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Promise<TournamentOverview[]> => {
+const fetchTournamentOverviewFromBaseTables = async (
+  tournamentId?: string,
+): Promise<TournamentOverview[]> => {
   const supabaseClient = requireTournamentSupabase();
 
   const tournamentsQuery = supabaseClient.from("tournaments").select("*");
@@ -537,25 +615,28 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
   }
 
   const tournamentList = (tournaments ?? [])
-    .map(row => normaliseTournamentOverviewRow(row as Record<string, unknown>))
-    .filter(tournament => tournament.id !== "__unknown__");
+    .map((row) =>
+      normaliseTournamentOverviewRow(row as Record<string, unknown>),
+    )
+    .filter((tournament) => tournament.id !== "__unknown__");
 
   if (tournamentList.length === 0) {
     return [];
   }
 
   const tournamentIds = tournamentList
-    .map(tournament => tournament.id)
+    .map((tournament) => tournament.id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
   const registrationCounts = new Map<string, number>();
   const matchCounts = new Map<string, { active: number; finished: number }>();
 
   if (tournamentIds.length > 0) {
-    const { data: registrations, error: registrationsError } = await supabaseClient
-      .from("tournament_registrations")
-      .select("tournament_id")
-      .in("tournament_id", tournamentIds);
+    const { data: registrations, error: registrationsError } =
+      await supabaseClient
+        .from("tournament_registrations")
+        .select("tournament_id")
+        .in("tournament_id", tournamentIds);
 
     if (registrationsError) {
       if (isRelationMissing(registrationsError)) {
@@ -566,7 +647,7 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
       throw new Error(registrationsError.message);
     }
 
-    (registrations ?? []).forEach(registration => {
+    (registrations ?? []).forEach((registration) => {
       const id = registration.tournament_id;
       if (!id) return;
       registrationCounts.set(id, (registrationCounts.get(id) ?? 0) + 1);
@@ -586,7 +667,7 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
       throw new Error(matchesError.message);
     }
 
-    (matches ?? []).forEach(match => {
+    (matches ?? []).forEach((match) => {
       const id = match.tournament_id;
       if (!id) return;
       const counts = matchCounts.get(id) ?? { active: 0, finished: 0 };
@@ -601,17 +682,26 @@ const fetchTournamentOverviewFromBaseTables = async (tournamentId?: string): Pro
   }
 
   return sortByStartDate(
-    tournamentList.map(tournament =>
+    tournamentList.map((tournament) =>
       normaliseTournamentOverviewRow(tournament, {
-        player_count: registrationCounts.get(tournament.id) ?? tournament.player_count ?? 0,
-        active_match_count: matchCounts.get(tournament.id)?.active ?? tournament.active_match_count ?? 0,
-        completed_match_count: matchCounts.get(tournament.id)?.finished ?? tournament.completed_match_count ?? 0,
+        player_count:
+          registrationCounts.get(tournament.id) ?? tournament.player_count ?? 0,
+        active_match_count:
+          matchCounts.get(tournament.id)?.active ??
+          tournament.active_match_count ??
+          0,
+        completed_match_count:
+          matchCounts.get(tournament.id)?.finished ??
+          tournament.completed_match_count ??
+          0,
       }),
     ),
   );
 };
 
-const fetchSingleTournamentOverview = async (tournamentId: string): Promise<TournamentOverview> => {
+const fetchSingleTournamentOverview = async (
+  tournamentId: string,
+): Promise<TournamentOverview> => {
   const supabaseClient = requireTournamentSupabase();
 
   try {
@@ -626,7 +716,8 @@ const fetchSingleTournamentOverview = async (tournamentId: string): Promise<Tour
     }
 
     if (isOverviewViewMissing(error)) {
-      const fallback = await fetchTournamentOverviewFromBaseTables(tournamentId);
+      const fallback =
+        await fetchTournamentOverviewFromBaseTables(tournamentId);
       const overview = fallback[0];
       if (overview) {
         return overview;
@@ -658,14 +749,19 @@ export const syncTournaments = async () => {
   const supabaseClient = requireTournamentSupabase();
 
   try {
-    const { error } = await supabaseClient.functions.invoke("sync-tournaments", { body: {} });
+    const { error } = await supabaseClient.functions.invoke(
+      "sync-tournaments",
+      { body: {} },
+    );
     if (error) {
       // Ignore schema cache errors - PostgREST just needs time to refresh
       const message = typeof error.message === "string" ? error.message : "";
       const isSchemaCache = message.toLowerCase().includes("schema cache");
-      
+
       if (isSchemaCache) {
-        console.warn("[syncTournaments] PostgREST schema cache refreshing, continuing...");
+        console.warn(
+          "[syncTournaments] PostgREST schema cache refreshing, continuing...",
+        );
         return;
       }
 
@@ -688,7 +784,9 @@ export const syncTournaments = async () => {
         }
 
         if (isFetchNetworkError(fallbackError)) {
-          throw new TournamentFeatureUnavailableError(SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE);
+          throw new TournamentFeatureUnavailableError(
+            SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE,
+          );
         }
 
         if (fallbackError instanceof Error) {
@@ -711,11 +809,15 @@ export const syncTournaments = async () => {
   }
 };
 
-export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> => {
+export const fetchTournamentOverview = async (): Promise<
+  TournamentOverview[]
+> => {
   const supabaseClient = requireTournamentSupabase();
 
   try {
-    const { data, error } = await supabaseClient.from("tournament_overview").select("*");
+    const { data, error } = await supabaseClient
+      .from("tournament_overview")
+      .select("*");
 
     if (error) {
       if (isOverviewViewMissing(error)) {
@@ -729,8 +831,10 @@ export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> =
 
     return sortByStartDate(
       (data ?? [])
-        .map(row => normaliseTournamentOverviewRow(row as Record<string, unknown>))
-        .filter(row => row.id !== "__unknown__"),
+        .map((row) =>
+          normaliseTournamentOverviewRow(row as Record<string, unknown>),
+        )
+        .filter((row) => row.id !== "__unknown__"),
     );
   } catch (unknownError) {
     if (unknownError instanceof TournamentFeatureUnavailableError) {
@@ -743,17 +847,22 @@ export const fetchTournamentOverview = async (): Promise<TournamentOverview[]> =
   }
 };
 
-export const fetchTournamentDetails = async (tournamentId: string): Promise<TournamentDetails> => {
+export const fetchTournamentDetails = async (
+  tournamentId: string,
+): Promise<TournamentDetails> => {
   const supabaseClient = requireTournamentSupabase();
   const overviewData = await fetchSingleTournamentOverview(tournamentId);
 
-  const { data: registrations, error: registrationsError } = await supabaseClient
-    .from("tournament_registrations")
-    .select("*, current_match:tournament_matches(*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id))")
-    .eq("tournament_id", tournamentId)
-    .order("points", { ascending: false })
-    .order("wins", { ascending: false })
-    .order("draws", { ascending: false });
+  const { data: registrations, error: registrationsError } =
+    await supabaseClient
+      .from("tournament_registrations")
+      .select(
+        "*, current_match:tournament_matches!current_match_id(*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id))",
+      )
+      .eq("tournament_id", tournamentId)
+      .order("points", { ascending: false })
+      .order("wins", { ascending: false })
+      .order("draws", { ascending: false });
 
   if (registrationsError) {
     if (isRelationMissing(registrationsError)) {
@@ -764,7 +873,9 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
 
   const { data: matches, error: matchesError } = await supabaseClient
     .from("tournament_matches")
-    .select("*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
+    .select(
+      "*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)",
+    )
     .eq("tournament_id", tournamentId)
     .order("created_at", { ascending: false });
 
@@ -777,23 +888,28 @@ export const fetchTournamentDetails = async (tournamentId: string): Promise<Tour
 
   return {
     overview: overviewData,
-    registrations: (registrations ?? []) as unknown as TournamentRegistrationWithMatch[],
+    registrations: (registrations ??
+      []) as unknown as TournamentRegistrationWithMatch[],
     matches: (matches ?? []) as unknown as TournamentMatch[],
   };
 };
 
-export const fetchUserTournamentRegistrations = async (userId: string): Promise<TournamentRegistrationWithMatch[]> => {
+export const fetchUserTournamentRegistrations = async (
+  userId: string,
+): Promise<TournamentRegistrationWithMatch[]> => {
   const supabaseClient = requireTournamentSupabase();
 
   const { data, error } = await supabaseClient
     .from("tournament_registrations")
-    .select(`
+    .select(
+      `
       *,
-      tournament_matches!match_id(
+      tournament_matches!current_match_id(
         *,
         lobbies!lobby_id(id, name, status, mode, opponent_name, opponent_id)
       )
-    `)
+    `,
+    )
     .eq("user_id", userId)
     .order("joined_at", { ascending: false });
 
@@ -845,16 +961,17 @@ export const requestTournamentMatch = async (
 ): Promise<MatchmakingResponse> => {
   const supabaseClient = requireTournamentSupabase();
 
-  const { data, error } = await supabaseClient.functions.invoke<MatchmakingResponse>(
-    "tournament-matchmaking",
-    {
-      body: {
-        tournamentId,
-        displayName: options?.displayName,
-        forceAiFallback: options?.forceAiFallback === true,
+  const { data, error } =
+    await supabaseClient.functions.invoke<MatchmakingResponse>(
+      "tournament-matchmaking",
+      {
+        body: {
+          tournamentId,
+          displayName: options?.displayName,
+          forceAiFallback: options?.forceAiFallback === true,
+        },
       },
-    },
-  );
+    );
 
   if (error) {
     if (isFunctionUnavailable(error)) {
@@ -868,12 +985,16 @@ export const requestTournamentMatch = async (
   return data ?? { match: null, registration: null };
 };
 
-export const fetchTournamentMatch = async (matchId: string): Promise<TournamentMatch | null> => {
+export const fetchTournamentMatch = async (
+  matchId: string,
+): Promise<TournamentMatch | null> => {
   const supabaseClient = requireTournamentSupabase();
 
   const { data, error } = await supabaseClient
     .from("tournament_matches")
-    .select("*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)")
+    .select(
+      "*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id)",
+    )
     .eq("id", matchId)
     .maybeSingle();
 
