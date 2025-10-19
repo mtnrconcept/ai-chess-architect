@@ -657,7 +657,7 @@ const Play = () => {
   }, [locationState]);
 
   const analyzedCustomRules = useMemo(
-    () => rawCustomRules.map((rule) => analyzeRuleLogic(rule).rule),
+    () => (rawCustomRules || []).map((rule) => analyzeRuleLogic(rule).rule),
     [rawCustomRules],
   );
 
