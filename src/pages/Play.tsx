@@ -690,7 +690,6 @@ const Play = () => {
           const { data: rulesData, error } = await supabase
             .from("chess_rules")
             .select("rule_json")
-            .eq("status", "active")
             .eq("created_by", user.id)
             .in("source", ["custom", "ai_generated"]);
 
