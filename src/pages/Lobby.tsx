@@ -140,7 +140,6 @@ const Lobby = () => {
         .from('chess_rules')
         .select('*')
         .eq('created_by', user.id)
-        .eq('status', 'active')
         .in('source', ['custom', 'ai_generated'])
         .order('created_at', { ascending: false });
 

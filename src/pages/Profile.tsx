@@ -275,7 +275,6 @@ const Profile = () => {
         .from("chess_rules")
         .select("*")
         .eq("created_by", user.id)
-        .eq("status", "active")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
