@@ -1,66 +1,15 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { ChessRule } from "@/types/chess";
+import type { ChessRule } from "@/types/chess";
 import { supabase } from "@/integrations/supabase/client";
 import { allPresetRules } from "@/lib/presetRules";
+import { convertRuleJsonToChessRule as convertRuleJsonToChessRuleCore } from "@/lib/ruleJsonToChessRule";
 
 /**
  * Convert a RuleJSON from preset_rules table to ChessRule format
  */
-export function convertRuleJsonToChessRule(ruleJson: any): ChessRule {
-  const meta = ruleJson.meta || {};
-  const scope = ruleJson.scope || {};
-  const ui = ruleJson.ui || {};
-
-  // Extract affected pieces from scope
-  const affectedPieces = Array.isArray(scope.affectedPieces)
-    ? scope.affectedPieces
-    : ["all"];
-
-  // Build effects array from ui.actions
-  const effects: ChessRule["effects"] = [];
-
-  if (ui.actions && Array.isArray(ui.actions)) {
-    ui.actions.forEach((action: any) => {
-      // Map UI actions to rule effects
-      effects.push({
-        action: "addAbility",
-        target: "self",
-        parameters: {
-          ability: action.id || "special",
-          label: action.label,
-          hint: action.hint,
-          icon: action.icon,
-          cooldown: action.cooldown?.perPiece || 2,
-          consumesTurn: action.consumesTurn !== false,
-          targetingMode: action.targeting?.mode || "none",
-        },
-      });
-    });
-  }
-
-  const chessRule: ChessRule = {
-    ruleId: meta.ruleId || "unknown",
-    ruleName: meta.ruleName || "Unknown Rule",
-    description: meta.description || "",
-    category: meta.category || "special",
-    affectedPieces,
-    trigger: "always",
-    conditions: [],
-    effects,
-    tags: Array.isArray(meta.tags) ? meta.tags : [],
-    priority: 5,
-    isActive: meta.isActive !== false,
-    validationRules: {
-      allowedWith: [],
-      conflictsWith: [],
-      requiredState: {},
-    },
-  };
-
-  // Préserver le rule_json complet pour accès ultérieur
-  (chessRule as any).__originalRuleJson = ruleJson;
-
-  return chessRule;
+export function convertRuleJsonToChessRule(ruleJson: unknown): ChessRule {
+  return convertRuleJsonToChessRuleCore(ruleJson, {
+    attachOriginal: true,
+  });
 }
 
 /**
@@ -89,7 +38,12 @@ export async function loadPresetRulesFromDatabase(): Promise<ChessRule[]> {
 
     const converted = data
       .filter((row) => row.rule_json)
-      .map((row) => convertRuleJsonToChessRule(row.rule_json));
+      .map((row) =>
+        convertRuleJsonToChessRuleCore(row.rule_json, {
+          row,
+          attachOriginal: true,
+        }),
+      );
 
     if (converted.length === 0) {
       console.warn(
@@ -125,7 +79,9 @@ export async function loadPresetRuleById(
       return null;
     }
 
-    return convertRuleJsonToChessRule(data.rule_json);
+    return convertRuleJsonToChessRuleCore(data.rule_json, {
+      attachOriginal: true,
+    });
   } catch (error) {
     console.error("[presetRulesAdapter] Failed to load rule:", error);
     return null;
