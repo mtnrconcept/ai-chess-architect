@@ -20,6 +20,7 @@ import NeonBackground from "@/components/layout/NeonBackground";
 import { useAuth } from "@/contexts/AuthContext";
 import { analyzeRuleLogic } from "@/lib/ruleValidation";
 import type { Database } from "@/integrations/supabase/types";
+import { convertRuleJsonToChessRule } from "@/lib/ruleJsonToChessRule";
 
 const PROMPT_MIN = 10;
 const PROMPT_MAX = 800;
@@ -666,15 +667,6 @@ const Generator = () => {
       const actualScope = isRecord(actualRuleJSON.scope)
         ? (actualRuleJSON.scope as Record<string, unknown>)
         : {};
-      const logic = isRecord(actualRuleJSON.logic)
-        ? (actualRuleJSON.logic as Record<string, unknown>)
-        : {};
-      const ui = isRecord(actualRuleJSON.ui)
-        ? (actualRuleJSON.ui as Record<string, unknown>)
-        : {};
-      const assets = isRecord(actualRuleJSON.assets)
-        ? actualRuleJSON.assets
-        : (dbRecord.assets ?? {});
 
       const displayAffectedPieces = Array.isArray(actualScope.affectedPieces)
         ? actualScope.affectedPieces.filter(
@@ -686,34 +678,31 @@ const Generator = () => {
             (tag): tag is string => typeof tag === "string" && tag.length > 0,
           )
         : tags;
-      const uiActions = Array.isArray(ui.actions) ? ui.actions : [];
-      const effects = Array.isArray((logic as { effects?: unknown }).effects)
-        ? ((logic as { effects?: unknown[] }).effects as ChessRule["effects"])
-        : [];
+
+      const convertedRule = convertRuleJsonToChessRule(actualRuleJSON, {
+        row: {
+          ...dbRecord,
+          rule_id: persistedRuleId,
+          rule_name: persistedRuleName,
+          description: persistedDescription,
+          category: persistedCategory,
+          priority: persistedPriority,
+          affected_pieces: displayAffectedPieces,
+          tags: displayTags,
+        },
+        attachOriginal: true,
+      });
 
       const displayRule: ChessRule = {
+        ...convertedRule,
         id: dbRecord.id,
         ruleId: persistedRuleId,
         ruleName: persistedRuleName,
         description: persistedDescription,
         category: persistedCategory as ChessRule["category"],
         affectedPieces: displayAffectedPieces,
-        trigger: "always",
-        conditions: [],
-        effects,
         tags: displayTags,
         priority: persistedPriority,
-        isActive:
-          typeof actualMeta.isActive === "boolean"
-            ? (actualMeta.isActive as boolean)
-            : true,
-        validationRules: {
-          allowedWith: [],
-          conflictsWith: [],
-          requiredState: null,
-        },
-        assets,
-        uiActions,
       };
 
       setGeneratedRule(displayRule);
