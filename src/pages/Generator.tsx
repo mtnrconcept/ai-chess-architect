@@ -611,7 +611,7 @@ const Generator = () => {
           is_functional: true,
           created_by: user.id,
           tags,
-          affected_pieces,
+          affected_pieces: affectedPieces,
           priority: resolvedPriority,
           assets: sanitizedAssetsValue,
           prompt: payload.prompt.trim(),
