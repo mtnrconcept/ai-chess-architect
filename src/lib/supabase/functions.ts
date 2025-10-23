@@ -108,6 +108,119 @@ const shouldRetryFromMessage = (message: string): boolean => {
   );
 };
 
+type SupabaseFunctionError = {
+  status?: number;
+  message?: string;
+  context?: {
+    response?: Response & {
+      clone?: () => Response;
+    };
+  };
+};
+
+const readSupabaseErrorResponse = async (error: unknown): Promise<unknown> => {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+
+  const response = (error as SupabaseFunctionError).context?.response;
+  if (!response) {
+    return undefined;
+  }
+
+  const clone =
+    typeof response.clone === "function" ? response.clone() : response;
+
+  try {
+    return await clone.json();
+  } catch {
+    try {
+      return await clone.text();
+    } catch {
+      return undefined;
+    }
+  }
+};
+
+const stringifyDetails = (details: unknown): string | undefined => {
+  if (details == null) {
+    return undefined;
+  }
+
+  if (typeof details === "string") {
+    return details;
+  }
+
+  if (Array.isArray(details)) {
+    return details
+      .map((entry) => stringifyDetails(entry) ?? JSON.stringify(entry))
+      .filter((part) => typeof part === "string" && part.length > 0)
+      .join(" | ");
+  }
+
+  if (typeof details === "object") {
+    if ("message" in details && typeof details.message === "string") {
+      return details.message;
+    }
+
+    try {
+      return JSON.stringify(details);
+    } catch {
+      return String(details);
+    }
+  }
+
+  return String(details);
+};
+
+const formatSupabaseEdgeFunctionError = (
+  payload: unknown,
+): string | undefined => {
+  if (!payload) {
+    return undefined;
+  }
+
+  if (typeof payload === "string") {
+    return payload;
+  }
+
+  if (typeof payload !== "object") {
+    return undefined;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const parts: string[] = [];
+
+  const error = typeof record.error === "string" ? record.error : undefined;
+  const reason = typeof record.reason === "string" ? record.reason : undefined;
+  const message =
+    typeof record.message === "string" ? record.message : undefined;
+  const details = stringifyDetails(record.details);
+
+  if (error) {
+    parts.push(error);
+  }
+  if (reason && reason !== error) {
+    parts.push(reason);
+  }
+  if (message && message !== error && message !== reason) {
+    parts.push(message);
+  }
+  if (details) {
+    parts.push(details);
+  }
+
+  if (parts.length > 0) {
+    return parts.join(" - ");
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return undefined;
+  }
+};
+
 // Appel robuste avec retry & abort
 export async function invokeGenerateRule(
   body: GenerateRuleRequest,
@@ -148,27 +261,11 @@ export async function invokeGenerateRule(
 
       if (error) {
         const status = getStatusFromError(error);
-        const raw = await (
-          error as { context?: { response?: Response } }
-        )?.context?.response
-          ?.text?.()
-          .catch(() => undefined);
+        const responsePayload = await readSupabaseErrorResponse(error);
 
-        // Try to parse JSON error for better validation messages
-        let message = raw?.length ? raw : toErrorMessage(error);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (parsed.error) {
-              message = parsed.error;
-            }
-            if (parsed.details) {
-              message += ` - ${JSON.stringify(parsed.details)}`;
-            }
-          } catch {
-            // Keep raw message if parsing fails
-          }
-        }
+        const message =
+          formatSupabaseEdgeFunctionError(responsePayload) ??
+          toErrorMessage(error);
 
         if (
           attempt < MAX_RETRY &&
