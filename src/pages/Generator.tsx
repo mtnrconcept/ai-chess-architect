@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { analyzeRuleLogic } from "@/lib/ruleValidation";
 import type { Database } from "@/integrations/supabase/types";
 import { convertRuleJsonToChessRule } from "@/lib/ruleJsonToChessRule";
+import { invokeGenerateRule } from "@/lib/supabase/functions";
 
 const PROMPT_MIN = 10;
 const PROMPT_MAX = 800;
@@ -363,11 +364,6 @@ const Generator = () => {
 
   const generateRule = async () => {
     const trimmed = prompt.trim();
-    console.log("[Generator] generateRule called, prompt value:", {
-      prompt,
-      trimmed,
-      isEmpty: !trimmed,
-    });
 
     if (!trimmed) {
       toast({
@@ -390,111 +386,11 @@ const Generator = () => {
     setGeneratedIssues([]);
     setGeneratedRule(null);
 
-    console.log(
-      "[Generator] Invoking generate-chess-rule with prompt:",
-      trimmed.slice(0, 50) + "...",
-      "Full payload:",
-      { prompt: trimmed },
-    );
-
     try {
-      const aborter = new AbortController();
-
-      const res = await invokeWithTimeoutAndRetry(
-        "generate-chess-rule",
-        { prompt: trimmed },
-        aborter.signal,
-      );
-
-      if (!res.ok) {
-        const description = getSupabaseFunctionErrorMessage(
-          (res as { ok: false; error: Error }).error,
-          "Erreur lors de la génération de la règle",
-        );
-        toast({ title: "Erreur", description, variant: "destructive" });
-        return;
-      }
-
-      const data = res.payload;
-
-      const payloadRecord = isRecord(data) ? data : undefined;
-      const nestedDataRecord = isRecord(payloadRecord?.data)
-        ? (payloadRecord?.data as Record<string, unknown>)
-        : undefined;
-      const resultRecord = isRecord(payloadRecord?.result)
-        ? (payloadRecord.result as Record<string, unknown>)
-        : isRecord(nestedDataRecord?.result)
-          ? (nestedDataRecord?.result as Record<string, unknown>)
-          : undefined;
-
-      // La fonction renvoie { ok:true, result:{rule:...} } depuis l'Edge Function
-      // mais on garde la compatibilité avec d'anciennes variantes { rule } ou { data: { rule } }.
-      const ruleEnvelope =
-        resultRecord?.rule ??
-        (payloadRecord && "rule" in payloadRecord
-          ? payloadRecord.rule
-          : undefined) ??
-        (nestedDataRecord && "rule" in nestedDataRecord
-          ? nestedDataRecord.rule
-          : undefined) ??
-        data;
-      if (!ruleEnvelope) {
-        toast({
-          title: "Erreur",
-          description: "Réponse inattendue du générateur (aucune règle reçue).",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const rawError =
-        payloadRecord && "error" in payloadRecord
-          ? payloadRecord.error
-          : undefined;
-      if (typeof rawError !== "undefined") {
-        // Cas où la fonction renvoie { error, details? }
-        const rawDetails =
-          payloadRecord && "details" in payloadRecord
-            ? payloadRecord.details
-            : undefined;
-        const detailsJoined = Array.isArray(rawDetails)
-          ? rawDetails
-              .map((detail) => {
-                if (typeof detail === "string") {
-                  return detail;
-                }
-                if (isRecord(detail)) {
-                  const message =
-                    typeof detail.message === "string"
-                      ? detail.message
-                      : undefined;
-                  const path =
-                    typeof detail.path === "string" ? detail.path : undefined;
-                  const combined = [path, message]
-                    .filter(
-                      (part): part is string =>
-                        typeof part === "string" && part.length > 0,
-                    )
-                    .join(": ");
-                  return combined.length > 0 ? combined : undefined;
-                }
-                return undefined;
-              })
-              .filter(
-                (entry): entry is string =>
-                  typeof entry === "string" && entry.length > 0,
-              )
-              .join(" — ")
-          : typeof rawDetails === "string"
-            ? rawDetails
-            : undefined;
-
-        throw new Error(
-          detailsJoined && detailsJoined.length > 0
-            ? detailsJoined
-            : serializeUnknown(rawError),
-        );
-      }
+      const ruleEnvelope = await invokeGenerateRule({
+        prompt: trimmed,
+        options: { locale: "fr-CH", dryRun: false },
+      });
 
       let rawRule: unknown = ruleEnvelope;
 
@@ -575,21 +471,10 @@ const Generator = () => {
           )
         : [];
 
-      const promptHashValue =
-        typeof resultRecord?.promptHash === "string"
-          ? (resultRecord.promptHash as string)
-          : null;
-      const rawModelResponse = isRecord(resultRecord?.rawModelResponse)
-        ? (resultRecord?.rawModelResponse as Record<string, unknown>)
-        : undefined;
-      const aiModel =
-        rawModelResponse && typeof rawModelResponse.provider === "string"
-          ? (rawModelResponse.provider as string)
-          : null;
-      const generationDuration =
-        rawModelResponse && typeof rawModelResponse.durationMs === "number"
-          ? (rawModelResponse.durationMs as number)
-          : null;
+      const promptHashValue = null;
+      const rawModelResponse = undefined;
+      const aiModel = null;
+      const generationDuration = null;
 
       const sanitizedAssetsValue =
         (
@@ -614,7 +499,7 @@ const Generator = () => {
           affected_pieces: affectedPieces,
           priority: resolvedPriority,
           assets: sanitizedAssetsValue,
-          prompt: payload.prompt.trim(),
+          prompt: trimmed,
           prompt_key: promptHashValue,
           ai_model: aiModel,
           generation_duration_ms: generationDuration,

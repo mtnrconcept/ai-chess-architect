@@ -13,16 +13,18 @@ export interface ValidationResult {
 
 const KNOWN_ACTIONS = new Set([
   "tile.setTrap", "tile.clearTrap", "tile.resolveTrap",
-  "piece.spawn", "piece.capture", "piece.move", "piece.duplicate", "piece.setInvisible",
-  "status.add", "status.remove", "status.tickAll",
+  "piece.spawn", "piece.capture", "piece.move", "piece.duplicate", "piece.setInvisible", "piece.teleport", "piece.swap", "piece.morph",
+  "status.add", "status.remove", "status.tickAll", "status.apply",
   "vfx.play", "audio.play", "ui.toast",
   "cooldown.set", "turn.end", 
   "state.set", "state.inc", "state.delete", "state.pushUndo",
-  "board.capture", "board.areaEffect", // board.capture = alias de piece.capture
+  "board.capture", "board.areaEffect",
   "vfx.spawnDecal", "vfx.clearDecal", "vfx.playAnimation", "vfx.playAudio",
   "decal.set", "decal.clear",
   "area.forEachTile", "composite",
-  "intent.cancel"
+  "intent.cancel",
+  "hazard.spawn", "hazard.clear", "hazard.resolve",
+  "projectile.spawn"
 ]);
 
 export function validateRuleJSON(rule: unknown): ValidationResult {

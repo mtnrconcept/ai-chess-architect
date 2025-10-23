@@ -163,10 +163,10 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
   const deserializeState = useCallback((state: unknown) => {
     if (!contractsRef.current || !state || typeof state !== "object") return;
     const payload = state as { rules?: unknown; cooldowns?: unknown };
-    if (payload.rules) {
+    if (payload.rules && typeof payload.rules === "string") {
       contractsRef.current.state.deserialize(payload.rules);
     }
-    if (payload.cooldowns) {
+    if (payload.cooldowns && typeof payload.cooldowns === "string") {
       contractsRef.current.cooldown.deserialize(payload.cooldowns);
     }
   }, []);

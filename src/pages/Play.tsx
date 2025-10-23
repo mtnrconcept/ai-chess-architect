@@ -900,7 +900,8 @@ const Play = () => {
       const originalJson = ruleAsAny.__originalRuleJson;
       if (!originalJson || typeof originalJson !== "object") return;
 
-      const meta = (originalJson as RuleJSON).meta ?? {};
+      const parsed = originalJson as RuleJSON;
+      const meta = parsed.meta ?? { ruleId: rule.ruleId };
       const ruleId =
         (typeof meta.ruleId === "string" && meta.ruleId.length > 0
           ? meta.ruleId
@@ -1608,10 +1609,10 @@ const Play = () => {
         .filter((message) => message.role !== "system")
         .slice(-8)
         .map((message) => ({
-          role: message.role === "coach" ? "assistant" : "user",
+          role: (message.role === "coach" ? "assistant" : "user") as "assistant" | "user",
           content: message.content,
         })),
-      { role: "user", content: trimmed },
+      { role: "user" as const, content: trimmed },
     ].slice(-8);
 
     const userMessage: CoachChatMessage = {

@@ -402,8 +402,8 @@ const deriveAbilityParameters = (
     collected.maxPerPiece = action.maxPerPiece;
   }
 
-  if (toString(action.buttonLabel)) {
-    collected.buttonLabel = toString(action.buttonLabel);
+  if (toString(action.label)) {
+    collected.buttonLabel = toString(action.label);
   }
 
   if (toRecord(action.targeting)) {
