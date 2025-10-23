@@ -415,6 +415,9 @@ Deno.serve(async (req: Request) => {
       { status: 405, headers: { allow: "GET, POST" } },
     );
   }
+  if (!supabase) {
+    return jsonResponse(req, { error: "backend_unavailable" }, { status: 503 });
+  }
 
   const { data, error } = await supabase
     .from("api_registry")

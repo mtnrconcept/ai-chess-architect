@@ -148,7 +148,7 @@ serve(async (req) => {
         dryRun: dryRunResult,
         promptHash: promptFingerprint,
         correlationId,
-        rawModelResponse: modelResult.raw,
+        rawModelResponse: modelResult.raw as JsonRecord,
       },
     };
 
@@ -288,20 +288,22 @@ async function generateRuleWithModel(prompt: string, payload: GenerateRuleReq) {
     throw new Error("model_response_empty");
   }
 
-  if (!parsed.rule && !parsed.rule_json) {
+  let parsedRecord: JsonRecord = parsed as JsonRecord;
+
+  if (!("rule" in parsedRecord) && !("rule_json" in parsedRecord)) {
     // Some prompts might return the rule directly
-    parsed = { rule: parsed };
+    parsedRecord = { rule: parsedRecord } as JsonRecord;
   }
 
-  const ruleCandidate = parsed.rule ?? parsed.rule_json;
+  const ruleCandidate = (parsedRecord as any).rule ?? (parsedRecord as any).rule_json;
   if (!isRecord(ruleCandidate)) {
     throw new Error("model_response_missing_rule");
   }
 
   return {
     rule: ruleCandidate,
-    raw: parsed,
-    provider: typeof parsed.provider === "string" ? parsed.provider : undefined,
+    raw: parsedRecord,
+    provider: typeof (parsedRecord as any).provider === "string" ? (parsedRecord as any).provider : undefined,
   };
 }
 
