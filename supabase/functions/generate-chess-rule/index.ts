@@ -15,6 +15,7 @@ import {
   promptHash,
 } from "../_shared/identity.ts";
 import { trackEvent } from "../_shared/telemetry.ts";
+import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
 
 type ConversationMessage = {
   role: "user" | "assistant";
@@ -82,7 +83,6 @@ type GenerateRuleErrorResponse = {
 };
 
 const DEFAULT_LOCALE = "fr-CH";
-const MIN_PROMPT_LENGTH = 8;
 const MAX_PROMPT_LENGTH = 2000;
 
 serve(async (req) => {
@@ -308,8 +308,13 @@ function validateRequestPayload(body: GenerateRuleReq): string[] {
     issues.push("prompt: doit être une chaîne si présent");
   } else if (typeof body.prompt === "string") {
     const trimmed = body.prompt.trim();
-    if (trimmed.length > 0 && trimmed.length < MIN_PROMPT_LENGTH) {
-      issues.push(`prompt: au moins ${MIN_PROMPT_LENGTH} caractères`);
+    if (
+      trimmed.length > 0 &&
+      trimmed.length < RULE_GENERATOR_MIN_PROMPT_LENGTH
+    ) {
+      issues.push(
+        `prompt: au moins ${RULE_GENERATOR_MIN_PROMPT_LENGTH} caractères`,
+      );
     }
     if (trimmed.length > MAX_PROMPT_LENGTH) {
       issues.push(`prompt: maximum ${MAX_PROMPT_LENGTH} caractères`);
@@ -792,7 +797,7 @@ function selectPromptForContext(
   trimmedPrompt: string,
   conversation: ConversationMessage[],
 ): string {
-  if (trimmedPrompt.length >= MIN_PROMPT_LENGTH) {
+  if (trimmedPrompt.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH) {
     return trimmedPrompt;
   }
 
