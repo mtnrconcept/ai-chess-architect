@@ -1,5 +1,5 @@
 // /src/features/rules/Generator.tsx
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   invokeRuleGeneratorChat,
   type GeneratedRule,
@@ -49,6 +49,11 @@ type UiMessage =
       question: RuleGeneratorNeedInfoQuestion;
     }
   | { id: string; role: "system"; content: string; variant?: "error" | "info" };
+
+const isQuestionMessage = (
+  message: UiMessage,
+): message is Extract<UiMessage, { question: RuleGeneratorNeedInfoQuestion }> =>
+  "question" in message;
 
 const buildQuestionContent = (
   question: RuleGeneratorNeedInfoQuestion,
@@ -130,6 +135,7 @@ export default function RuleGenerator({
   const [selectedOptions, setSelectedOptions] = useState<
     Record<string, string | null>
   >({});
+  const isSendingAnswersRef = useRef(false);
 
   const hasFinished = readyResult !== null;
 
@@ -145,26 +151,35 @@ export default function RuleGenerator({
 
   const hasPendingQuestions = !hasFinished && latestQuestionMessage !== null;
 
+  const activeQuestionMessage =
+    hasPendingQuestions &&
+    latestQuestionMessage !== null &&
+    isQuestionMessage(latestQuestionMessage)
+      ? latestQuestionMessage
+      : null;
+  const isActiveQuestionMultiSelect =
+    activeQuestionMessage?.question.allowMultiple === true;
+
   const answeredQuestionCount = useMemo(() => {
-    if (!latestQuestionMessage) {
+    if (!activeQuestionMessage) {
       return 0;
     }
 
-    const key = `${latestQuestionMessage.id}-0`;
+    const key = `${activeQuestionMessage.id}-0`;
     return selectedOptions[key] ? 1 : 0;
-  }, [latestQuestionMessage, selectedOptions]);
+  }, [activeQuestionMessage, selectedOptions]);
 
   const totalQuestionCount = latestQuestionMessage ? 1 : 0;
 
   const canSubmitQuestionAnswers = useMemo(() => {
-    if (!hasPendingQuestions || !latestQuestionMessage) {
+    if (!hasPendingQuestions || !activeQuestionMessage) {
       return false;
     }
 
-    const key = `${latestQuestionMessage.id}-0`;
+    const key = `${activeQuestionMessage.id}-0`;
     const answer = selectedOptions[key];
     return typeof answer === "string" && answer.length > 0;
-  }, [hasPendingQuestions, latestQuestionMessage, selectedOptions]);
+  }, [hasPendingQuestions, activeQuestionMessage, selectedOptions]);
 
   const processConversation = async (
     userContent: string,
@@ -288,25 +303,34 @@ export default function RuleGenerator({
     }
   };
 
-  const sendAnswers = async () => {
+  const sendAnswers = async (override?: {
+    questionMessage: Extract<
+      UiMessage,
+      { question: RuleGeneratorNeedInfoQuestion }
+    >;
+    answer: string;
+  }) => {
+    const questionMessage = override?.questionMessage ?? activeQuestionMessage;
+
     if (
-      !latestQuestionMessage ||
-      !("question" in latestQuestionMessage) ||
+      !questionMessage ||
       loading ||
       disabled ||
       hasFinished ||
-      !canSubmitQuestionAnswers
+      (!override && !canSubmitQuestionAnswers)
     ) {
       return;
     }
 
-    const key = `${latestQuestionMessage.id}-0`;
-    const selected = selectedOptions[key];
-    if (!selected) {
+    const key = `${questionMessage.id}-0`;
+    const selected = override?.answer ?? selectedOptions[key];
+    if (!selected || isSendingAnswersRef.current) {
       return;
     }
 
-    const answerSection = `${latestQuestionMessage.question.question}\nRéponse: ${selected}`;
+    isSendingAnswersRef.current = true;
+
+    const answerSection = `${questionMessage.question.question}\nRéponse: ${selected}`;
     const additionalNotes = inputValue.trim();
     const combinedContent =
       additionalNotes.length > 0
@@ -315,7 +339,11 @@ export default function RuleGenerator({
 
     setSelectedOptions({});
     setInputValue("");
-    await processConversation(combinedContent, false);
+    try {
+      await processConversation(combinedContent, false);
+    } finally {
+      isSendingAnswersRef.current = false;
+    }
   };
 
   const handleSendMessage = async () => {
@@ -346,20 +374,42 @@ export default function RuleGenerator({
     setWarnings([]);
   };
 
-  const selectAnswer = (messageId: string, option: string) => {
+  const toggleAnswer = (
+    message: Extract<UiMessage, { question: RuleGeneratorNeedInfoQuestion }>,
+    option: string,
+  ) => {
+    if (isSendingAnswersRef.current) {
+      return;
+    }
+
+    let nextSelection: string | null = null;
+
     setSelectedOptions((prev) => {
-      const key = `${messageId}-0`;
+      const key = `${message.id}-0`;
       const current = prev[key] ?? null;
       const next: Record<string, string | null> = { ...prev };
 
       if (current === option) {
         next[key] = null;
+        nextSelection = null;
       } else {
         next[key] = option;
+        nextSelection = option;
       }
 
       return next;
     });
+
+    if (
+      nextSelection &&
+      activeQuestionMessage?.id === message.id &&
+      message.question.allowMultiple !== true
+    ) {
+      void sendAnswers({
+        questionMessage: message,
+        answer: nextSelection,
+      });
+    }
   };
 
   const canSend = useMemo(() => {
@@ -386,8 +436,13 @@ export default function RuleGenerator({
     : "Envoyer";
 
   const textareaPlaceholder = hasPendingQuestions
-    ? "Ajoutez des précisions optionnelles (facultatif)..."
+    ? isActiveQuestionMultiSelect
+      ? "Sélectionnez vos réponses puis ajoutez des précisions optionnelles..."
+      : "Ajoutez des précisions optionnelles avant de sélectionner une réponse (envoi automatique)..."
     : "Décrivez votre idée de règle d'échecs...";
+
+  const canShowSubmitButton =
+    !hasPendingQuestions || isActiveQuestionMultiSelect;
 
   const chatPanel = (
     <div className="space-y-4">
@@ -412,7 +467,7 @@ export default function RuleGenerator({
                           {message.question.question}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          Sélectionnez une seule réponse.
+                          Sélectionnez une seule réponse (envoi automatique).
                         </span>
                       </div>
 
@@ -431,7 +486,7 @@ export default function RuleGenerator({
                               } ${isSelected ? "border-primary bg-primary/10" : ""}`}
                               onClick={() => {
                                 if (canInteract) {
-                                  selectAnswer(message.id, option);
+                                  toggleAnswer(message, option);
                                 }
                               }}
                             >
@@ -518,18 +573,20 @@ export default function RuleGenerator({
             />
 
             <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => {
-                  if (hasPendingQuestions) {
-                    void sendAnswers();
-                  } else {
-                    void handleSendMessage();
-                  }
-                }}
-                disabled={!canSend}
-              >
-                {submitLabel}
-              </Button>
+              {canShowSubmitButton && (
+                <Button
+                  onClick={() => {
+                    if (hasPendingQuestions) {
+                      void sendAnswers();
+                    } else {
+                      void handleSendMessage();
+                    }
+                  }}
+                  disabled={!canSend}
+                >
+                  {submitLabel}
+                </Button>
+              )}
 
               <Button
                 type="button"
