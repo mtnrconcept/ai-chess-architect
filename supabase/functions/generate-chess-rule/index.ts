@@ -2,6 +2,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
 import {
+  AiProviderHTTPError,
   invokeChatCompletion,
   MissingApiKeyError,
 } from "../_shared/ai-providers.ts";
@@ -258,6 +259,26 @@ serve(async (req) => {
       );
     }
 
+    if (error instanceof AiProviderHTTPError) {
+      const details = buildAiProviderHttpErrorDetails(error);
+
+      trackEvent("generate_chess_rule.failed", {
+        correlationId,
+        error: error.message,
+        provider: error.provider,
+        status: error.status,
+      });
+
+      return jsonResponse(
+        {
+          ok: false,
+          error: "ai_provider_error",
+          details,
+        },
+        mapAiProviderHttpStatus(error.status),
+      );
+    }
+
     const message = error instanceof Error ? error.message : String(error);
 
     trackEvent("generate_chess_rule.failed", {
@@ -351,6 +372,39 @@ function validateRequestPayload(body: GenerateRuleReq): string[] {
   }
 
   return issues;
+}
+
+function buildAiProviderHttpErrorDetails(error: AiProviderHTTPError) {
+  const trimmed = error.responseText.trim().slice(0, 500);
+  const preview = trimmed.length > 0 ? trimmed : "<empty>";
+
+  let message = `Le fournisseur ${error.provider} a renvoyé une erreur (HTTP ${error.status}).`;
+  if (error.status === 401 || error.status === 403) {
+    message =
+      `Le fournisseur ${error.provider} a rejeté l'authentification (HTTP ${error.status}). ` +
+      "Vérifiez la clé API configurée pour ce service.";
+  } else if (error.status >= 500) {
+    message =
+      `Le fournisseur ${error.provider} semble indisponible (HTTP ${error.status}). ` +
+      "Réessayez un peu plus tard.";
+  }
+
+  return {
+    message,
+    provider: error.provider,
+    status: error.status,
+    responsePreview: preview,
+  };
+}
+
+function mapAiProviderHttpStatus(status: number): number {
+  if (status === 401 || status === 403) {
+    return 503;
+  }
+  if (status >= 500) {
+    return 502;
+  }
+  return 500;
 }
 
 async function generateRuleWithModel(params: {

@@ -145,7 +145,50 @@ const readErrorResponseText = async (
   if (!textFn) return undefined;
 
   try {
-    return await textFn.call(response);
+    const raw = await textFn.call(response);
+    if (!raw) return undefined;
+
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object") {
+        const details = (parsed as Record<string, unknown>).details;
+
+        if (typeof details === "string" && details.trim().length > 0) {
+          return details.trim();
+        }
+
+        if (Array.isArray(details)) {
+          const joined = details
+            .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+            .filter((entry) => entry.length > 0)
+            .join("\n");
+          if (joined.length > 0) {
+            return joined;
+          }
+        }
+
+        if (details && typeof details === "object") {
+          const message = (details as Record<string, unknown>).message;
+          if (typeof message === "string" && message.trim().length > 0) {
+            return message.trim();
+          }
+        }
+
+        const errorLabel = (parsed as Record<string, unknown>).error;
+        if (typeof errorLabel === "string" && errorLabel.trim().length > 0) {
+          return errorLabel.trim();
+        }
+      }
+    } catch {
+      // raw n'est pas un JSON valide : on renvoie le texte brut
+    }
+
+    return trimmed;
   } catch {
     return undefined;
   }
@@ -1609,7 +1652,9 @@ const Play = () => {
         .filter((message) => message.role !== "system")
         .slice(-8)
         .map((message) => ({
-          role: (message.role === "coach" ? "assistant" : "user") as "assistant" | "user",
+          role: (message.role === "coach" ? "assistant" : "user") as
+            | "assistant"
+            | "user",
           content: message.content,
         })),
       { role: "user" as const, content: trimmed },
