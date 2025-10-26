@@ -3,9 +3,15 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type GeneratedRule = Record<string, unknown>;
 
+export type RuleGeneratorNeedInfoQuestion = {
+  question: string;
+  options: string[];
+  allowMultiple?: boolean;
+};
+
 type SupabaseNeedInfoResult = {
   status: "need_info";
-  questions: string[];
+  questions: RuleGeneratorNeedInfoQuestion[];
   prompt: string;
   promptHash?: string;
   correlationId?: string;
@@ -368,12 +374,7 @@ export async function invokeRuleGeneratorChat(
   const result = ensureResultRecord(response);
 
   if (result.status === "need_info") {
-    const questions = Array.isArray(result.questions)
-      ? result.questions.filter(
-          (entry): entry is string =>
-            typeof entry === "string" && entry.length > 0,
-        )
-      : [];
+    const questions = normalizeNeedInfoQuestions(result.questions);
 
     return {
       status: "need_info",
@@ -404,6 +405,62 @@ export async function invokeRuleGeneratorChat(
   };
 }
 
+function normalizeNeedInfoQuestions(
+  raw: unknown,
+): RuleGeneratorNeedInfoQuestion[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const normalized: RuleGeneratorNeedInfoQuestion[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const questionValue = record["question"];
+    const optionsValue = record["options"];
+
+    if (typeof questionValue !== "string") {
+      continue;
+    }
+
+    const trimmedQuestion = questionValue.trim();
+    if (!trimmedQuestion) {
+      continue;
+    }
+
+    const options = Array.isArray(optionsValue)
+      ? optionsValue
+          .map((option) =>
+            typeof option === "string" ? option.trim() : undefined,
+          )
+          .filter(
+            (option): option is string =>
+              typeof option === "string" && option.length > 0,
+          )
+      : [];
+
+    if (options.length === 0) {
+      continue;
+    }
+
+    const allowMultipleValue = record["allowMultiple"];
+    const allowMultiple =
+      typeof allowMultipleValue === "boolean" ? allowMultipleValue : undefined;
+
+    normalized.push({
+      question: trimmedQuestion,
+      options,
+      allowMultiple,
+    });
+  }
+
+  return normalized;
+}
+
 // Compatibilité avec l'ancien flux monolithique
 export async function invokeGenerateRule(
   body: GenerateRuleRequest,
@@ -424,7 +481,11 @@ export async function invokeGenerateRule(
   });
 
   if (result.status !== "ready") {
-    const followUps = result.questions?.join(" | ");
+    const followUps = result.questions
+      ?.map(
+        (question) => `${question.question} (${question.options.join(", ")})`,
+      )
+      .join(" | ");
     throw new Error(
       followUps
         ? `Informations supplémentaires requises: ${followUps}`
