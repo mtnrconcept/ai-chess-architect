@@ -41,9 +41,15 @@ type RuleCandidate = JsonRecord & {
   meta?: JsonRecord;
 };
 
+type NeedInfoQuestion = {
+  question: string;
+  options: string[];
+  allowMultiple?: boolean;
+};
+
 type NeedInfoResult = {
   status: "need_info";
-  questions: string[];
+  questions: NeedInfoQuestion[];
   prompt: string;
   promptHash: string;
   correlationId: string;
@@ -369,9 +375,9 @@ async function generateRuleWithModel(params: {
   const { content } = await invokeChatCompletion({
     messages: [
       { role: "system" as const, content: systemContent },
-      ...conversationMessages.map(msg => ({ 
+      ...conversationMessages.map((msg) => ({
         role: msg.role as "user" | "assistant",
-        content: msg.content 
+        content: msg.content,
       })),
     ],
     temperature,
@@ -408,16 +414,7 @@ async function generateRuleWithModel(params: {
 
   if (status === "need_info") {
     const questionsRaw = parsedRecord["questions"];
-    const questions = Array.isArray(questionsRaw)
-      ? questionsRaw
-          .map((entry: unknown) =>
-            typeof entry === "string" ? entry.trim() : undefined,
-          )
-          .filter(
-            (question): question is string =>
-              typeof question === "string" && question.length > 0,
-          )
-      : [];
+    const questions = parseNeedInfoQuestions(questionsRaw);
 
     if (questions.length === 0) {
       throw new Error("model_response_missing_questions");
@@ -538,8 +535,16 @@ ${context.boardSummary}
 Quand les informations sont insuffisantes pour décrire précisément la règle, tu dois répondre STRICTEMENT avec un JSON de la forme:
 {
   "status": "need_info",
-  "questions": ["question complémentaire 1", "question complémentaire 2", ...]
+  "questions": [
+    {
+      "question": "question complémentaire 1",
+      "options": ["option A", "option B", "option C"],
+      "allowMultiple": false
+    }
+  ]
 }
+Chaque objet "questions" DOIT contenir au moins trois "options" claires et exclusives (ajoute "Autre (précisez)" si nécessaire).
+"allowMultiple" est optionnel et ne doit être présent que si plusieurs réponses peuvent être sélectionnées.
 Pose au maximum trois questions courtes et ciblées à la fois, en évitant les répétitions et en tenant compte des réponses déjà apportées.
 
 Une fois que tu disposes de tous les détails nécessaires, tu dois répondre STRICTEMENT avec un JSON conforme au schéma suivant.
@@ -637,6 +642,60 @@ ACTIONS DISPONIBLES (namespace.action):
 Ne mets jamais de markdown ni de texte hors JSON. Suis strictement ces formats.`;
 
   return basePrompt;
+}
+
+function parseNeedInfoQuestions(raw: unknown): NeedInfoQuestion[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const questions: NeedInfoQuestion[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const questionValue = record["question"];
+    const optionsValue = record["options"];
+
+    if (typeof questionValue !== "string") {
+      continue;
+    }
+
+    const trimmedQuestion = questionValue.trim();
+    if (!trimmedQuestion) {
+      continue;
+    }
+
+    const options = Array.isArray(optionsValue)
+      ? optionsValue
+          .map((option) =>
+            typeof option === "string" ? option.trim() : undefined,
+          )
+          .filter(
+            (option): option is string =>
+              typeof option === "string" && option.length > 0,
+          )
+      : [];
+
+    if (options.length === 0) {
+      continue;
+    }
+
+    const allowMultipleValue = record["allowMultiple"];
+    const allowMultiple =
+      typeof allowMultipleValue === "boolean" ? allowMultipleValue : undefined;
+
+    questions.push({
+      question: trimmedQuestion,
+      options,
+      allowMultiple,
+    });
+  }
+
+  return questions;
 }
 
 function sanitizeConversation(

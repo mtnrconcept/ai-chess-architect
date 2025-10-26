@@ -6,6 +6,7 @@ import {
   type RuleGeneratorChatMessage,
   type RuleGeneratorChatResult,
   type RuleGeneratorReady,
+  type RuleGeneratorNeedInfoQuestion,
 } from "@/lib/supabase/functions";
 import {
   transformAiRuleToEngineRule,
@@ -42,11 +43,30 @@ const toErrorMessage = (value: unknown): string => {
 
 type UiMessage =
   | { id: string; role: "assistant" | "user"; content: string }
-  | { id: string; role: "assistant"; questions: string[]; selectedAnswers?: string[] }
+  | {
+      id: string;
+      role: "assistant";
+      questions: RuleGeneratorNeedInfoQuestion[];
+    }
   | { id: string; role: "system"; content: string; variant?: "error" | "info" };
 
-const buildQuestionsContent = (questions: string[]): string =>
-  questions.map((question, index) => `${index + 1}. ${question}`).join("\n");
+const buildQuestionsContent = (
+  questions: RuleGeneratorNeedInfoQuestion[],
+): string =>
+  questions
+    .map((question, index) => {
+      const optionsList = question.options
+        .map(
+          (option, optionIndex) =>
+            `${String.fromCharCode(97 + optionIndex)}) ${option}`,
+        )
+        .join(", ");
+      const multiLabel = question.allowMultiple
+        ? " (choix multiples autorisés)"
+        : "";
+      return `${index + 1}. ${question.question}${multiLabel}\nOptions: ${optionsList}`;
+    })
+    .join("\n\n");
 
 const buildAssistantSummary = (result: RuleGeneratorReady): string => {
   const rawMeta =
@@ -113,11 +133,53 @@ export default function RuleGenerator({
   );
   const [engineResult, setEngineResult] = useState<RuleJSON | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [selectedAnswers, setSelectedAnswers] = useState<Set<string>>(new Set());
+  const [selectedAnswers, setSelectedAnswers] = useState<
+    Record<string, string[]>
+  >({});
 
   const hasFinished = readyResult !== null;
 
-  const processConversation = async (userContent: string, isInitialPrompt: boolean) => {
+  const latestQuestionMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if ("questions" in message) {
+        return message;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const hasPendingQuestions = !hasFinished && latestQuestionMessage !== null;
+
+  const answeredQuestionCount = useMemo(() => {
+    if (!latestQuestionMessage) {
+      return 0;
+    }
+
+    return latestQuestionMessage.questions.reduce((count, _question, index) => {
+      const key = `${latestQuestionMessage.id}-${index}`;
+      const answers = selectedAnswers[key] ?? [];
+      return answers.length > 0 ? count + 1 : count;
+    }, 0);
+  }, [latestQuestionMessage, selectedAnswers]);
+
+  const totalQuestionCount = latestQuestionMessage?.questions.length ?? 0;
+
+  const canSubmitQuestionAnswers = useMemo(() => {
+    if (!hasPendingQuestions || !latestQuestionMessage) {
+      return false;
+    }
+
+    return latestQuestionMessage.questions.every((_question, index) => {
+      const key = `${latestQuestionMessage.id}-${index}`;
+      return (selectedAnswers[key]?.length ?? 0) > 0;
+    });
+  }, [hasPendingQuestions, latestQuestionMessage, selectedAnswers]);
+
+  const processConversation = async (
+    userContent: string,
+    isInitialPrompt: boolean,
+  ) => {
     const userMessage: RuleGeneratorChatMessage = {
       role: "user",
       content: userContent,
@@ -150,8 +212,9 @@ export default function RuleGenerator({
         setConversation((prevConv) => [...prevConv, assistantMessage]);
         setMessages((prev) => [
           ...prev,
-          { id: createMessageId(), role: "assistant", questions, selectedAnswers: [] },
+          { id: createMessageId(), role: "assistant", questions },
         ]);
+        setSelectedAnswers({});
       } else {
         setReadyResult(result);
         const summary = buildAssistantSummary(result);
@@ -231,18 +294,39 @@ export default function RuleGenerator({
   };
 
   const sendAnswers = async () => {
-    if (selectedAnswers.size === 0 || loading || disabled) {
+    if (
+      !latestQuestionMessage ||
+      loading ||
+      disabled ||
+      hasFinished ||
+      !canSubmitQuestionAnswers
+    ) {
       return;
     }
 
-    const answersText = Array.from(selectedAnswers).join(", ");
-    setSelectedAnswers(new Set());
-    await processConversation(answersText, false);
+    const answerSections = latestQuestionMessage.questions.map(
+      (question, index) => {
+        const key = `${latestQuestionMessage.id}-${index}`;
+        const answers = selectedAnswers[key] ?? [];
+        const formattedAnswers = answers.join(", ");
+        return `${index + 1}. ${question.question}\nRéponse: ${formattedAnswers}`;
+      },
+    );
+
+    const additionalNotes = inputValue.trim();
+    const combinedContent =
+      additionalNotes.length > 0
+        ? `${answerSections.join("\n\n")}\n\nPrécisions supplémentaires: ${additionalNotes}`
+        : answerSections.join("\n\n");
+
+    setSelectedAnswers({});
+    setInputValue("");
+    await processConversation(combinedContent, false);
   };
 
   const sendMessage = async () => {
     const trimmed = inputValue.trim();
-    if (!trimmed || loading || disabled) {
+    if (!trimmed || loading || disabled || hasFinished || hasPendingQuestions) {
       return;
     }
 
@@ -261,29 +345,75 @@ export default function RuleGenerator({
       },
     ]);
     setInputValue("");
-    setSelectedAnswers(new Set());
+    setSelectedAnswers({});
     setErrorMessage(null);
     setReadyResult(null);
     setEngineResult(null);
     setWarnings([]);
   };
 
-  const toggleAnswer = (answer: string) => {
+  const toggleAnswer = (
+    messageId: string,
+    questionIndex: number,
+    option: string,
+    allowMultiple?: boolean,
+  ) => {
     setSelectedAnswers((prev) => {
-      const next = new Set(prev);
-      if (next.has(answer)) {
-        next.delete(answer);
+      const key = `${messageId}-${questionIndex}`;
+      const next: Record<string, string[]> = { ...prev };
+      const current = new Set(next[key] ?? []);
+
+      if (allowMultiple) {
+        if (current.has(option)) {
+          current.delete(option);
+        } else {
+          current.add(option);
+        }
       } else {
-        next.add(answer);
+        if (current.has(option) && current.size === 1) {
+          current.clear();
+        } else {
+          current.clear();
+          current.add(option);
+        }
       }
+
+      if (current.size === 0) {
+        delete next[key];
+      } else {
+        next[key] = Array.from(current);
+      }
+
       return next;
     });
   };
 
-  const canSend = useMemo(
-    () => inputValue.trim().length > 0 && !loading && !disabled && !hasFinished,
-    [inputValue, loading, disabled, hasFinished],
-  );
+  const canSend = useMemo(() => {
+    if (loading || disabled || hasFinished) {
+      return false;
+    }
+
+    if (hasPendingQuestions) {
+      return canSubmitQuestionAnswers;
+    }
+
+    return inputValue.trim().length > 0;
+  }, [
+    loading,
+    disabled,
+    hasFinished,
+    hasPendingQuestions,
+    canSubmitQuestionAnswers,
+    inputValue,
+  ]);
+
+  const submitLabel = hasPendingQuestions
+    ? `Valider (${answeredQuestionCount}/${Math.max(totalQuestionCount, 1)})`
+    : "Envoyer";
+
+  const textareaPlaceholder = hasPendingQuestions
+    ? "Ajoutez des précisions optionnelles (facultatif)..."
+    : "Décrivez votre idée de règle d'échecs...";
 
   const chatPanel = (
     <div className="space-y-4">
@@ -291,39 +421,76 @@ export default function RuleGenerator({
         <div className="space-y-3 max-h-96 overflow-y-auto rounded-lg border p-4 bg-muted/30">
           {messages.map((message) => {
             if ("questions" in message) {
-              const isLatestQuestion = message.id === messages[messages.length - 1]?.id;
+              const isLatestQuestion = latestQuestionMessage?.id === message.id;
+              const canInteract = isLatestQuestion && !loading && !hasFinished;
               return (
                 <div key={message.id} className="flex flex-col gap-3">
                   <div className="font-semibold text-sm text-primary">
                     Assistant
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {message.questions.map((question, index) => {
-                      const answerId = `${message.id}-${index}`;
-                      const isSelected = selectedAnswers.has(question);
+                      const questionKey = `${message.id}-${index}`;
+                      const selectedForQuestion =
+                        selectedAnswers[questionKey] ?? [];
+                      const helperText = question.allowMultiple
+                        ? "Vous pouvez sélectionner plusieurs réponses."
+                        : "Sélectionnez une seule réponse.";
+
                       return (
                         <div
-                          key={answerId}
-                          className={`group relative flex items-start gap-3 rounded-lg border p-3 transition-all ${
-                            isLatestQuestion && !loading
-                              ? "cursor-pointer hover:border-primary hover:bg-primary/5"
-                              : "opacity-60"
-                          } ${isSelected ? "border-primary bg-primary/10" : ""}`}
-                          onClick={() => {
-                            if (isLatestQuestion && !loading) {
-                              toggleAnswer(question);
-                            }
-                          }}
+                          key={questionKey}
+                          className="space-y-2 rounded-lg border bg-background/60 p-3"
                         >
-                          <Checkbox
-                            checked={isSelected}
-                            disabled={!isLatestQuestion || loading}
-                            className="mt-0.5"
-                          />
-                          <span className="text-sm flex-1">{question}</span>
-                          {isSelected && (
-                            <CheckCircle2 className="h-4 w-4 text-primary" />
-                          )}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-sm font-medium leading-snug">
+                              {question.question}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {helperText}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2">
+                            {question.options.map((option, optionIndex) => {
+                              const optionKey = `${questionKey}-option-${optionIndex}`;
+                              const isSelected =
+                                selectedForQuestion.includes(option);
+
+                              return (
+                                <div
+                                  key={optionKey}
+                                  className={`group relative flex items-start gap-3 rounded-md border p-3 transition-all ${
+                                    canInteract
+                                      ? "cursor-pointer hover:border-primary hover:bg-primary/5"
+                                      : "opacity-60"
+                                  } ${isSelected ? "border-primary bg-primary/10" : ""}`}
+                                  onClick={() => {
+                                    if (canInteract) {
+                                      toggleAnswer(
+                                        message.id,
+                                        index,
+                                        option,
+                                        question.allowMultiple,
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <Checkbox
+                                    checked={isSelected}
+                                    disabled={!canInteract}
+                                    className="mt-0.5"
+                                  />
+                                  <span className="flex-1 text-sm leading-relaxed">
+                                    {option}
+                                  </span>
+                                  {isSelected && (
+                                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       );
                     })}
@@ -375,31 +542,36 @@ export default function RuleGenerator({
             <Textarea
               value={inputValue}
               onChange={(event) => setInputValue(event.target.value)}
-              placeholder="Décrivez votre idée de règle d'échecs..."
-              disabled={loading || disabled}
+              placeholder={textareaPlaceholder}
+              disabled={loading || disabled || hasFinished}
               rows={3}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && canSend) {
-                  e.preventDefault();
-                  sendMessage();
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  if (hasPendingQuestions) {
+                    if (canSubmitQuestionAnswers) {
+                      event.preventDefault();
+                      void sendAnswers();
+                    }
+                  } else if (canSend) {
+                    event.preventDefault();
+                    void sendMessage();
+                  }
                 }
               }}
             />
 
             <div className="flex flex-wrap gap-2">
-              <Button 
+              <Button
                 onClick={() => {
-                  if (selectedAnswers.size > 0) {
-                    sendAnswers();
+                  if (hasPendingQuestions) {
+                    void sendAnswers();
                   } else {
-                    sendMessage();
+                    void sendMessage();
                   }
-                }} 
-                disabled={!canSend && selectedAnswers.size === 0}
+                }}
+                disabled={!canSend}
               >
-                {selectedAnswers.size > 0 
-                  ? `Valider (${selectedAnswers.size})` 
-                  : "Envoyer"}
+                {submitLabel}
               </Button>
 
               <Button
