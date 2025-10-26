@@ -857,7 +857,13 @@ export const fetchTournamentDetails = async (
     await supabaseClient
       .from("tournament_registrations")
       .select(
-        "*, current_match:tournament_matches!current_match_id(*, lobby:lobbies(id, name, status, mode, opponent_name, opponent_id))",
+        `
+        *,
+        current_match:tournament_matches!tournament_registrations_current_match_fkey(
+          *,
+          lobby:lobbies!lobby_id(id, name, status, mode, opponent_name, opponent_id)
+        )
+      `,
       )
       .eq("tournament_id", tournamentId)
       .order("points", { ascending: false })
@@ -904,9 +910,9 @@ export const fetchUserTournamentRegistrations = async (
     .select(
       `
       *,
-      tournament_matches!current_match_id(
+      current_match:tournament_matches!tournament_registrations_current_match_fkey(
         *,
-        lobbies!lobby_id(id, name, status, mode, opponent_name, opponent_id)
+        lobby:lobbies!lobby_id(id, name, status, mode, opponent_name, opponent_id)
       )
     `,
     )
