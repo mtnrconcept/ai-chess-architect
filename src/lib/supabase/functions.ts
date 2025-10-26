@@ -5,7 +5,7 @@ export type GeneratedRule = Record<string, unknown>;
 
 export type RuleGeneratorNeedInfoQuestion = {
   question: string;
-  options: string[];
+  options: [string, string, string];
   allowMultiple?: boolean;
 };
 
@@ -412,8 +412,6 @@ function normalizeNeedInfoQuestions(
     return [];
   }
 
-  const normalized: RuleGeneratorNeedInfoQuestion[] = [];
-
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") {
       continue;
@@ -422,6 +420,7 @@ function normalizeNeedInfoQuestions(
     const record = entry as Record<string, unknown>;
     const questionValue = record["question"];
     const optionsValue = record["options"];
+    const allowMultipleValue = record["allowMultiple"];
 
     if (typeof questionValue !== "string") {
       continue;
@@ -432,33 +431,41 @@ function normalizeNeedInfoQuestions(
       continue;
     }
 
-    const options = Array.isArray(optionsValue)
-      ? optionsValue
-          .map((option) =>
-            typeof option === "string" ? option.trim() : undefined,
-          )
-          .filter(
-            (option): option is string =>
-              typeof option === "string" && option.length > 0,
-          )
-      : [];
-
-    if (options.length === 0) {
+    if (!Array.isArray(optionsValue)) {
       continue;
     }
 
-    const allowMultipleValue = record["allowMultiple"];
-    const allowMultiple =
-      typeof allowMultipleValue === "boolean" ? allowMultipleValue : undefined;
+    const normalizedOptions = optionsValue
+      .map((option) => (typeof option === "string" ? option.trim() : undefined))
+      .filter((option): option is string => !!option && option.length > 0);
 
-    normalized.push({
-      question: trimmedQuestion,
-      options,
-      allowMultiple,
-    });
+    if (normalizedOptions.length !== 3) {
+      continue;
+    }
+
+    const uniqueOptionCount = new Set(normalizedOptions).size;
+    if (uniqueOptionCount !== 3) {
+      continue;
+    }
+
+    if (allowMultipleValue === true) {
+      continue;
+    }
+
+    return [
+      {
+        question: trimmedQuestion,
+        options: [
+          normalizedOptions[0],
+          normalizedOptions[1],
+          normalizedOptions[2],
+        ],
+        allowMultiple: false,
+      },
+    ];
   }
 
-  return normalized;
+  return [];
 }
 
 // Compatibilité avec l'ancien flux monolithique

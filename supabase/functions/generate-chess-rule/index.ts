@@ -43,7 +43,7 @@ type RuleCandidate = JsonRecord & {
 
 type NeedInfoQuestion = {
   question: string;
-  options: string[];
+  options: [string, string, string];
   allowMultiple?: boolean;
 };
 
@@ -537,15 +537,15 @@ Quand les informations sont insuffisantes pour décrire précisément la règle,
   "status": "need_info",
   "questions": [
     {
-      "question": "question complémentaire 1",
+      "question": "question complémentaire obligatoire",
       "options": ["option A", "option B", "option C"],
       "allowMultiple": false
     }
   ]
 }
-Chaque objet "questions" DOIT contenir au moins trois "options" claires et exclusives (ajoute "Autre (précisez)" si nécessaire).
-"allowMultiple" est optionnel et ne doit être présent que si plusieurs réponses peuvent être sélectionnées.
-Pose au maximum trois questions courtes et ciblées à la fois, en évitant les répétitions et en tenant compte des réponses déjà apportées.
+Tu dois poser exactement UNE question complémentaire par réponse "need_info".
+Le tableau "options" doit contenir STRICTEMENT trois valeurs textuelles distinctes et exclusives (ajoute "Autre (précisez)" si besoin).
+La clé "allowMultiple" doit toujours être présente et fixée à false pour ces questions.
 
 Une fois que tu disposes de tous les détails nécessaires, tu dois répondre STRICTEMENT avec un JSON conforme au schéma suivant.
 
@@ -649,8 +649,6 @@ function parseNeedInfoQuestions(raw: unknown): NeedInfoQuestion[] {
     return [];
   }
 
-  const questions: NeedInfoQuestion[] = [];
-
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") {
       continue;
@@ -659,6 +657,7 @@ function parseNeedInfoQuestions(raw: unknown): NeedInfoQuestion[] {
     const record = entry as Record<string, unknown>;
     const questionValue = record["question"];
     const optionsValue = record["options"];
+    const allowMultipleValue = record["allowMultiple"];
 
     if (typeof questionValue !== "string") {
       continue;
@@ -669,33 +668,41 @@ function parseNeedInfoQuestions(raw: unknown): NeedInfoQuestion[] {
       continue;
     }
 
-    const options = Array.isArray(optionsValue)
-      ? optionsValue
-          .map((option) =>
-            typeof option === "string" ? option.trim() : undefined,
-          )
-          .filter(
-            (option): option is string =>
-              typeof option === "string" && option.length > 0,
-          )
-      : [];
-
-    if (options.length === 0) {
+    if (!Array.isArray(optionsValue)) {
       continue;
     }
 
-    const allowMultipleValue = record["allowMultiple"];
-    const allowMultiple =
-      typeof allowMultipleValue === "boolean" ? allowMultipleValue : undefined;
+    const normalizedOptions = optionsValue
+      .map((option) => (typeof option === "string" ? option.trim() : undefined))
+      .filter((option): option is string => !!option && option.length > 0);
 
-    questions.push({
-      question: trimmedQuestion,
-      options,
-      allowMultiple,
-    });
+    if (normalizedOptions.length !== 3) {
+      continue;
+    }
+
+    const uniqueOptionCount = new Set(normalizedOptions).size;
+    if (uniqueOptionCount !== 3) {
+      continue;
+    }
+
+    if (allowMultipleValue === true) {
+      continue;
+    }
+
+    return [
+      {
+        question: trimmedQuestion,
+        options: [
+          normalizedOptions[0],
+          normalizedOptions[1],
+          normalizedOptions[2],
+        ],
+        allowMultiple: false,
+      },
+    ];
   }
 
-  return questions;
+  return [];
 }
 
 function sanitizeConversation(

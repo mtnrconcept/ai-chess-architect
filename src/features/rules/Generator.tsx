@@ -46,27 +46,21 @@ type UiMessage =
   | {
       id: string;
       role: "assistant";
-      questions: RuleGeneratorNeedInfoQuestion[];
+      question: RuleGeneratorNeedInfoQuestion;
     }
   | { id: string; role: "system"; content: string; variant?: "error" | "info" };
 
-const buildQuestionsContent = (
-  questions: RuleGeneratorNeedInfoQuestion[],
-): string =>
-  questions
-    .map((question, index) => {
-      const optionsList = question.options
-        .map(
-          (option, optionIndex) =>
-            `${String.fromCharCode(97 + optionIndex)}) ${option}`,
-        )
-        .join(", ");
-      const multiLabel = question.allowMultiple
-        ? " (choix multiples autorisés)"
-        : "";
-      return `${index + 1}. ${question.question}${multiLabel}\nOptions: ${optionsList}`;
-    })
-    .join("\n\n");
+const buildQuestionContent = (
+  question: RuleGeneratorNeedInfoQuestion,
+): string => {
+  const optionsList = question.options
+    .map(
+      (option, optionIndex) =>
+        `${String.fromCharCode(97 + optionIndex)}) ${option}`,
+    )
+    .join(", ");
+  return `${question.question}\nOptions: ${optionsList}`;
+};
 
 const buildAssistantSummary = (result: RuleGeneratorReady): string => {
   const rawMeta =
@@ -133,8 +127,8 @@ export default function RuleGenerator({
   );
   const [engineResult, setEngineResult] = useState<RuleJSON | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [selectedAnswers, setSelectedAnswers] = useState<
-    Record<string, string[]>
+  const [selectedOptions, setSelectedOptions] = useState<
+    Record<string, string | null>
   >({});
 
   const hasFinished = readyResult !== null;
@@ -142,7 +136,7 @@ export default function RuleGenerator({
   const latestQuestionMessage = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
-      if ("questions" in message) {
+      if ("question" in message) {
         return message;
       }
     }
@@ -156,25 +150,21 @@ export default function RuleGenerator({
       return 0;
     }
 
-    return latestQuestionMessage.questions.reduce((count, _question, index) => {
-      const key = `${latestQuestionMessage.id}-${index}`;
-      const answers = selectedAnswers[key] ?? [];
-      return answers.length > 0 ? count + 1 : count;
-    }, 0);
-  }, [latestQuestionMessage, selectedAnswers]);
+    const key = `${latestQuestionMessage.id}-0`;
+    return selectedOptions[key] ? 1 : 0;
+  }, [latestQuestionMessage, selectedOptions]);
 
-  const totalQuestionCount = latestQuestionMessage?.questions.length ?? 0;
+  const totalQuestionCount = latestQuestionMessage ? 1 : 0;
 
   const canSubmitQuestionAnswers = useMemo(() => {
     if (!hasPendingQuestions || !latestQuestionMessage) {
       return false;
     }
 
-    return latestQuestionMessage.questions.every((_question, index) => {
-      const key = `${latestQuestionMessage.id}-${index}`;
-      return (selectedAnswers[key]?.length ?? 0) > 0;
-    });
-  }, [hasPendingQuestions, latestQuestionMessage, selectedAnswers]);
+    const key = `${latestQuestionMessage.id}-0`;
+    const answer = selectedOptions[key];
+    return typeof answer === "string" && answer.length > 0;
+  }, [hasPendingQuestions, latestQuestionMessage, selectedOptions]);
 
   const processConversation = async (
     userContent: string,
@@ -202,19 +192,24 @@ export default function RuleGenerator({
       });
 
       if (result.status === "need_info") {
-        const questions = result.questions ?? [];
-        const formattedQuestions = buildQuestionsContent(questions);
+        const question = result.questions?.[0];
+        if (!question) {
+          throw new Error("Réponse 'need_info' invalide: question manquante.");
+        }
+
+        const formattedQuestion = buildQuestionContent(question);
         const assistantMessage: RuleGeneratorChatMessage = {
           role: "assistant",
-          content: formattedQuestions,
+          content: formattedQuestion,
         };
 
         setConversation((prevConv) => [...prevConv, assistantMessage]);
+        const messageId = createMessageId();
         setMessages((prev) => [
           ...prev,
-          { id: createMessageId(), role: "assistant", questions },
+          { id: messageId, role: "assistant", question },
         ]);
-        setSelectedAnswers({});
+        setSelectedOptions({ [`${messageId}-0`]: null });
       } else {
         setReadyResult(result);
         const summary = buildAssistantSummary(result);
@@ -296,6 +291,7 @@ export default function RuleGenerator({
   const sendAnswers = async () => {
     if (
       !latestQuestionMessage ||
+      !("question" in latestQuestionMessage) ||
       loading ||
       disabled ||
       hasFinished ||
@@ -304,22 +300,20 @@ export default function RuleGenerator({
       return;
     }
 
-    const answerSections = latestQuestionMessage.questions.map(
-      (question, index) => {
-        const key = `${latestQuestionMessage.id}-${index}`;
-        const answers = selectedAnswers[key] ?? [];
-        const formattedAnswers = answers.join(", ");
-        return `${index + 1}. ${question.question}\nRéponse: ${formattedAnswers}`;
-      },
-    );
+    const key = `${latestQuestionMessage.id}-0`;
+    const selected = selectedOptions[key];
+    if (!selected) {
+      return;
+    }
 
+    const answerSection = `${latestQuestionMessage.question.question}\nRéponse: ${selected}`;
     const additionalNotes = inputValue.trim();
     const combinedContent =
       additionalNotes.length > 0
-        ? `${answerSections.join("\n\n")}\n\nPrécisions supplémentaires: ${additionalNotes}`
-        : answerSections.join("\n\n");
+        ? `${answerSection}\n\nPrécisions supplémentaires: ${additionalNotes}`
+        : answerSection;
 
-    setSelectedAnswers({});
+    setSelectedOptions({});
     setInputValue("");
     await processConversation(combinedContent, false);
   };
@@ -345,43 +339,23 @@ export default function RuleGenerator({
       },
     ]);
     setInputValue("");
-    setSelectedAnswers({});
+    setSelectedOptions({});
     setErrorMessage(null);
     setReadyResult(null);
     setEngineResult(null);
     setWarnings([]);
   };
 
-  const toggleAnswer = (
-    messageId: string,
-    questionIndex: number,
-    option: string,
-    allowMultiple?: boolean,
-  ) => {
-    setSelectedAnswers((prev) => {
-      const key = `${messageId}-${questionIndex}`;
-      const next: Record<string, string[]> = { ...prev };
-      const current = new Set(next[key] ?? []);
+  const selectAnswer = (messageId: string, option: string) => {
+    setSelectedOptions((prev) => {
+      const key = `${messageId}-0`;
+      const current = prev[key] ?? null;
+      const next: Record<string, string | null> = { ...prev };
 
-      if (allowMultiple) {
-        if (current.has(option)) {
-          current.delete(option);
-        } else {
-          current.add(option);
-        }
+      if (current === option) {
+        next[key] = null;
       } else {
-        if (current.has(option) && current.size === 1) {
-          current.clear();
-        } else {
-          current.clear();
-          current.add(option);
-        }
-      }
-
-      if (current.size === 0) {
-        delete next[key];
-      } else {
-        next[key] = Array.from(current);
+        next[key] = option;
       }
 
       return next;
@@ -420,80 +394,63 @@ export default function RuleGenerator({
       <div className="space-y-3">
         <div className="space-y-3 max-h-96 overflow-y-auto rounded-lg border p-4 bg-muted/30">
           {messages.map((message) => {
-            if ("questions" in message) {
+            if ("question" in message) {
               const isLatestQuestion = latestQuestionMessage?.id === message.id;
               const canInteract = isLatestQuestion && !loading && !hasFinished;
+              const questionKey = `${message.id}-0`;
+              const selectedForQuestion = selectedOptions[questionKey] ?? null;
+
               return (
                 <div key={message.id} className="flex flex-col gap-3">
                   <div className="font-semibold text-sm text-primary">
                     Assistant
                   </div>
                   <div className="space-y-3">
-                    {message.questions.map((question, index) => {
-                      const questionKey = `${message.id}-${index}`;
-                      const selectedForQuestion =
-                        selectedAnswers[questionKey] ?? [];
-                      const helperText = question.allowMultiple
-                        ? "Vous pouvez sélectionner plusieurs réponses."
-                        : "Sélectionnez une seule réponse.";
+                    <div className="space-y-2 rounded-lg border bg-background/60 p-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm font-medium leading-snug">
+                          {message.question.question}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Sélectionnez une seule réponse.
+                        </span>
+                      </div>
 
-                      return (
-                        <div
-                          key={questionKey}
-                          className="space-y-2 rounded-lg border bg-background/60 p-3"
-                        >
-                          <div className="flex flex-col gap-1">
-                            <span className="text-sm font-medium leading-snug">
-                              {question.question}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {helperText}
-                            </span>
-                          </div>
+                      <div className="space-y-2">
+                        {message.question.options.map((option, optionIndex) => {
+                          const optionKey = `${questionKey}-option-${optionIndex}`;
+                          const isSelected = selectedForQuestion === option;
 
-                          <div className="space-y-2">
-                            {question.options.map((option, optionIndex) => {
-                              const optionKey = `${questionKey}-option-${optionIndex}`;
-                              const isSelected =
-                                selectedForQuestion.includes(option);
-
-                              return (
-                                <div
-                                  key={optionKey}
-                                  className={`group relative flex items-start gap-3 rounded-md border p-3 transition-all ${
-                                    canInteract
-                                      ? "cursor-pointer hover:border-primary hover:bg-primary/5"
-                                      : "opacity-60"
-                                  } ${isSelected ? "border-primary bg-primary/10" : ""}`}
-                                  onClick={() => {
-                                    if (canInteract) {
-                                      toggleAnswer(
-                                        message.id,
-                                        index,
-                                        option,
-                                        question.allowMultiple,
-                                      );
-                                    }
-                                  }}
-                                >
-                                  <Checkbox
-                                    checked={isSelected}
-                                    disabled={!canInteract}
-                                    className="mt-0.5"
-                                  />
-                                  <span className="flex-1 text-sm leading-relaxed">
-                                    {option}
-                                  </span>
-                                  {isSelected && (
-                                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
+                          return (
+                            <div
+                              key={optionKey}
+                              className={`group relative flex items-start gap-3 rounded-md border p-3 transition-all ${
+                                canInteract
+                                  ? "cursor-pointer hover:border-primary hover:bg-primary/5"
+                                  : "opacity-60"
+                              } ${isSelected ? "border-primary bg-primary/10" : ""}`}
+                              onClick={() => {
+                                if (canInteract) {
+                                  selectAnswer(message.id, option);
+                                }
+                              }}
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                disabled={!canInteract}
+                                className="mt-0.5"
+                              />
+                              <span className="flex-1 text-sm leading-relaxed">
+                                {option}
+                              </span>
+                              {isSelected && (
+                                <CheckCircle2 className="h-4 w-4 text-primary" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
