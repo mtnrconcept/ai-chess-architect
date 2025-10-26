@@ -324,7 +324,7 @@ export default function RuleGenerator({
     await processConversation(combinedContent, false);
   };
 
-  const sendMessage = async () => {
+  const handleSendMessage = async () => {
     const trimmed = inputValue.trim();
     if (!trimmed || loading || disabled || hasFinished || hasPendingQuestions) {
       return;
@@ -554,7 +554,7 @@ export default function RuleGenerator({
                     }
                   } else if (canSend) {
                     event.preventDefault();
-                    void sendMessage();
+                    void handleSendMessage();
                   }
                 }
               }}
@@ -566,7 +566,7 @@ export default function RuleGenerator({
                   if (hasPendingQuestions) {
                     void sendAnswers();
                   } else {
-                    void sendMessage();
+                    void handleSendMessage();
                   }
                 }}
                 disabled={!canSend}
