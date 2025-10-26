@@ -364,12 +364,15 @@ async function generateRuleWithModel(params: {
   const conversationMessages =
     conversation.length > 0
       ? conversation
-      : [{ role: "user", content: prompt }];
+      : [{ role: "user" as const, content: prompt }];
 
   const { content } = await invokeChatCompletion({
     messages: [
-      { role: "system", content: systemContent },
-      ...conversationMessages,
+      { role: "system" as const, content: systemContent },
+      ...conversationMessages.map(msg => ({ 
+        role: msg.role as "user" | "assistant",
+        content: msg.content 
+      })),
     ],
     temperature,
     maxOutputTokens: 1400,
@@ -539,31 +542,99 @@ Quand les informations sont insuffisantes pour décrire précisément la règle,
 }
 Pose au maximum trois questions courtes et ciblées à la fois, en évitant les répétitions et en tenant compte des réponses déjà apportées.
 
-Une fois que tu disposes de tous les détails nécessaires, tu dois répondre STRICTEMENT avec un JSON conforme au schéma suivant:
+Une fois que tu disposes de tous les détails nécessaires, tu dois répondre STRICTEMENT avec un JSON conforme au schéma suivant.
+
+RÈGLES CRITIQUES DE FORMAT:
+1. Si la règle nécessite une action UI (bouton), "ui.actions" doit contenir des objets avec:
+   - "id": string commençant par "special_" (ex: "special_teleport")
+   - "label": string (ex: "Téléporter")
+   Sinon, omets complètement la section "ui".
+
+2. Dans "logic.effects":
+   - "when": DOIT commencer par "ui.", "lifecycle." ou "status." (ex: "ui.special_teleport" ou "lifecycle.onCapture")
+   - "do": DOIT être un array d'objets, même s'il n'y a qu'une seule action
+   - Chaque action dans "do" DOIT avoir:
+     * "action": au format "namespace.action" (ex: "piece.teleport", "vfx.play", "turn.end")
+     * "params": objet optionnel de paramètres
+
+EXEMPLE MINIMAL (sans action UI):
 {
+  "status": "ready",
   "rule": {
     "meta": {
-      "ruleId": "string",
-      "ruleName": "string",
-      "description": "string",
-      "category": "capture | defense | movement | special | behavior | terrain | upgrade | vip | ai-generated"
+      "ruleId": "double_move_pawns",
+      "ruleName": "Pions rapides",
+      "description": "Les pions peuvent se déplacer deux fois par tour",
+      "category": "movement"
     },
     "scope": {
-      "affectedPieces": string[]
+      "affectedPieces": ["pawn"]
     },
     "logic": {
-      "effects": Array<{
-        "id": string,
-        "when": string,
-        "do": Array<{ "action": string, "params"?: Record<string, unknown> }>
-      }>
-    },
-    "ui"?: { "actions"?: unknown[] },
-    "assets"?: Record<string, unknown>,
-    "state"?: Record<string, unknown>
+      "effects": [
+        {
+          "id": "double_move",
+          "when": "lifecycle.onMoveComplete",
+          "do": [
+            { "action": "piece.grantExtraMove", "params": { "pieceType": "pawn" } }
+          ]
+        }
+      ]
+    }
   }
 }
-Ne mets jamais de markdown ni de texte hors JSON.`;
+
+EXEMPLE AVEC ACTION UI:
+{
+  "status": "ready",
+  "rule": {
+    "meta": {
+      "ruleId": "teleport_rule",
+      "ruleName": "Téléportation",
+      "description": "Les pions peuvent se téléporter",
+      "category": "special"
+    },
+    "scope": {
+      "affectedPieces": ["pawn"]
+    },
+    "ui": {
+      "actions": [
+        {
+          "id": "special_teleport",
+          "label": "Téléporter",
+          "icon": "teleport",
+          "hint": "Choisir une destination"
+        }
+      ]
+    },
+    "logic": {
+      "effects": [
+        {
+          "id": "teleport_effect",
+          "when": "ui.special_teleport",
+          "do": [
+            { "action": "piece.teleport", "params": { "tile": "$targetTile" } },
+            { "action": "vfx.play", "params": { "animation": "teleport" } },
+            { "action": "turn.end" }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+ACTIONS DISPONIBLES (namespace.action):
+- piece.teleport, piece.capture, piece.spawn, piece.move, piece.morph, piece.duplicate
+- vfx.play, vfx.spawnDecal, vfx.playAnimation
+- audio.play
+- tile.setTrap, tile.clearTrap
+- status.add, status.remove
+- turn.end
+- state.set, state.inc
+- ui.toast
+- board.areaEffect
+
+Ne mets jamais de markdown ni de texte hors JSON. Suis strictement ces formats.`;
 
   return basePrompt;
 }
