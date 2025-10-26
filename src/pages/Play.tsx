@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/Play.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1809,44 +1810,53 @@ const Play = () => {
               ref={chatContainerRef}
               className="flex h-full flex-col justify-end gap-3 overflow-y-auto rounded-md border border-white/5 bg-black/20 p-3"
             >
-              {coachMessages.map((message) => {
-                const isCoach = message.role === "coach";
-                const isPlayer = message.role === "player";
-                const bubbleClass = isCoach
-                  ? "self-start rounded-2xl bg-fuchsia-500/20 text-fuchsia-100"
-                  : isPlayer
-                    ? "self-end rounded-2xl bg-cyan-500/20 text-cyan-100"
-                    : "self-center rounded-2xl bg-slate-500/20 text-slate-100";
+              <AnimatePresence initial={false}>
+                {coachMessages.map((message) => {
+                  const isCoach = message.role === "coach";
+                  const isPlayer = message.role === "player";
+                  const bubbleClass = isCoach
+                    ? "self-start rounded-2xl bg-fuchsia-500/20 text-fuchsia-100"
+                    : isPlayer
+                      ? "self-end rounded-2xl bg-cyan-500/20 text-cyan-100"
+                      : "self-center rounded-2xl bg-slate-500/20 text-slate-100";
 
-                const label =
-                  message.role === "coach"
-                    ? "Coach"
-                    : message.role === "player"
-                      ? "Vous"
-                      : "Système";
+                  const label =
+                    message.role === "coach"
+                      ? "Coach"
+                      : message.role === "player"
+                        ? "Vous"
+                        : "Système";
 
-                return (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      "flex w-full flex-col gap-1 text-xs",
-                      isPlayer ? "items-end" : "items-start",
-                    )}
-                  >
-                    <span className="text-[0.65rem] uppercase tracking-[0.25em] text-white/60">
-                      {label}
-                    </span>
-                    <p
+                  return (
+                    <motion.div
+                      key={message.id}
+                      layout
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
                       className={cn(
-                        "w-full whitespace-pre-wrap px-4 py-3",
-                        bubbleClass,
+                        "flex w-full flex-col gap-1 text-xs",
+                        isPlayer ? "items-end" : "items-start",
                       )}
                     >
-                      {message.content}
-                    </p>
-                  </div>
-                );
-              })}
+                      <span className="text-[0.65rem] uppercase tracking-[0.25em] text-white/60">
+                        {label}
+                      </span>
+                      <motion.p
+                        layout
+                        className={cn(
+                          "w-full whitespace-pre-wrap px-4 py-3",
+                          bubbleClass,
+                        )}
+                        transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+                      >
+                        {message.content}
+                      </motion.p>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
 
               {coachLoading && (
                 <p className="text-center text-xs text-white/60">
