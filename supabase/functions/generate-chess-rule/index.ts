@@ -532,6 +532,8 @@ Tu dois analyser l'historique de conversation fourni par l'utilisateur.
 Locale préférée: ${context.locale}
 ${context.boardSummary}
 
+Tu acceptes toutes les idées de règle, même extravagantes ou combinant plusieurs mécaniques. Transforme n'importe quel concept en règle codable sans imposer de limitations arbitraires.
+
 Quand les informations sont insuffisantes pour décrire précisément la règle, tu dois répondre STRICTEMENT avec un JSON de la forme:
 {
   "status": "need_info",
@@ -559,7 +561,7 @@ RÈGLES CRITIQUES DE FORMAT:
    - "when": DOIT commencer par "ui.", "lifecycle." ou "status." (ex: "ui.special_teleport" ou "lifecycle.onCapture")
    - "do": DOIT être un array d'objets, même s'il n'y a qu'une seule action
    - Chaque action dans "do" DOIT avoir:
-     * "action": au format "namespace.action" (ex: "piece.teleport", "vfx.play", "turn.end")
+     * "action": au format "namespace.action"
      * "params": objet optionnel de paramètres
 
 EXEMPLE MINIMAL (sans action UI):
@@ -569,7 +571,7 @@ EXEMPLE MINIMAL (sans action UI):
     "meta": {
       "ruleId": "double_move_pawns",
       "ruleName": "Pions rapides",
-      "description": "Les pions peuvent se déplacer deux fois par tour",
+      "description": "Les pions gagnent un statut bonus après leur déplacement",
       "category": "movement"
     },
     "scope": {
@@ -581,7 +583,8 @@ EXEMPLE MINIMAL (sans action UI):
           "id": "double_move",
           "when": "lifecycle.onMoveComplete",
           "do": [
-            { "action": "piece.grantExtraMove", "params": { "pieceType": "pawn" } }
+            { "action": "status.add", "params": { "pieceId": "$pieceId", "key": "bonus_step", "duration": 1 } },
+            { "action": "ui.toast", "params": { "message": "Bonus de déplacement accordé" } }
           ]
         }
       ]
@@ -594,9 +597,9 @@ EXEMPLE AVEC ACTION UI:
   "status": "ready",
   "rule": {
     "meta": {
-      "ruleId": "teleport_rule",
-      "ruleName": "Téléportation",
-      "description": "Les pions peuvent se téléporter",
+      "ruleId": "trap_rule",
+      "ruleName": "Piège surprise",
+      "description": "Pose un piège qui capture les ennemis",
       "category": "special"
     },
     "scope": {
@@ -605,21 +608,21 @@ EXEMPLE AVEC ACTION UI:
     "ui": {
       "actions": [
         {
-          "id": "special_teleport",
-          "label": "Téléporter",
-          "icon": "teleport",
-          "hint": "Choisir une destination"
+          "id": "special_place_trap",
+          "label": "Poser un piège",
+          "icon": "trap",
+          "hint": "Choisir une case vide"
         }
       ]
     },
     "logic": {
       "effects": [
         {
-          "id": "teleport_effect",
-          "when": "ui.special_teleport",
+          "id": "trap_effect",
+          "when": "ui.special_place_trap",
           "do": [
-            { "action": "piece.teleport", "params": { "tile": "$targetTile" } },
-            { "action": "vfx.play", "params": { "animation": "teleport" } },
+            { "action": "tile.setTrap", "params": { "tile": "$targetTile", "kind": "snare", "sprite": "trap_icon" } },
+            { "action": "cooldown.set", "params": { "pieceId": "$pieceId", "actionId": "special_place_trap", "turns": 2 } },
             { "action": "turn.end" }
           ]
         }
@@ -629,15 +632,16 @@ EXEMPLE AVEC ACTION UI:
 }
 
 ACTIONS DISPONIBLES (namespace.action):
-- piece.teleport, piece.capture, piece.spawn, piece.move, piece.morph, piece.duplicate
-- vfx.play, vfx.spawnDecal, vfx.playAnimation
-- audio.play
-- tile.setTrap, tile.clearTrap
-- status.add, status.remove
-- turn.end
-- state.set, state.inc
+- vfx.play, audio.play
+- decal.set, decal.clear
 - ui.toast
-- board.areaEffect
+- cooldown.set, turn.end, state.pushUndo
+- piece.capture, piece.move, piece.spawn, piece.duplicate, piece.setInvisible, piece.setStatus, piece.clearStatus
+- board.capture, board.areaEffect
+- tile.setTrap, tile.clearTrap, tile.resolveTrap
+- status.add, status.remove, status.tickAll
+- state.set, state.inc, state.delete
+- area.forEachTile, composite
 
 Ne mets jamais de markdown ni de texte hors JSON. Suis strictement ces formats.`;
 
