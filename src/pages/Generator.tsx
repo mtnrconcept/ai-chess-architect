@@ -246,12 +246,12 @@ const Generator = () => {
 
         toast({
           title: "Succès !",
-          description: "Règle générée et ajoutée au lobby",
+          description: "Lancement de la partie...",
         });
 
         setTimeout(() => {
-          navigate("/lobby");
-        }, 2000);
+          navigate(`/play?ruleId=${persistedRuleId}`);
+        }, 1500);
       } catch (error) {
         const description = getSupabaseFunctionErrorMessage(
           error,
@@ -341,36 +341,6 @@ const Generator = () => {
           </CardContent>
         </Card>
 
-        {generatedRule && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold">Règle Générée</h2>
-              <Badge
-                variant="outline"
-                className="bg-green-500/20 text-green-300 border-green-500/30 text-sm"
-              >
-                ✓ Règle ajoutée au lobby
-              </Badge>
-            </div>
-
-            <RuleCard
-              rule={generatedRule}
-              showActions={false}
-              issues={generatedIssues}
-            />
-
-            <Card className="bg-card/50">
-              <CardHeader>
-                <CardTitle className="text-sm">Configuration JSON</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-xs text-muted-foreground overflow-x-auto bg-background/30 p-4 rounded-lg">
-                  {JSON.stringify(generatedRule, null, 2)}
-                </pre>
-              </CardContent>
-            </Card>
-          </div>
-        )}
       </div>
     </NeonBackground>
   );

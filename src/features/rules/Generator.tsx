@@ -16,8 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, RotateCcw } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RotateCcw, CheckCircle2 } from "lucide-react";
+import { ProgressBar } from "@/components/ui/progress-bar";
 
 const toErrorMessage = (value: unknown): string => {
   if (value instanceof Error && value.message) {
@@ -41,7 +42,7 @@ const toErrorMessage = (value: unknown): string => {
 
 type UiMessage =
   | { id: string; role: "assistant" | "user"; content: string }
-  | { id: string; role: "assistant"; questions: string[] }
+  | { id: string; role: "assistant"; questions: string[]; selectedAnswers?: string[] }
   | { id: string; role: "system"; content: string; variant?: "error" | "info" };
 
 const buildQuestionsContent = (questions: string[]): string =>
@@ -112,33 +113,28 @@ export default function RuleGenerator({
   );
   const [engineResult, setEngineResult] = useState<RuleJSON | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [selectedAnswers, setSelectedAnswers] = useState<Set<string>>(new Set());
 
   const hasFinished = readyResult !== null;
 
-  const sendMessage = async () => {
-    const trimmed = inputValue.trim();
-    if (!trimmed || loading || disabled) {
-      return;
-    }
-
+  const processConversation = async (userContent: string, isInitialPrompt: boolean) => {
     const userMessage: RuleGeneratorChatMessage = {
       role: "user",
-      content: trimmed,
+      content: userContent,
     };
     const nextConversation = [...conversation, userMessage];
 
     setConversation(nextConversation);
     setMessages((prev) => [
       ...prev,
-      { id: createMessageId(), role: "user", content: trimmed },
+      { id: createMessageId(), role: "user", content: userContent },
     ]);
-    setInputValue("");
     setLoading(true);
     setErrorMessage(null);
 
     try {
       const result: RuleGeneratorChatResult = await invokeRuleGeneratorChat({
-        prompt: conversation.length === 0 ? trimmed : undefined,
+        prompt: isInitialPrompt ? userContent : undefined,
         conversation: nextConversation,
         options: { locale: "fr-CH", dryRun: false },
       });
@@ -154,7 +150,7 @@ export default function RuleGenerator({
         setConversation((prevConv) => [...prevConv, assistantMessage]);
         setMessages((prev) => [
           ...prev,
-          { id: createMessageId(), role: "assistant", questions },
+          { id: createMessageId(), role: "assistant", questions, selectedAnswers: [] },
         ]);
       } else {
         setReadyResult(result);
@@ -234,6 +230,26 @@ export default function RuleGenerator({
     }
   };
 
+  const sendAnswers = async () => {
+    if (selectedAnswers.size === 0 || loading || disabled) {
+      return;
+    }
+
+    const answersText = Array.from(selectedAnswers).join(", ");
+    setSelectedAnswers(new Set());
+    await processConversation(answersText, false);
+  };
+
+  const sendMessage = async () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed || loading || disabled) {
+      return;
+    }
+
+    setInputValue("");
+    await processConversation(trimmed, conversation.length === 0);
+  };
+
   const resetConversation = () => {
     setConversation([]);
     setMessages([
@@ -245,10 +261,23 @@ export default function RuleGenerator({
       },
     ]);
     setInputValue("");
+    setSelectedAnswers(new Set());
     setErrorMessage(null);
     setReadyResult(null);
     setEngineResult(null);
     setWarnings([]);
+  };
+
+  const toggleAnswer = (answer: string) => {
+    setSelectedAnswers((prev) => {
+      const next = new Set(prev);
+      if (next.has(answer)) {
+        next.delete(answer);
+      } else {
+        next.add(answer);
+      }
+      return next;
+    });
   };
 
   const canSend = useMemo(
@@ -262,16 +291,43 @@ export default function RuleGenerator({
         <div className="space-y-3 max-h-96 overflow-y-auto rounded-lg border p-4 bg-muted/30">
           {messages.map((message) => {
             if ("questions" in message) {
+              const isLatestQuestion = message.id === messages[messages.length - 1]?.id;
               return (
-                <div key={message.id} className="flex flex-col gap-1">
+                <div key={message.id} className="flex flex-col gap-3">
                   <div className="font-semibold text-sm text-primary">
                     Assistant
                   </div>
-                  <ul className="list-disc list-inside text-sm text-muted-foreground">
-                    {message.questions.map((question, index) => (
-                      <li key={`${message.id}-${index}`}>{question}</li>
-                    ))}
-                  </ul>
+                  <div className="space-y-2">
+                    {message.questions.map((question, index) => {
+                      const answerId = `${message.id}-${index}`;
+                      const isSelected = selectedAnswers.has(question);
+                      return (
+                        <div
+                          key={answerId}
+                          className={`group relative flex items-start gap-3 rounded-lg border p-3 transition-all ${
+                            isLatestQuestion && !loading
+                              ? "cursor-pointer hover:border-primary hover:bg-primary/5"
+                              : "opacity-60"
+                          } ${isSelected ? "border-primary bg-primary/10" : ""}`}
+                          onClick={() => {
+                            if (isLatestQuestion && !loading) {
+                              toggleAnswer(question);
+                            }
+                          }}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            disabled={!isLatestQuestion || loading}
+                            className="mt-0.5"
+                          />
+                          <span className="text-sm flex-1">{question}</span>
+                          {isSelected && (
+                            <CheckCircle2 className="h-4 w-4 text-primary" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             }
@@ -308,47 +364,56 @@ export default function RuleGenerator({
             );
           })}
           {loading && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Réflexion en cours…</span>
+            <div className="space-y-3">
+              <ProgressBar duration={5000} />
             </div>
           )}
         </div>
 
-        <Textarea
-          value={inputValue}
-          onChange={(event) => setInputValue(event.target.value)}
-          placeholder={
-            hasFinished
-              ? "La session est terminée. Réinitialisez pour recommencer."
-              : "Expliquez la règle ou répondez aux questions de l'assistant"
-          }
-          disabled={loading || disabled || hasFinished}
-          rows={3}
-        />
+        {!hasFinished && (
+          <>
+            <Textarea
+              value={inputValue}
+              onChange={(event) => setInputValue(event.target.value)}
+              placeholder="Décrivez votre idée de règle d'échecs..."
+              disabled={loading || disabled}
+              rows={3}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && canSend) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+            />
 
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={sendMessage} disabled={!canSend}>
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Envoi…
-              </>
-            ) : (
-              "Envoyer"
-            )}
-          </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button 
+                onClick={() => {
+                  if (selectedAnswers.size > 0) {
+                    sendAnswers();
+                  } else {
+                    sendMessage();
+                  }
+                }} 
+                disabled={!canSend && selectedAnswers.size === 0}
+              >
+                {selectedAnswers.size > 0 
+                  ? `Valider (${selectedAnswers.size})` 
+                  : "Envoyer"}
+              </Button>
 
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={resetConversation}
-            disabled={loading}
-          >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            Réinitialiser
-          </Button>
-        </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={resetConversation}
+                disabled={loading}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Réinitialiser
+              </Button>
+            </div>
+          </>
+        )}
       </div>
 
       {errorMessage && (
@@ -365,33 +430,6 @@ export default function RuleGenerator({
             ))}
           </AlertDescription>
         </Alert>
-      )}
-
-      {readyResult && engineResult && (
-        <Tabs defaultValue="engine" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="engine">Format Moteur</TabsTrigger>
-            <TabsTrigger value="ai">Format IA (brut)</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="engine" className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Format compatible avec le moteur de règles
-            </p>
-            <pre className="text-xs bg-muted p-4 rounded-lg overflow-auto max-h-96">
-              {JSON.stringify(engineResult, null, 2)}
-            </pre>
-          </TabsContent>
-
-          <TabsContent value="ai" className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              JSON brut généré par l'IA
-            </p>
-            <pre className="text-xs bg-muted p-4 rounded-lg overflow-auto max-h-96">
-              {JSON.stringify(readyResult.rule, null, 2)}
-            </pre>
-          </TabsContent>
-        </Tabs>
       )}
     </div>
   );

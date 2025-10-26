@@ -546,4 +546,17 @@ body:not([data-large-coordinates="on"]) {
     border: 1px solid rgba(59, 130, 246, 0.55);
     animation: specialHologramPulse 1.4s ease-in-out infinite;
   }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% center;
+    }
+    100% {
+      background-position: 200% center;
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s linear infinite;
+  }
 }
