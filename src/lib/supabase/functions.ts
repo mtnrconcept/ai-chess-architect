@@ -1,51 +1,57 @@
 // /src/lib/supabase/functions.ts
 import { supabase } from "@/integrations/supabase/client";
 
-type GenerateRuleEffect = {
-  type: string;
-  triggers?: string[];
-  payload?: Record<string, unknown>;
-};
-
-type GenerateRuleAdapters = {
-  onSelect?: string;
-  onSpecialAction?: string;
-  onTick?: string;
-  validate?: string;
-  resolveConflicts?: string;
-};
-
 export type GeneratedRule = Record<string, unknown>;
 
-type GenerateRuleSuccess = {
-  ok: true;
-  rule: unknown; // RuleJSON complet depuis la DB
-  meta?: {
-    correlationId?: string;
-    ruleId?: string;
-    promptKey?: string;
-    generationDurationMs?: number;
-    dryRunSuccess?: boolean;
-    dryRunWarnings?: string[];
-    ajvWarnings?: string[];
-  };
+type SupabaseNeedInfoResult = {
+  status: "need_info";
+  questions: string[];
+  prompt: string;
+  promptHash?: string;
+  correlationId?: string;
+  rawModelResponse?: Record<string, unknown>;
+  provider?: string;
 };
 
-type GenerateRuleFailure = {
-  ok: false;
-  error: string;
-  reason?: string;
-  details?: unknown;
-  raw?: string;
+type SupabaseReadyResult = {
+  status: "ready";
+  rule: GeneratedRule;
+  validation?: Record<string, unknown>;
+  dryRun?: Record<string, unknown> | null;
+  prompt: string;
+  promptHash?: string;
+  correlationId?: string;
+  rawModelResponse?: Record<string, unknown>;
+  provider?: string;
 };
 
-type GenerateRuleResponse = GenerateRuleSuccess | GenerateRuleFailure;
+type SupabaseRuleGeneratorResponse =
+  | { ok: true; result: SupabaseNeedInfoResult | SupabaseReadyResult }
+  | { ok: false; error: string; details?: unknown };
 
 export type GenerateRuleRequest = {
   prompt: string;
   board?: { tiles: string[]; pieces: unknown; occupancy: unknown };
   options?: { locale?: string; dryRun?: boolean; [key: string]: unknown };
 };
+
+export type RuleGeneratorChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type RuleGeneratorChatRequest = {
+  prompt?: string;
+  conversation: RuleGeneratorChatMessage[];
+  board?: GenerateRuleRequest["board"];
+  options?: GenerateRuleRequest["options"];
+};
+
+export type RuleGeneratorNeedInfo = SupabaseNeedInfoResult;
+export type RuleGeneratorReady = SupabaseReadyResult;
+export type RuleGeneratorChatResult =
+  | RuleGeneratorNeedInfo
+  | RuleGeneratorReady;
 
 const delay = (ms: number) =>
   new Promise((resolve) => {
@@ -221,20 +227,134 @@ const formatSupabaseEdgeFunctionError = (
   }
 };
 
-// Appel robuste avec retry & abort
-export async function invokeGenerateRule(
-  body: GenerateRuleRequest,
-): Promise<GeneratedRule> {
-  const MAX_RETRY = 2;
-  const baseDelay = 600;
+function sanitizeConversation(
+  conversation: RuleGeneratorChatMessage[],
+): RuleGeneratorChatMessage[] {
+  return conversation
+    .map((message) => {
+      if (!message || typeof message !== "object") {
+        return null;
+      }
 
-  if (!body || typeof body.prompt !== "string" || !body.prompt.trim()) {
-    throw new Error("generateRule: prompt manquant ou vide");
+      const role = message.role;
+      const content =
+        typeof message.content === "string" ? message.content.trim() : "";
+
+      if ((role !== "user" && role !== "assistant") || !content) {
+        return null;
+      }
+
+      return { role, content } as RuleGeneratorChatMessage;
+    })
+    .filter((entry): entry is RuleGeneratorChatMessage => entry !== null);
+}
+
+async function invokeSupabaseRuleGenerator(
+  payload: Record<string, unknown>,
+  attempt: number,
+  maxRetry: number,
+  baseDelay: number,
+): Promise<SupabaseRuleGeneratorResponse> {
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), 55000);
+
+  try {
+    const { data, error } =
+      await supabase.functions.invoke<SupabaseRuleGeneratorResponse>(
+        "generate-chess-rule",
+        {
+          body: payload,
+          signal: controller.signal,
+        },
+      );
+    clearTimeout(to);
+
+    if (error) {
+      const status = getStatusFromError(error);
+      const responsePayload = await readSupabaseErrorResponse(error);
+
+      const message =
+        formatSupabaseEdgeFunctionError(responsePayload) ??
+        toErrorMessage(error);
+
+      if (
+        attempt < maxRetry &&
+        (shouldRetryFromStatus(status) || shouldRetryFromMessage(message))
+      ) {
+        await delay(baseDelay * (attempt + 1));
+        return invokeSupabaseRuleGenerator(
+          payload,
+          attempt + 1,
+          maxRetry,
+          baseDelay,
+        );
+      }
+
+      throw new Error(message);
+    }
+
+    return data ?? { ok: false, error: "empty_response" };
+  } catch (err) {
+    clearTimeout(to);
+    const message = toErrorMessage(err);
+
+    if (attempt < maxRetry && shouldRetryFromMessage(message)) {
+      await delay(baseDelay * (attempt + 1));
+      return invokeSupabaseRuleGenerator(
+        payload,
+        attempt + 1,
+        maxRetry,
+        baseDelay,
+      );
+    }
+
+    throw new Error(message);
+  }
+}
+
+function ensureResultRecord(
+  data: SupabaseRuleGeneratorResponse,
+): SupabaseNeedInfoResult | SupabaseReadyResult {
+  if (!data || typeof data !== "object" || data.ok !== true) {
+    const reason =
+      data && typeof (data as { error?: unknown }).error === "string"
+        ? (data as { error?: string }).error
+        : "UnknownError";
+    throw new Error(`FunctionError: ${reason}`);
   }
 
-  const cleanedBody = JSON.parse(
+  const result = (data as { result?: unknown }).result;
+  if (!result || typeof result !== "object") {
+    throw new Error("FunctionError: invalid response payload");
+  }
+
+  const status = (result as { status?: unknown }).status;
+  if (status !== "need_info" && status !== "ready") {
+    throw new Error("FunctionError: unexpected status");
+  }
+
+  return result as SupabaseNeedInfoResult | SupabaseReadyResult;
+}
+
+export async function invokeRuleGeneratorChat(
+  body: RuleGeneratorChatRequest,
+): Promise<RuleGeneratorChatResult> {
+  if (!body || !Array.isArray(body.conversation)) {
+    throw new Error("ruleGeneratorChat: conversation manquante");
+  }
+
+  const sanitizedConversation = sanitizeConversation(body.conversation);
+  if (sanitizedConversation.length === 0) {
+    throw new Error("ruleGeneratorChat: conversation vide");
+  }
+
+  const prompt =
+    typeof body.prompt === "string" ? body.prompt.trim() : undefined;
+
+  const payload = JSON.parse(
     JSON.stringify({
-      prompt: body.prompt.trim(),
+      prompt: prompt && prompt.length > 0 ? prompt : undefined,
+      conversation: sanitizedConversation,
       board: body.board ?? undefined,
       options: {
         locale: "fr-CH",
@@ -244,78 +364,73 @@ export async function invokeGenerateRule(
     }),
   );
 
-  for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
-    const controller = new AbortController();
-    const to = setTimeout(() => controller.abort(), 55000);
+  const response = await invokeSupabaseRuleGenerator(payload, 0, 2, 600);
+  const result = ensureResultRecord(response);
 
-    try {
-      const { data, error } =
-        await supabase.functions.invoke<GenerateRuleResponse>(
-          "generate-chess-rule",
-          {
-            body: cleanedBody,
-            signal: controller.signal,
-          },
-        );
-      clearTimeout(to);
+  if (result.status === "need_info") {
+    const questions = Array.isArray(result.questions)
+      ? result.questions.filter(
+          (entry): entry is string =>
+            typeof entry === "string" && entry.length > 0,
+        )
+      : [];
 
-      if (error) {
-        const status = getStatusFromError(error);
-        const responsePayload = await readSupabaseErrorResponse(error);
-
-        const message =
-          formatSupabaseEdgeFunctionError(responsePayload) ??
-          toErrorMessage(error);
-
-        if (
-          attempt < MAX_RETRY &&
-          (shouldRetryFromStatus(status) || shouldRetryFromMessage(message))
-        ) {
-          await delay(baseDelay * (attempt + 1));
-          continue;
-        }
-
-        throw new Error(message);
-      }
-
-      if (!data || !data.ok) {
-        const dataRecord =
-          data && typeof data === "object"
-            ? (data as Record<string, unknown>)
-            : undefined;
-        const reason =
-          typeof dataRecord?.error === "string"
-            ? dataRecord.error
-            : "UnknownError";
-        throw new Error(`FunctionError: ${reason}`);
-      }
-
-      const dataRecord =
-        data && typeof data === "object"
-          ? (data as Record<string, unknown>)
-          : undefined;
-      const resultRecord =
-        dataRecord?.result && typeof dataRecord.result === "object"
-          ? (dataRecord.result as Record<string, unknown>)
-          : undefined;
-      const rule = resultRecord?.rule ?? dataRecord?.rule;
-      if (!rule) {
-        throw new Error("FunctionError: missing rule in response");
-      }
-
-      return rule as GeneratedRule;
-    } catch (err) {
-      clearTimeout(to);
-      const message = toErrorMessage(err);
-
-      if (attempt < MAX_RETRY && shouldRetryFromMessage(message)) {
-        await delay(baseDelay * (attempt + 1));
-        continue;
-      }
-
-      throw new Error(message);
-    }
+    return {
+      status: "need_info",
+      questions,
+      prompt: result.prompt,
+      promptHash: result.promptHash,
+      correlationId: result.correlationId,
+      rawModelResponse: result.rawModelResponse,
+      provider: result.provider,
+    };
   }
 
-  throw new Error("Exhausted retries for generate-chess-rule");
+  const rule = result.rule;
+  if (!rule || typeof rule !== "object") {
+    throw new Error("ruleGeneratorChat: règle manquante dans la réponse");
+  }
+
+  return {
+    status: "ready",
+    rule,
+    validation: result.validation,
+    dryRun: result.dryRun ?? null,
+    prompt: result.prompt,
+    promptHash: result.promptHash,
+    correlationId: result.correlationId,
+    rawModelResponse: result.rawModelResponse,
+    provider: result.provider,
+  };
+}
+
+// Compatibilité avec l'ancien flux monolithique
+export async function invokeGenerateRule(
+  body: GenerateRuleRequest,
+): Promise<GeneratedRule> {
+  if (!body || typeof body.prompt !== "string" || !body.prompt.trim()) {
+    throw new Error("generateRule: prompt manquant ou vide");
+  }
+
+  const conversation: RuleGeneratorChatMessage[] = [
+    { role: "user", content: body.prompt.trim() },
+  ];
+
+  const result = await invokeRuleGeneratorChat({
+    prompt: body.prompt,
+    conversation,
+    board: body.board,
+    options: body.options,
+  });
+
+  if (result.status !== "ready") {
+    const followUps = result.questions?.join(" | ");
+    throw new Error(
+      followUps
+        ? `Informations supplémentaires requises: ${followUps}`
+        : "La génération de règle est incomplète.",
+    );
+  }
+
+  return result.rule;
 }
