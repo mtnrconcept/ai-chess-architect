@@ -15,8 +15,14 @@ import {
 } from "../_shared/identity.ts";
 import { trackEvent } from "../_shared/telemetry.ts";
 
+type ConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 type GenerateRuleReq = {
-  prompt: string;
+  prompt?: string;
+  conversation?: ConversationMessage[];
   board?: {
     tiles?: unknown;
     pieces?: unknown;
@@ -35,16 +41,31 @@ type RuleCandidate = JsonRecord & {
   meta?: JsonRecord;
 };
 
+type NeedInfoResult = {
+  status: "need_info";
+  questions: string[];
+  prompt: string;
+  promptHash: string;
+  correlationId: string;
+  rawModelResponse: JsonRecord;
+  provider?: string;
+};
+
+type ReadyResult = {
+  status: "ready";
+  rule: RuleCandidate;
+  validation: ReturnType<typeof validateRuleJSON>;
+  dryRun?: Awaited<ReturnType<typeof dryRunRule>> | null;
+  prompt: string;
+  promptHash: string;
+  correlationId: string;
+  rawModelResponse: JsonRecord;
+  provider?: string;
+};
+
 type GenerateRuleResponse = {
   ok: true;
-  result: {
-    rule: RuleCandidate;
-    validation: ReturnType<typeof validateRuleJSON>;
-    dryRun?: Awaited<ReturnType<typeof dryRunRule>> | null;
-    promptHash: string;
-    correlationId: string;
-    rawModelResponse: JsonRecord;
-  };
+  result: NeedInfoResult | ReadyResult;
 };
 
 type GenerateRuleErrorResponse = {
@@ -103,16 +124,60 @@ serve(async (req) => {
     );
   }
 
-  const trimmedPrompt = payload.prompt.trim();
+  const trimmedPrompt =
+    typeof payload.prompt === "string" ? payload.prompt.trim() : "";
   const locale = payload.options?.locale ?? DEFAULT_LOCALE;
   const shouldDryRun = payload.options?.dryRun ?? true;
   const correlationId = generateCorrelationId();
+  const conversation = sanitizeConversation(payload.conversation);
+
+  const promptForContext = selectPromptForContext(trimmedPrompt, conversation);
+  if (!promptForContext) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "validation_failed",
+        details: ["prompt ou conversation utilisateur requis"],
+      },
+      422,
+    );
+  }
 
   try {
-    const promptFingerprint = await promptHash(trimmedPrompt);
-    const modelResult = await generateRuleWithModel(trimmedPrompt, payload);
+    const promptFingerprint = await promptHash(promptForContext);
+    const modelResult = await generateRuleWithModel({
+      conversation,
+      board: payload.board,
+      options: payload.options,
+      prompt: promptForContext,
+    });
+
+    if (modelResult.status === "need_info") {
+      const response: GenerateRuleResponse = {
+        ok: true,
+        result: {
+          status: "need_info",
+          questions: modelResult.questions,
+          prompt: promptForContext,
+          promptHash: promptFingerprint,
+          correlationId,
+          rawModelResponse: modelResult.raw as JsonRecord,
+          provider: modelResult.provider,
+        },
+      };
+
+      trackEvent("generate_chess_rule.need_info", {
+        correlationId,
+        promptHash: promptFingerprint,
+        locale,
+        provider: modelResult.provider,
+      });
+
+      return jsonResponse(response, 200);
+    }
+
     const normalizedRule = await normalizeRule(modelResult.rule, {
-      prompt: trimmedPrompt,
+      prompt: promptForContext,
       locale,
       fallbackRuleId: generateRuleId(),
     });
@@ -143,12 +208,15 @@ serve(async (req) => {
     const response: GenerateRuleResponse = {
       ok: true,
       result: {
+        status: "ready",
         rule: normalizedRule,
         validation,
         dryRun: dryRunResult,
+        prompt: promptForContext,
         promptHash: promptFingerprint,
         correlationId,
         rawModelResponse: modelResult.raw as JsonRecord,
+        provider: modelResult.provider,
       },
     };
 
@@ -209,16 +277,41 @@ function validateRequestPayload(body: GenerateRuleReq): string[] {
     return ["payload: object requis"];
   }
 
-  if (typeof body.prompt !== "string") {
-    issues.push("prompt: string requis");
-  } else {
+  if (body.prompt != null && typeof body.prompt !== "string") {
+    issues.push("prompt: doit être une chaîne si présent");
+  } else if (typeof body.prompt === "string") {
     const trimmed = body.prompt.trim();
-    if (trimmed.length < MIN_PROMPT_LENGTH) {
+    if (trimmed.length > 0 && trimmed.length < MIN_PROMPT_LENGTH) {
       issues.push(`prompt: au moins ${MIN_PROMPT_LENGTH} caractères`);
     }
     if (trimmed.length > MAX_PROMPT_LENGTH) {
       issues.push(`prompt: maximum ${MAX_PROMPT_LENGTH} caractères`);
     }
+  }
+
+  if (body.conversation != null && !Array.isArray(body.conversation)) {
+    issues.push("conversation: doit être un tableau de messages");
+  }
+
+  if (Array.isArray(body.conversation)) {
+    body.conversation.forEach((message, index) => {
+      if (!message || typeof message !== "object") {
+        issues.push(`conversation[${index}]: objet requis`);
+        return;
+      }
+
+      const role = (message as Record<string, unknown>).role;
+      const content = (message as Record<string, unknown>).content;
+
+      if (role !== "user" && role !== "assistant") {
+        issues.push(
+          `conversation[${index}].role: doit être "user" ou "assistant"`,
+        );
+      }
+      if (typeof content !== "string") {
+        issues.push(`conversation[${index}].content: doit être une chaîne`);
+      }
+    });
   }
 
   if (body.board) {
@@ -254,15 +347,29 @@ function validateRequestPayload(body: GenerateRuleReq): string[] {
   return issues;
 }
 
-async function generateRuleWithModel(prompt: string, payload: GenerateRuleReq) {
-  const temperature = normalizeTemperature(payload.options?.temperature);
-  const boardSummary = summariseBoard(payload.board);
-  const userMessage = buildUserMessage(prompt, boardSummary, payload.options);
+async function generateRuleWithModel(params: {
+  conversation: ConversationMessage[];
+  board: GenerateRuleReq["board"];
+  options: GenerateRuleReq["options"];
+  prompt: string;
+}) {
+  const { conversation, board, options, prompt } = params;
+  const temperature = normalizeTemperature(options?.temperature);
+  const boardSummary = summariseBoard(board);
+  const systemContent = buildSystemPrompt({
+    locale: options?.locale ?? DEFAULT_LOCALE,
+    boardSummary,
+  });
+
+  const conversationMessages =
+    conversation.length > 0
+      ? conversation
+      : [{ role: "user", content: prompt }];
 
   const { content } = await invokeChatCompletion({
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
+      { role: "system", content: systemContent },
+      ...conversationMessages,
     ],
     temperature,
     maxOutputTokens: 1400,
@@ -288,22 +395,63 @@ async function generateRuleWithModel(prompt: string, payload: GenerateRuleReq) {
     throw new Error("model_response_empty");
   }
 
-  let parsedRecord: JsonRecord = parsed as JsonRecord;
+  const parsedRecord: JsonRecord = parsed as JsonRecord;
+  const providerValue = parsedRecord["provider"];
+  const provider =
+    typeof providerValue === "string" ? providerValue : undefined;
 
-  if (!("rule" in parsedRecord) && !("rule_json" in parsedRecord)) {
-    // Some prompts might return the rule directly
-    parsedRecord = { rule: parsedRecord } as JsonRecord;
+  const statusValue = parsedRecord["status"];
+  const status = typeof statusValue === "string" ? statusValue : undefined;
+
+  if (status === "need_info") {
+    const questionsRaw = parsedRecord["questions"];
+    const questions = Array.isArray(questionsRaw)
+      ? questionsRaw
+          .map((entry: unknown) =>
+            typeof entry === "string" ? entry.trim() : undefined,
+          )
+          .filter(
+            (question): question is string =>
+              typeof question === "string" && question.length > 0,
+          )
+      : [];
+
+    if (questions.length === 0) {
+      throw new Error("model_response_missing_questions");
+    }
+
+    return {
+      status: "need_info" as const,
+      questions,
+      raw: parsedRecord,
+      provider,
+    };
   }
 
-  const ruleCandidate = (parsedRecord as any).rule ?? (parsedRecord as any).rule_json;
+  if (status !== "ready") {
+    throw new Error("model_response_missing_status");
+  }
+
+  let parsedRecordForRule: JsonRecord = parsedRecord;
+  if (
+    !("rule" in parsedRecordForRule) &&
+    !("rule_json" in parsedRecordForRule)
+  ) {
+    parsedRecordForRule = { rule: parsedRecordForRule } as JsonRecord;
+  }
+
+  const ruleEntry = parsedRecordForRule["rule"];
+  const ruleJsonEntry = parsedRecordForRule["rule_json"];
+  const ruleCandidate = (ruleEntry ?? ruleJsonEntry) as unknown;
   if (!isRecord(ruleCandidate)) {
     throw new Error("model_response_missing_rule");
   }
 
   return {
+    status: "ready" as const,
     rule: ruleCandidate,
-    raw: parsedRecord,
-    provider: typeof (parsedRecord as any).provider === "string" ? (parsedRecord as any).provider : undefined,
+    raw: parsedRecordForRule,
+    provider,
   };
 }
 
@@ -373,23 +521,25 @@ function summariseBoard(board: GenerateRuleReq["board"] | undefined): string {
   }
 }
 
-function buildUserMessage(
-  prompt: string,
-  boardSummary: string,
-  options: GenerateRuleReq["options"],
-): string {
-  const locale = options?.locale ?? DEFAULT_LOCALE;
-  return [
-    `Locale préférée: ${locale}`,
-    boardSummary,
-    "Instruction utilisateur:",
-    prompt.trim(),
-    "Respecte scrupuleusement le format JSON demandé.",
-  ].join("\n\n");
-}
+type SystemPromptContext = {
+  locale: string;
+  boardSummary: string;
+};
 
-const SYSTEM_PROMPT = `Tu es RuleForge, un assistant qui conçoit des variantes d'échecs.
-Tu dois répondre STRICTEMENT avec un objet JSON conforme au schéma suivant:
+function buildSystemPrompt(context: SystemPromptContext): string {
+  const basePrompt = `Tu es RuleForge, un assistant qui conçoit des variantes d'échecs.
+Tu dois analyser l'historique de conversation fourni par l'utilisateur.
+Locale préférée: ${context.locale}
+${context.boardSummary}
+
+Quand les informations sont insuffisantes pour décrire précisément la règle, tu dois répondre STRICTEMENT avec un JSON de la forme:
+{
+  "status": "need_info",
+  "questions": ["question complémentaire 1", "question complémentaire 2", ...]
+}
+Pose au maximum trois questions courtes et ciblées à la fois, en évitant les répétitions et en tenant compte des réponses déjà apportées.
+
+Une fois que tu disposes de tous les détails nécessaires, tu dois répondre STRICTEMENT avec un JSON conforme au schéma suivant:
 {
   "rule": {
     "meta": {
@@ -414,6 +564,55 @@ Tu dois répondre STRICTEMENT avec un objet JSON conforme au schéma suivant:
   }
 }
 Ne mets jamais de markdown ni de texte hors JSON.`;
+
+  return basePrompt;
+}
+
+function sanitizeConversation(
+  conversation: GenerateRuleReq["conversation"],
+): ConversationMessage[] {
+  if (!Array.isArray(conversation)) return [];
+
+  const sanitized: ConversationMessage[] = [];
+
+  for (const entry of conversation) {
+    if (!entry || typeof entry !== "object") continue;
+    const message = entry as Record<string, unknown>;
+    const role = message.role;
+    const content = message.content;
+
+    if (role !== "user" && role !== "assistant") continue;
+    if (typeof content !== "string") continue;
+
+    const trimmed = content.trim();
+    if (!trimmed) continue;
+
+    sanitized.push({ role, content: trimmed });
+  }
+
+  return sanitized;
+}
+
+function selectPromptForContext(
+  trimmedPrompt: string,
+  conversation: ConversationMessage[],
+): string {
+  if (trimmedPrompt.length >= MIN_PROMPT_LENGTH) {
+    return trimmedPrompt;
+  }
+
+  const userMessages = conversation
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .filter((content) => content.trim().length > 0);
+
+  if (userMessages.length === 0) {
+    return trimmedPrompt;
+  }
+
+  const lastUserMessage = userMessages[userMessages.length - 1];
+  return lastUserMessage;
+}
 
 function extractJsonObject(content: string): string {
   const trimmed = (content ?? "").trim();
