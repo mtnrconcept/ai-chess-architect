@@ -1,0 +1,1 @@
+export const RULE_GENERATOR_MIN_PROMPT_LENGTH = 8;

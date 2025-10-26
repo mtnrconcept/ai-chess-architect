@@ -1,5 +1,6 @@
 // /src/lib/supabase/functions.ts
 import { supabase } from "@/integrations/supabase/client";
+import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
 
 export type GeneratedRule = Record<string, unknown>;
 
@@ -356,10 +357,13 @@ export async function invokeRuleGeneratorChat(
 
   const prompt =
     typeof body.prompt === "string" ? body.prompt.trim() : undefined;
+  const isPromptLongEnough =
+    typeof prompt === "string" &&
+    prompt.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH;
 
   const payload = JSON.parse(
     JSON.stringify({
-      prompt: prompt && prompt.length > 0 ? prompt : undefined,
+      prompt: isPromptLongEnough ? prompt : undefined,
       conversation: sanitizedConversation,
       board: body.board ?? undefined,
       options: {
