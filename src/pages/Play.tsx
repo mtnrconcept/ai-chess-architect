@@ -1775,7 +1775,7 @@ const Play = () => {
           />
         </div>
 
-        <aside className="flex min-h-[420px] flex-col rounded-lg border border-white/10 bg-black/25 p-4">
+        <aside className="flex min-h-[420px] max-h-[75vh] flex-col rounded-lg border border-white/10 bg-black/25 p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-white">Coach IA</h2>
@@ -1804,54 +1804,56 @@ const Play = () => {
             </Button>
           </div>
 
-          <div
-            ref={chatContainerRef}
-            className="flex-1 space-y-3 overflow-y-auto rounded-md border border-white/5 bg-black/20 p-3"
-          >
-            {coachMessages.map((message) => {
-              const isCoach = message.role === "coach";
-              const isPlayer = message.role === "player";
-              const bubbleClass = isCoach
-                ? "self-start rounded-2xl bg-fuchsia-500/20 text-fuchsia-100"
-                : isPlayer
-                  ? "self-end rounded-2xl bg-cyan-500/20 text-cyan-100"
-                  : "self-center rounded-2xl bg-slate-500/20 text-slate-100";
+          <div className="flex-1 overflow-hidden">
+            <div
+              ref={chatContainerRef}
+              className="flex h-full flex-col justify-end gap-3 overflow-y-auto rounded-md border border-white/5 bg-black/20 p-3"
+            >
+              {coachMessages.map((message) => {
+                const isCoach = message.role === "coach";
+                const isPlayer = message.role === "player";
+                const bubbleClass = isCoach
+                  ? "self-start rounded-2xl bg-fuchsia-500/20 text-fuchsia-100"
+                  : isPlayer
+                    ? "self-end rounded-2xl bg-cyan-500/20 text-cyan-100"
+                    : "self-center rounded-2xl bg-slate-500/20 text-slate-100";
 
-              const label =
-                message.role === "coach"
-                  ? "Coach"
-                  : message.role === "player"
-                    ? "Vous"
-                    : "Système";
+                const label =
+                  message.role === "coach"
+                    ? "Coach"
+                    : message.role === "player"
+                      ? "Vous"
+                      : "Système";
 
-              return (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex w-full flex-col gap-1 text-xs",
-                    isPlayer ? "items-end" : "items-start",
-                  )}
-                >
-                  <span className="text-[0.65rem] uppercase tracking-[0.25em] text-white/60">
-                    {label}
-                  </span>
-                  <p
+                return (
+                  <div
+                    key={message.id}
                     className={cn(
-                      "w-full whitespace-pre-wrap px-4 py-3",
-                      bubbleClass,
+                      "flex w-full flex-col gap-1 text-xs",
+                      isPlayer ? "items-end" : "items-start",
                     )}
                   >
-                    {message.content}
-                  </p>
-                </div>
-              );
-            })}
+                    <span className="text-[0.65rem] uppercase tracking-[0.25em] text-white/60">
+                      {label}
+                    </span>
+                    <p
+                      className={cn(
+                        "w-full whitespace-pre-wrap px-4 py-3",
+                        bubbleClass,
+                      )}
+                    >
+                      {message.content}
+                    </p>
+                  </div>
+                );
+              })}
 
-            {coachLoading && (
-              <p className="text-center text-xs text-white/60">
-                Le coach réfléchit à votre position…
-              </p>
-            )}
+              {coachLoading && (
+                <p className="text-center text-xs text-white/60">
+                  Le coach réfléchit à votre position…
+                </p>
+              )}
+            </div>
           </div>
 
           {coachError && (
