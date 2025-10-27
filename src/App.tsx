@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 import Index from "./pages/Index";
 import Generator from "./pages/Generator";
@@ -22,33 +22,44 @@ import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
 
+const router = createBrowserRouter(
+  [
+    {
+      element: <AppLayout />,
+      children: [
+        { path: "/", element: <Index /> },
+        { path: "/generator", element: <Generator /> },
+        { path: "/lobby", element: <Lobby /> },
+        { path: "/play", element: <Play /> },
+        { path: "/play/:matchId", element: <Play /> },
+        { path: "/leaderboard", element: <Leaderboard /> },
+        { path: "/signup", element: <SignUp /> },
+        { path: "/profile", element: <Profile /> },
+        { path: "/settings", element: <Settings /> },
+        { path: "/analysis", element: <MatchAnalysis /> },
+        { path: "/tournaments", element: <Tournaments /> },
+        { path: "/pricing", element: <Pricing /> },
+        { path: "/diagnostics", element: <Diagnostics /> },
+        { path: "/legal", element: <Legal /> },
+        { path: "*", element: <NotFound /> },
+      ],
+    },
+  ],
+  {
+    future: {
+      v7_startTransition: true,
+      v7_relativeSplatPath: true,
+    },
+  },
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route element={<AppLayout />}>
-              <Route path="/" element={<Index />} />
-              <Route path="/generator" element={<Generator />} />
-              <Route path="/lobby" element={<Lobby />} />
-              <Route path="/play" element={<Play />} />
-              <Route path="/play/:matchId" element={<Play />} />
-              <Route path="/leaderboard" element={<Leaderboard />} />
-              <Route path="/signup" element={<SignUp />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/analysis" element={<MatchAnalysis />} />
-              <Route path="/tournaments" element={<Tournaments />} />
-              <Route path="/pricing" element={<Pricing />} />
-              <Route path="/diagnostics" element={<Diagnostics />} />
-              <Route path="/legal" element={<Legal />} />
-              <Route path="*" element={<NotFound />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+        <RouterProvider router={router} />
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
