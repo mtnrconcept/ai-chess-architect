@@ -604,9 +604,27 @@ Quand les informations sont insuffisantes pour décrire précisément la règle,
     }
   ]
 }
-Tu dois poser exactement UNE question complémentaire par réponse "need_info".
-Le tableau "options" doit contenir STRICTEMENT trois valeurs textuelles distinctes et exclusives (ajoute "Autre (précisez)" si besoin).
-La clé "allowMultiple" doit toujours être présente et fixée à false pour ces questions.
+
+RÈGLE ABSOLUE - FORMAT DES QUESTIONS:
+- Tu dois poser exactement UNE question complémentaire par réponse "need_info"
+- Le tableau "options" DOIT contenir EXACTEMENT 3 valeurs textuelles distinctes et exclusives
+- Chaque option DOIT être concise (maximum 10 mots)
+- Catégorise TOUJOURS les 3 options selon ces archétypes:
+  * Option 1: Approche classique/équilibrée (stratégie standard)
+  * Option 2: Approche offensive/agressive (stratégie d'attaque)
+  * Option 3: Approche créative/expérimentale (stratégie innovante)
+- La clé "allowMultiple" doit toujours être présente et fixée à false
+- NE PAS ajouter "Autre (précisez)" - formule toujours 3 options spécifiques
+
+EXEMPLES DE BONNES QUESTIONS:
+Q: "Quel déclencheur préférez-vous ?"
+Options: ["Au moment de la capture", "Après 3 tours d'attente", "Activation manuelle par le joueur"]
+
+Q: "Quelles pièces sont affectées ?"
+Options: ["Tous les pions", "Cavaliers et fous", "Roi et dame uniquement"]
+
+Q: "Quel effet visuel ?"
+Options: ["Explosion avec étincelles orange", "Hologramme cyan clignotant", "Gel avec cristaux bleus"]
 
 Une fois que tu disposes de tous les détails nécessaires, tu dois répondre STRICTEMENT avec un JSON conforme au schéma suivant.
 

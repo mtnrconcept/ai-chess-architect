@@ -22,6 +22,7 @@ import { convertRuleJsonToChessRule } from "@/lib/ruleJsonToChessRule";
 import RuleGenerator, {
   type RuleGeneratorReadyPayload,
 } from "@/features/rules/Generator";
+import { ChessMorphingAnimation } from "@/components/ui/chess-morphing-animation";
 
 type ChessRuleInsert = Database["public"]["Tables"]["chess_rules"]["Insert"];
 
@@ -342,6 +343,13 @@ const Generator = () => {
         </Card>
 
       </div>
+
+      {/* Overlay d'animation pendant la génération */}
+      {saving && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-xl">
+          <ChessMorphingAnimation duration={3000} />
+        </div>
+      )}
     </NeonBackground>
   );
 };

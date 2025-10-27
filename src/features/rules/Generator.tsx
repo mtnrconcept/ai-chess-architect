@@ -18,8 +18,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
-import { RotateCcw, CheckCircle2 } from "lucide-react";
+import { RotateCcw, CheckCircle2, Zap, Target, Sparkles } from "lucide-react";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 const toErrorMessage = (value: unknown): string => {
   if (value instanceof Error && value.message) {
@@ -456,48 +458,86 @@ export default function RuleGenerator({
               const selectedForQuestion = selectedOptions[questionKey] ?? null;
 
               return (
-                <div key={message.id} className="flex flex-col gap-3">
+                <div key={message.id} className="flex flex-col gap-4">
                   <div className="font-semibold text-sm text-primary">
                     Assistant
                   </div>
-                  <div className="space-y-3">
-                    <div className="space-y-2 rounded-lg border bg-background/60 p-3">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-sm font-medium leading-snug">
+                  <div className="space-y-4">
+                    <div className="space-y-6 rounded-2xl border-2 border-primary/30 bg-gradient-to-br from-background/90 to-background/60 backdrop-blur-xl p-6">
+                      <div className="flex flex-col gap-2">
+                        <h3 className="text-xl font-bold text-primary tracking-tight">
                           {message.question.question}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          Sélectionnez une seule réponse (envoi automatique).
-                        </span>
+                        </h3>
+                        {canInteract && (
+                          <span className="text-xs text-muted-foreground">
+                            Cliquez sur votre choix (envoi automatique)
+                          </span>
+                        )}
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {message.question.options.map((option, optionIndex) => {
-                          const optionKey = `${questionKey}-option-${optionIndex}`;
                           const isSelected = selectedForQuestion === option;
+                          const icons = [Zap, Target, Sparkles];
+                          const Icon = icons[optionIndex % icons.length];
+                          const gradients = [
+                            "from-blue-500/10 to-cyan-500/10",
+                            "from-orange-500/10 to-red-500/10",
+                            "from-purple-500/10 to-pink-500/10"
+                          ];
 
                           return (
-                            <div
-                              key={optionKey}
-                              className={`group relative flex items-start gap-3 rounded-md border p-3 transition-all ${
-                                canInteract
-                                  ? "cursor-pointer hover:border-primary hover:bg-primary/5"
-                                  : "opacity-60"
-                              } ${isSelected ? "border-primary bg-primary/10" : ""}`}
+                            <motion.div
+                              key={`${questionKey}-option-${optionIndex}`}
+                              whileHover={canInteract ? { scale: 1.03, y: -4 } : {}}
+                              whileTap={canInteract ? { scale: 0.98 } : {}}
                               onClick={() => {
                                 if (canInteract) {
                                   toggleAnswer(message, option);
                                 }
                               }}
+                              className={cn(
+                                "relative cursor-pointer rounded-2xl border-2 p-6 transition-all",
+                                `bg-gradient-to-br ${gradients[optionIndex % gradients.length]}`,
+                                "backdrop-blur-xl shadow-lg",
+                                canInteract ? "" : "opacity-60 cursor-not-allowed",
+                                isSelected
+                                  ? "border-primary shadow-glow scale-[1.02]"
+                                  : "border-border hover:border-primary/50"
+                              )}
                             >
-                              <Checkbox
-                                checked={isSelected}
-                                disabled={!canInteract}
-                                className="mt-0.5"
-                              />
-                              <span className="flex-1 text-sm leading-relaxed">
-                                {option}
-                              </span>
+                              {isSelected && (
+                                <motion.div
+                                  layoutId={`selected-${message.id}`}
+                                  className="absolute inset-0 rounded-2xl border-4 border-primary/50"
+                                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                                />
+                              )}
+
+                              <div className="flex flex-col items-center gap-4 relative z-10">
+                                <div
+                                  className={cn(
+                                    "p-4 rounded-xl transition-all",
+                                    isSelected ? "bg-primary/20 scale-110" : "bg-muted/50"
+                                  )}
+                                >
+                                  <Icon
+                                    className={cn(
+                                      "w-8 h-8 transition-colors",
+                                      isSelected ? "text-primary" : "text-muted-foreground"
+                                    )}
+                                  />
+                                </div>
+
+                                <p
+                                  className={cn(
+                                    "text-center font-medium leading-snug transition-colors",
+                                    isSelected ? "text-primary" : "text-foreground"
+                                  )}
+                                >
+                                  {option}
+                                </p>
+                              </div>
                               {isSelected && (
                                 <CheckCircle2 className="h-4 w-4 text-primary" />
                               )}
