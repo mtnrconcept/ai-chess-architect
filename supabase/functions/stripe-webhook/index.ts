@@ -177,7 +177,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (preflight) return preflight;
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "Méthode non autorisée." }, 405);
+    return jsonResponse({ error: "Méthode non autorisée." }, 405, req);
   }
 
   if (!stripe || !webhookSecret) {
@@ -187,12 +187,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse(
       { error: "Stripe n'est pas configuré côté serveur." },
       500,
+      req,
     );
   }
 
   const signature = req.headers.get("stripe-signature");
   if (!signature) {
-    return jsonResponse({ error: "Signature Stripe manquante." }, 400);
+    return jsonResponse({ error: "Signature Stripe manquante." }, 400, req);
   }
 
   let payload: string;
@@ -203,7 +204,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `${logPrefix} Impossible de lire le corps de la requête:`,
       error,
     );
-    return jsonResponse({ error: "Corps de requête illisible." }, 400);
+    return jsonResponse({ error: "Corps de requête illisible." }, 400, req);
   }
 
   let event: Stripe.Event;
@@ -217,7 +218,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   } catch (error) {
     console.error(`${logPrefix} Signature Stripe invalide:`, error);
-    return jsonResponse({ error: "Signature Stripe invalide." }, 400);
+    return jsonResponse({ error: "Signature Stripe invalide." }, 400, req);
   }
 
   const result = await processStripeEvent(event);
@@ -234,5 +235,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       warnings: result.warnings,
     },
     status,
+    req,
   );
 });

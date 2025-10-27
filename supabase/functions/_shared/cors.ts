@@ -1,7 +1,5 @@
 // /supabase/functions/_shared/cors.ts
 
-const ALLOW_ORIGIN = Deno.env.get("CORS_ORIGIN") ?? "*";
-
 type CorsOverrides = {
   methods?: string[];
   headers?: string[];
@@ -9,35 +7,76 @@ type CorsOverrides = {
   allowCredentials?: boolean;
 };
 
-const BASE_ALLOW_METHODS = ["GET", "POST", "OPTIONS"];
-const BASE_ALLOW_HEADERS = [
-  "authorization",
-  "x-client-info",
-  "apikey",
-  "content-type",
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://1e794698-feca-4fca-ab3b-11990c0b270d.lovableproject.com",
+  "http://localhost:5173",
 ];
 
-const buildCorsHeaders = (overrides?: CorsOverrides, request?: Request) => {
-  const headers = new Headers({
-    "Access-Control-Allow-Origin": overrides?.origin ?? ALLOW_ORIGIN,
-    "Access-Control-Allow-Methods": (
-      overrides?.methods ?? BASE_ALLOW_METHODS
-    ).join(","),
-    "Access-Control-Allow-Headers": (
-      overrides?.headers ?? BASE_ALLOW_HEADERS
-    ).join(","),
-  });
+const envOrigins = Deno.env
+  .get("CORS_ORIGIN")
+  ?.split(",")
+  .map((origin) => origin.trim())
+  .filter((origin) => origin.length > 0);
 
+const normalisedEnvOrigins = envOrigins?.length ? envOrigins : undefined;
+
+export const ALLOWED_ORIGINS = normalisedEnvOrigins ?? DEFAULT_ALLOWED_ORIGINS;
+
+const DEFAULT_ALLOW_METHODS = ["GET", "POST", "OPTIONS"] as const;
+const DEFAULT_ALLOW_HEADERS = [
+  "Content-Type",
+  "Authorization",
+  "apikey",
+  "Prefer",
+  "X-Client-Info",
+  "x-client-info",
+] as const;
+
+const DEFAULT_ALLOW_CREDENTIALS = true;
+
+const resolveAllowedOrigin = (
+  requestOrigin?: string | null,
+  override?: string,
+) => {
+  if (override) return override;
+  if (ALLOWED_ORIGINS.includes("*")) return "*";
+  if (requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+  return ALLOWED_ORIGINS[0] ?? "*";
+};
+
+const buildCorsHeaders = (overrides?: CorsOverrides, request?: Request) => {
   const requestedHeaders = request?.headers.get(
     "access-control-request-headers",
   );
+  const requestOrigin = request?.headers.get("origin");
 
-  if (requestedHeaders) {
-    headers.set("Access-Control-Allow-Headers", requestedHeaders);
+  const allowHeaders = requestedHeaders
+    ? requestedHeaders
+    : Array.from(new Set(overrides?.headers ?? DEFAULT_ALLOW_HEADERS))
+        .map((header) => header.trim())
+        .filter((header) => header.length > 0)
+        .join(",");
+
+  const allowOrigin = resolveAllowedOrigin(requestOrigin, overrides?.origin);
+
+  const headers = new Headers({
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": (
+      overrides?.methods ?? DEFAULT_ALLOW_METHODS
+    ).join(","),
+    "Access-Control-Allow-Headers": allowHeaders,
+  });
+
+  if (allowOrigin !== "*") {
+    headers.set("Vary", "Origin");
   }
 
-  if (overrides?.allowCredentials) {
-    headers.set("Access-Control-Allow-Credentials", "true");
+  if (overrides?.allowCredentials ?? DEFAULT_ALLOW_CREDENTIALS) {
+    if (allowOrigin !== "*") {
+      headers.set("Access-Control-Allow-Credentials", "true");
+    }
   }
 
   return headers;
@@ -78,35 +117,41 @@ export function preflightIfOptions(
 // - Nouvelle : jsonResponse(data, status)
 // - Ancienne : jsonResponse(req, data, options, ...)
 export function jsonResponse(...args: unknown[]): Response {
-  // Nouvelle signature : jsonResponse(data, status?)
-  if (args.length <= 2 && !isRequest(args[0])) {
+  if (!isRequest(args[0])) {
     const data = args[0];
-    const status = typeof args[1] === "number" ? args[1] : 200;
-    return new Response(JSON.stringify(data), {
-      status,
-      headers: {
-        ...Object.fromEntries(baseHeaders.entries()),
-        "Content-Type": "application/json",
-      },
-    });
+    let status = 200;
+    let req: Request | undefined;
+
+    for (let i = 1; i < args.length; i++) {
+      const candidate = args[i];
+      if (typeof candidate === "number") {
+        status = candidate;
+      } else if (isRequest(candidate)) {
+        req = candidate;
+      }
+    }
+
+    const headers = buildCorsHeaders(undefined, req);
+    headers.set("Content-Type", "application/json");
+
+    return new Response(JSON.stringify(data), { status, headers });
   }
 
-  // Ancienne signature : jsonResponse(req, data, options?, corsOptions?)
-  // On ignore req et corsOptions, on extrait data et options
+  const req = args[0] as Request;
   const data = args[1];
   const options = asResponseInit(args[2]);
   const overrides = asCorsOverrides(args[3]);
   const status = options.status ?? 200;
-  const corsHeaders = buildCorsHeaders(overrides);
+  const corsHeaders = buildCorsHeaders(overrides, req);
+  const headers = new Headers(options.headers);
 
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      ...Object.fromEntries(corsHeaders.entries()),
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  for (const [key, value] of corsHeaders.entries()) {
+    headers.set(key, value);
+  }
+
+  headers.set("Content-Type", "application/json");
+
+  return new Response(JSON.stringify(data), { ...options, status, headers });
 }
 
 // Backward compatibility aliases
@@ -119,22 +164,35 @@ export function handleOptions(...args: unknown[]): Response | null {
 }
 
 export function corsResponse(...args: unknown[]): Response {
-  // Nouvelle signature : corsResponse(body, init?)
-  if (args.length <= 2 && !isRequest(args[0])) {
+  if (!isRequest(args[0])) {
     const body = args[0];
     const init = asResponseInit(args[1]);
+    let req: Request | undefined;
+
+    for (let i = 2; i < args.length; i++) {
+      const candidate = args[i];
+      if (isRequest(candidate)) {
+        req = candidate;
+        break;
+      }
+    }
+
     const headers = new Headers(init.headers);
-    for (const [k, v] of baseHeaders.entries()) headers.set(k, v);
+    const corsHeaders = buildCorsHeaders(undefined, req);
+    for (const [key, value] of corsHeaders.entries()) {
+      headers.set(key, value);
+    }
+
     return new Response(body, { ...init, headers });
   }
 
-  // Ancienne signature : corsResponse(req, body, init?, corsOptions?)
+  const req = args[0] as Request;
   const body = args[1];
   const init = asResponseInit(args[2]);
   const overrides = asCorsOverrides(args[3]);
   const headers = new Headers(init?.headers);
-  const corsHeaders = buildCorsHeaders(overrides);
-  for (const [k, v] of corsHeaders.entries()) headers.set(k, v);
+  const corsHeaders = buildCorsHeaders(overrides, req);
+  for (const [key, value] of corsHeaders.entries()) headers.set(key, value);
   return new Response(body, { ...init, headers });
 }
 

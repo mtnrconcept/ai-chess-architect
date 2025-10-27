@@ -92,7 +92,7 @@ serve(async (req) => {
   if (preflight) return preflight;
 
   if (req.method !== "POST") {
-    return jsonResponse({ ok: false, error: "method_not_allowed" }, 405);
+    return jsonResponse({ ok: false, error: "method_not_allowed" }, 405, req);
   }
 
   const ctype = req.headers.get("content-type") || "";
@@ -104,6 +104,7 @@ serve(async (req) => {
         details: "Use application/json",
       },
       415,
+      req,
     );
   }
 
@@ -118,6 +119,7 @@ serve(async (req) => {
         details: "Body must be valid JSON",
       },
       422,
+      req,
     );
   }
 
@@ -130,6 +132,7 @@ serve(async (req) => {
         details: validationIssues,
       },
       422,
+      req,
     );
   }
 
@@ -149,6 +152,7 @@ serve(async (req) => {
         details: ["prompt ou conversation utilisateur requis"],
       },
       422,
+      req,
     );
   }
 
@@ -182,7 +186,7 @@ serve(async (req) => {
         provider: modelResult.provider,
       });
 
-      return jsonResponse(response, 200);
+      return jsonResponse(response, 200, req);
     }
 
     const normalizedRule = await normalizeRule(modelResult.rule, {
@@ -198,7 +202,7 @@ serve(async (req) => {
         error: "rule_validation_failed",
         details: validation.errors,
       };
-      return jsonResponse(response, 422);
+      return jsonResponse(response, 422, req);
     }
 
     let dryRunResult: Awaited<ReturnType<typeof dryRunRule>> | null = null;
@@ -210,7 +214,7 @@ serve(async (req) => {
           error: "rule_dry_run_failed",
           details: dryRunResult.errors,
         };
-        return jsonResponse(response, 422);
+        return jsonResponse(response, 422, req);
       }
     }
 
@@ -237,7 +241,7 @@ serve(async (req) => {
       provider: modelResult.provider,
     });
 
-    return jsonResponse(response, 200);
+    return jsonResponse(response, 200, req);
   } catch (error) {
     if (error instanceof MissingApiKeyError) {
       const details =
@@ -258,6 +262,7 @@ serve(async (req) => {
           details,
         },
         503,
+        req,
       );
     }
 
@@ -278,6 +283,7 @@ serve(async (req) => {
           details,
         },
         mapAiProviderHttpStatus(error.status),
+        req,
       );
     }
 
@@ -295,6 +301,7 @@ serve(async (req) => {
         details: message,
       },
       500,
+      req,
     );
   }
 });
