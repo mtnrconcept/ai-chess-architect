@@ -188,7 +188,7 @@ const isSupabaseCorsError = (error: unknown): boolean => {
   return (
     message.includes("x-client-info") ||
     message.includes("cors") ||
-    (error instanceof TypeError && message.includes("failed to fetch"))
+    message.includes("failed to fetch")
   );
 };
 
@@ -348,12 +348,22 @@ async function invokeSupabaseRuleGenerator(
     clearTimeout(to);
 
     if (error) {
+      const directMessage = toErrorMessage(error);
+
+      if (isSupabaseCorsError(error) || isSupabaseCorsError(directMessage)) {
+        return invokeSupabaseRuleGeneratorViaDirectFetch(
+          payload,
+          attempt,
+          maxRetry,
+          baseDelay,
+        );
+      }
+
       const status = getStatusFromError(error);
       const responsePayload = await readSupabaseErrorResponse(error);
 
       const message =
-        formatSupabaseEdgeFunctionError(responsePayload) ??
-        toErrorMessage(error);
+        formatSupabaseEdgeFunctionError(responsePayload) ?? directMessage;
 
       if (
         attempt < maxRetry &&
