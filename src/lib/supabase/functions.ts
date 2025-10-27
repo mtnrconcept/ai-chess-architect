@@ -1,5 +1,11 @@
 // /src/lib/supabase/functions.ts
-import { supabase } from "@/integrations/supabase/client";
+import {
+  resolveSupabaseFunctionUrl,
+  supabase,
+  supabaseAnonKey,
+  supabaseDiagnostics,
+  supabaseFunctionsUrl,
+} from "@/integrations/supabase/client";
 import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
 
 export type GeneratedRule = Record<string, unknown>;
@@ -60,10 +66,65 @@ export type RuleGeneratorChatResult =
   | RuleGeneratorNeedInfo
   | RuleGeneratorReady;
 
+const RULE_GENERATOR_FUNCTION_PATH = "generate-chess-rule";
+
 const delay = (ms: number) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+
+const normaliseSupabaseFunctionsBase = (): string | null => {
+  const configuredBase =
+    supabaseFunctionsUrl ?? supabaseDiagnostics.functionsUrl ?? null;
+  if (configuredBase && configuredBase.trim().length > 0) {
+    return configuredBase;
+  }
+
+  const projectId = supabaseDiagnostics.resolvedProjectId;
+  if (typeof projectId === "string" && projectId.trim().length > 0) {
+    return `https://${projectId.trim()}.functions.supabase.co`;
+  }
+
+  return null;
+};
+
+const resolveSupabaseFunctionsEndpoint = (path: string): string | null => {
+  const explicit = resolveSupabaseFunctionUrl(path);
+  if (explicit) {
+    return explicit;
+  }
+
+  const base = normaliseSupabaseFunctionsBase();
+  if (!base) {
+    return null;
+  }
+
+  const trimmedBase = base.replace(/\/+$/, "");
+  const trimmedPath = path.replace(/^\/+/, "");
+
+  return trimmedPath ? `${trimmedBase}/${trimmedPath}` : trimmedBase;
+};
+
+const readEdgeFunctionResponse = async (
+  response: Response,
+): Promise<unknown> => {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  try {
+    const text = await response.text();
+    return text;
+  } catch (_error) {
+    return null;
+  }
+};
 
 const toErrorMessage = (value: unknown): string => {
   if (value instanceof Error && typeof value.message === "string") {
@@ -118,6 +179,16 @@ const shouldRetryFromMessage = (message: string): boolean => {
     normalized.includes("aborterror") ||
     normalized.includes("timeout") ||
     normalized.includes("502")
+  );
+};
+
+const isSupabaseCorsError = (error: unknown): boolean => {
+  const message = toErrorMessage(error).toLowerCase();
+
+  return (
+    message.includes("x-client-info") ||
+    message.includes("cors") ||
+    (error instanceof TypeError && message.includes("failed to fetch"))
   );
 };
 
@@ -303,11 +374,115 @@ async function invokeSupabaseRuleGenerator(
     return data ?? { ok: false, error: "empty_response" };
   } catch (err) {
     clearTimeout(to);
+
+    if (isSupabaseCorsError(err)) {
+      return invokeSupabaseRuleGeneratorViaDirectFetch(
+        payload,
+        attempt,
+        maxRetry,
+        baseDelay,
+      );
+    }
+
     const message = toErrorMessage(err);
 
     if (attempt < maxRetry && shouldRetryFromMessage(message)) {
       await delay(baseDelay * (attempt + 1));
       return invokeSupabaseRuleGenerator(
+        payload,
+        attempt + 1,
+        maxRetry,
+        baseDelay,
+      );
+    }
+
+    throw new Error(message);
+  }
+}
+
+async function invokeSupabaseRuleGeneratorViaDirectFetch(
+  payload: Record<string, unknown>,
+  attempt: number,
+  maxRetry: number,
+  baseDelay: number,
+): Promise<SupabaseRuleGeneratorResponse> {
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), 55000);
+
+  const endpoint = resolveSupabaseFunctionsEndpoint(
+    RULE_GENERATOR_FUNCTION_PATH,
+  );
+  if (!endpoint) {
+    clearTimeout(to);
+    throw new Error(
+      "Supabase Edge Function 'generate-chess-rule' introuvable : configurez VITE_SUPABASE_FUNCTIONS_URL.",
+    );
+  }
+
+  const headers = new Headers({
+    "Content-Type": "application/json",
+  });
+
+  if (supabaseAnonKey) {
+    headers.set("apikey", supabaseAnonKey);
+  }
+
+  let accessToken: string | null | undefined;
+  try {
+    accessToken = supabase
+      ? (await supabase.auth.getSession()).data.session?.access_token
+      : undefined;
+  } catch (_error) {
+    accessToken = undefined;
+  }
+
+  const bearerToken =
+    typeof accessToken === "string" && accessToken.trim().length > 0
+      ? accessToken
+      : typeof supabaseAnonKey === "string" && supabaseAnonKey.trim().length > 0
+        ? supabaseAnonKey
+        : undefined;
+
+  if (bearerToken) {
+    headers.set("Authorization", `Bearer ${bearerToken}`);
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(to);
+
+    const body = await readEdgeFunctionResponse(response);
+
+    if (!response.ok) {
+      const message =
+        formatSupabaseEdgeFunctionError(body) ??
+        (typeof body === "string" ? body || `HTTP ${response.status}` : "");
+
+      throw new Error(
+        message ||
+          `Supabase Edge Function 'generate-chess-rule' a renvoyé ${response.status}.`,
+      );
+    }
+
+    if (!body || typeof body !== "object") {
+      throw new Error("FunctionError: invalid response payload");
+    }
+
+    return body as SupabaseRuleGeneratorResponse;
+  } catch (error) {
+    clearTimeout(to);
+
+    const message = toErrorMessage(error);
+
+    if (attempt < maxRetry && shouldRetryFromMessage(message)) {
+      await delay(baseDelay * (attempt + 1));
+      return invokeSupabaseRuleGeneratorViaDirectFetch(
         payload,
         attempt + 1,
         maxRetry,
