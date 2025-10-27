@@ -207,9 +207,9 @@ export async function invokeChatCompletion(
 
   // lovable (routeur)
   {
-    const apiKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+    const apiKey = (Deno.env.get("LOVABLE_API_KEY") ?? "").trim();
     if (!apiKey) {
-      throw new Error("[lovable] Missing LOVABLE_API_KEY in environment");
+      throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
     }
 
     const guarded = forceJson
