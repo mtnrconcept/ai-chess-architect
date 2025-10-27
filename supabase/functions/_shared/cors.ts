@@ -47,17 +47,22 @@ const resolveAllowedOrigin = (
 };
 
 const buildCorsHeaders = (overrides?: CorsOverrides, request?: Request) => {
-  const requestedHeaders = request?.headers.get(
-    "access-control-request-headers",
-  );
+  const requestedHeaders = request?.headers
+    .get("access-control-request-headers")
+    ?.split(",")
+    .map((header) => header.trim())
+    .filter((header) => header.length > 0);
   const requestOrigin = request?.headers.get("origin");
 
-  const allowHeaders = requestedHeaders
-    ? requestedHeaders
-    : Array.from(new Set(overrides?.headers ?? DEFAULT_ALLOW_HEADERS))
-        .map((header) => header.trim())
-        .filter((header) => header.length > 0)
-        .join(",");
+  const allowHeaders = Array.from(
+    new Set([
+      ...(overrides?.headers ?? DEFAULT_ALLOW_HEADERS),
+      ...(requestedHeaders ?? []),
+    ]),
+  )
+    .map((header) => header.trim())
+    .filter((header) => header.length > 0)
+    .join(",");
 
   const allowOrigin = resolveAllowedOrigin(requestOrigin, overrides?.origin);
 
