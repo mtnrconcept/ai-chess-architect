@@ -1,0 +1,16 @@
+{
+  "imports": {
+    "std/": "https://deno.land/std@0.224.0/",
+    "stripe": "https://esm.sh/stripe@13.11.0?target=deno",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.2?target=deno",
+    "ajv": "https://esm.sh/ajv@8.17.1?target=deno",
+    "zod": "https://deno.land/x/zod@v3.23.8/mod.ts"
+  },
+  "scopes": {
+    "https://esm.sh/": {
+      "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.2?target=deno",
+      "stripe": "https://esm.sh/stripe@13.11.0?target=deno",
+      "ajv": "https://esm.sh/ajv@8.17.1?target=deno"
+    }
+  }
+}
