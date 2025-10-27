@@ -15,7 +15,9 @@ import {
   promptHash,
 } from "../_shared/identity.ts";
 import { trackEvent } from "../_shared/telemetry.ts";
-import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
+
+// Constante locale (ne peut pas importer depuis shared/ dans Deno)
+const RULE_GENERATOR_MIN_PROMPT_LENGTH = 8;
 
 type ConversationMessage = {
   role: "user" | "assistant";

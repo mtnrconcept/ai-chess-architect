@@ -541,7 +541,7 @@ export default function RuleGenerator({
                               {isSelected && (
                                 <CheckCircle2 className="h-4 w-4 text-primary" />
                               )}
-                            </div>
+                            </motion.div>
                           );
                         })}
                       </div>
