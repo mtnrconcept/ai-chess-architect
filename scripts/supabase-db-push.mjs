@@ -9,7 +9,7 @@ const projectRoot = path.resolve(path.dirname(__filename), '..');
 
 loadEnv(projectRoot);
 
-const projectRef = process.env.SUPABASE_PROJECT_ID ?? process.env.SUPABASE_PROJECT_REF ?? 'pfcaolibtgvynnwaxvol';
+const projectRef = process.env.SUPABASE_PROJECT_ID ?? process.env.SUPABASE_PROJECT_REF ?? 'ucaqbhmyutlnitnedowk';
 const dbUrl = process.env.SUPABASE_DB_URL;
 
 if (!dbUrl) {

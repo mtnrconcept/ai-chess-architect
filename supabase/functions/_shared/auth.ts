@@ -1,4 +1,7 @@
-import { createClient, type User } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  createClient,
+  type User,
+} from "https://esm.sh/@supabase/supabase-js@2";
 
 const normalizeEnv = (value: string | undefined | null) => {
   if (typeof value !== "string") return undefined;
@@ -6,8 +9,8 @@ const normalizeEnv = (value: string | undefined | null) => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const EXPECTED_PROJECT_ID = "pfcaolibtgvynnwaxvol";
-const EXPECTED_PROJECT_NAME = "LovableCloud";
+const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
+const EXPECTED_PROJECT_NAME = "Youaregood";
 
 const rawSupabaseUrl =
   normalizeEnv(Deno.env.get("SUPABASE_URL")) ??
@@ -26,7 +29,8 @@ const configuredProjectName =
 const resolvedProjectId = configuredProjectId ?? EXPECTED_PROJECT_ID;
 const resolvedProjectName = configuredProjectName ?? EXPECTED_PROJECT_NAME;
 
-const SUPABASE_URL = rawSupabaseUrl ?? `https://${resolvedProjectId}.supabase.co`;
+const SUPABASE_URL =
+  rawSupabaseUrl ?? `https://${resolvedProjectId}.supabase.co`;
 
 const SERVICE_ROLE_KEY =
   normalizeEnv(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) ??
@@ -41,8 +45,11 @@ const PUBLIC_PUBLISHABLE_KEYS = [
   Deno.env.get("VITE_SUPABASE_PUBLISHABLE_KEY"),
   Deno.env.get("VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY"),
   Deno.env.get("VITE_ANON_KEY"),
-].map(normalizeEnv)
-  .filter((value): value is string => typeof value === "string" && value.length > 0);
+]
+  .map(normalizeEnv)
+  .filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
 
 const PUBLIC_KEY_SET = new Set(PUBLIC_PUBLISHABLE_KEYS);
 
@@ -84,38 +91,43 @@ if (!globalScope.__LOVABLE_CLOUD_SUPABASE_LOGGED__) {
 
   if (configuredProjectId && configuredProjectId !== EXPECTED_PROJECT_ID) {
     messages.push(
-      `Identifiant de projet inattendu (${configuredProjectId}). Les fonctions ciblent ${EXPECTED_PROJECT_NAME} (${EXPECTED_PROJECT_ID}).`
+      `Identifiant de projet inattendu (${configuredProjectId}). Les fonctions ciblent ${EXPECTED_PROJECT_NAME} (${EXPECTED_PROJECT_ID}).`,
     );
   }
 
-  if (configuredProjectName && configuredProjectName !== EXPECTED_PROJECT_NAME) {
+  if (
+    configuredProjectName &&
+    configuredProjectName !== EXPECTED_PROJECT_NAME
+  ) {
     messages.push(
-      `Nom de projet inattendu (${configuredProjectName}). Utilisation forcée de ${EXPECTED_PROJECT_NAME}.`
+      `Nom de projet inattendu (${configuredProjectName}). Utilisation forcée de ${EXPECTED_PROJECT_NAME}.`,
     );
   }
 
   if (!configuredProjectId) {
     messages.push(
-      `Aucun identifiant de projet fourni. Utilisation du projet Supabase ${EXPECTED_PROJECT_NAME} (${EXPECTED_PROJECT_ID}).`
+      `Aucun identifiant de projet fourni. Utilisation du projet Supabase ${EXPECTED_PROJECT_NAME} (${EXPECTED_PROJECT_ID}).`,
     );
   }
 
   if (!rawSupabaseUrl) {
     messages.push(
-      `SUPABASE_URL absent. URL dérivée: https://${resolvedProjectId}.supabase.co.`
+      `SUPABASE_URL absent. URL dérivée: https://${resolvedProjectId}.supabase.co.`,
     );
   }
 
   if (!SERVICE_ROLE_KEY) {
     messages.push(
-      "Clé de rôle de service manquante (SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE/SERVICE_ROLE_KEY)."
+      "Clé de rôle de service manquante (SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE/SERVICE_ROLE_KEY).",
     );
   }
 
   if (messages.length > 0) {
-    console.warn(`[LovableCloud] ${messages.join(" ")}`);
+    console.warn(`[Youaregood] ${messages.join(" ")}`);
   } else {
-    console.log(`[LovableCloud] Fonctions configurées pour ${resolvedProjectName} (${resolvedProjectId}).`);
+    console.log(
+      `[Youaregood] Fonctions configurées pour ${resolvedProjectName} (${resolvedProjectId}).`,
+    );
   }
 
   globalScope.__LOVABLE_CLOUD_SUPABASE_LOGGED__ = true;
@@ -123,13 +135,14 @@ if (!globalScope.__LOVABLE_CLOUD_SUPABASE_LOGGED__) {
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error(
-    "Missing Supabase configuration for function authentication (SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE)"
+    "Missing Supabase configuration for function authentication (SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE)",
   );
 }
 
-const supabase = SUPABASE_URL && SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-  : null;
+const supabase =
+  SUPABASE_URL && SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+    : null;
 
 type AuthSuccess = {
   success: true;
@@ -151,7 +164,9 @@ export const supabaseProjectDiagnostics = () =>
 export const resolvedSupabaseUrl = SUPABASE_URL;
 export const resolvedServiceRoleKey = SERVICE_ROLE_KEY;
 
-export const authenticateRequest = async (req: Request): Promise<AuthResult> => {
+export const authenticateRequest = async (
+  req: Request,
+): Promise<AuthResult> => {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
     if (PUBLIC_KEY_SET.size > 0) {
