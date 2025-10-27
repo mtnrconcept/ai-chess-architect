@@ -434,6 +434,7 @@ async function generateRuleWithModel(params: {
     locale: options?.locale ?? DEFAULT_LOCALE,
     boardSummary,
   });
+  const developerContent = buildDeveloperPrompt();
 
   const conversationMessages =
     conversation.length > 0
@@ -443,6 +444,7 @@ async function generateRuleWithModel(params: {
   const { content } = await invokeChatCompletion({
     messages: [
       { role: "system" as const, content: systemContent },
+      { role: "system" as const, content: developerContent },
       ...conversationMessages.map((msg) => ({
         role: msg.role as "user" | "assistant",
         content: msg.content,
@@ -595,143 +597,74 @@ type SystemPromptContext = {
 };
 
 function buildSystemPrompt(context: SystemPromptContext): string {
-  const basePrompt = `Tu es RuleForge, un assistant qui conçoit des variantes d'échecs.
-Tu dois analyser l'historique de conversation fourni par l'utilisateur.
+  const basePrompt = `Tu es RuleForge, un assistant d’ingénierie de règles d’échecs variantes.
+Objectif: convertir des idées brutes en un JSON exécutable conforme au schéma interne.
+
 Locale préférée: ${context.locale}
 ${context.boardSummary}
 
-Tu acceptes toutes les idées de règle, même extravagantes ou combinant plusieurs mécaniques. Transforme n'importe quel concept en règle codable sans imposer de limitations arbitraires.
+Comportement général:
+- Si les infos sont insuffisantes: retourner STRICTEMENT un JSON au format "need_info" (exactement UNE question, EXACTEMENT 3 options exclusives).
+- Quand tout est clair: retourner STRICTEMENT un JSON au format "ready" avec "rule" conforme au schéma.
+- Ne JAMAIS produire de texte hors JSON. Pas de markdown, pas d’explications.
 
-Quand les informations sont insuffisantes pour décrire précisément la règle, tu dois répondre STRICTEMENT avec un JSON de la forme:
-{
-  "status": "need_info",
-  "questions": [
-    {
-      "question": "question complémentaire obligatoire",
-      "options": ["option A", "option B", "option C"],
-      "allowMultiple": false
+Contraintes “need_info”:
+- "status" = "need_info"
+- "questions" = tableau contenant 1 seule entrée
+- "questions[0].question" = string claire et brève
+- "questions[0].options" = EXACTEMENT 3 options, courtes, mutuellement exclusives
+  - Option 1 = classique/équilibrée
+  - Option 2 = offensive/agressive
+  - Option 3 = créative/expérimentale
+- "questions[0].allowMultiple" = false
+
+Contraintes “ready”:
+- "status" = "ready"
+- "rule" = objet suivant les exigences:
+  - "meta": { "ruleId": string, "ruleName": string <=100 chars, "description": string <=500, "category": oneOf["movement","capture","defense","terrain","vip","upgrade","behavior","special","ai-generated"] }
+  - "scope": { "affectedPieces": string[] } (ex: ["pawn","bishop","knight","rook","queen","king"])
+  - "ui": { "actions": [{ "id": "special_*", "label": string, "icon"?: string, "hint"?: string }] } OPTIONNEL; omettre entièrement si aucune action UI
+  - "logic": {
+      "effects": [{
+        "id": string,
+        "when": string commençant par "ui." ou "lifecycle." ou "status.",
+        "do": [{
+          "action": "namespace.action",
+          "params"?: object
+        }, ...]
+      }, ...]
     }
-  ]
-}
 
-RÈGLE ABSOLUE - FORMAT DES QUESTIONS:
-- Tu dois poser exactement UNE question complémentaire par réponse "need_info"
-- Le tableau "options" DOIT contenir EXACTEMENT 3 valeurs textuelles distinctes et exclusives
-- Chaque option DOIT être concise (maximum 10 mots)
-- Catégorise TOUJOURS les 3 options selon ces archétypes:
-  * Option 1: Approche classique/équilibrée (stratégie standard)
-  * Option 2: Approche offensive/agressive (stratégie d'attaque)
-  * Option 3: Approche créative/expérimentale (stratégie innovante)
-- La clé "allowMultiple" doit toujours être présente et fixée à false
-- NE PAS ajouter "Autre (précisez)" - formule toujours 3 options spécifiques
-
-EXEMPLES DE BONNES QUESTIONS:
-Q: "Quel déclencheur préférez-vous ?"
-Options: ["Au moment de la capture", "Après 3 tours d'attente", "Activation manuelle par le joueur"]
-
-Q: "Quelles pièces sont affectées ?"
-Options: ["Tous les pions", "Cavaliers et fous", "Roi et dame uniquement"]
-
-Q: "Quel effet visuel ?"
-Options: ["Explosion avec étincelles orange", "Hologramme cyan clignotant", "Gel avec cristaux bleus"]
-
-Une fois que tu disposes de tous les détails nécessaires, tu dois répondre STRICTEMENT avec un JSON conforme au schéma suivant.
-
-RÈGLES CRITIQUES DE FORMAT:
-1. Si la règle nécessite une action UI (bouton), "ui.actions" doit contenir des objets avec:
-   - "id": string commençant par "special_" (ex: "special_teleport")
-   - "label": string (ex: "Téléporter")
-   Sinon, omets complètement la section "ui".
-
-2. Dans "logic.effects":
-   - "when": DOIT commencer par "ui.", "lifecycle." ou "status." (ex: "ui.special_teleport" ou "lifecycle.onCapture")
-   - "do": DOIT être un array d'objets, même s'il n'y a qu'une seule action
-   - Chaque action dans "do" DOIT avoir:
-     * "action": au format "namespace.action"
-     * "params": objet optionnel de paramètres
-
-EXEMPLE MINIMAL (sans action UI):
-{
-  "status": "ready",
-  "rule": {
-    "meta": {
-      "ruleId": "double_move_pawns",
-      "ruleName": "Pions rapides",
-      "description": "Les pions gagnent un statut bonus après leur déplacement",
-      "category": "movement"
-    },
-    "scope": {
-      "affectedPieces": ["pawn"]
-    },
-    "logic": {
-      "effects": [
-        {
-          "id": "double_move",
-          "when": "lifecycle.onMoveComplete",
-          "do": [
-            { "action": "status.add", "params": { "pieceId": "$pieceId", "key": "bonus_step", "duration": 1 } },
-            { "action": "ui.toast", "params": { "message": "Bonus de déplacement accordé" } }
-          ]
-        }
-      ]
-    }
-  }
-}
-
-EXEMPLE AVEC ACTION UI:
-{
-  "status": "ready",
-  "rule": {
-    "meta": {
-      "ruleId": "trap_rule",
-      "ruleName": "Piège surprise",
-      "description": "Pose un piège qui capture les ennemis",
-      "category": "special"
-    },
-    "scope": {
-      "affectedPieces": ["pawn"]
-    },
-    "ui": {
-      "actions": [
-        {
-          "id": "special_place_trap",
-          "label": "Poser un piège",
-          "icon": "trap",
-          "hint": "Choisir une case vide"
-        }
-      ]
-    },
-    "logic": {
-      "effects": [
-        {
-          "id": "trap_effect",
-          "when": "ui.special_place_trap",
-          "do": [
-            { "action": "tile.setTrap", "params": { "tile": "$targetTile", "kind": "snare", "sprite": "trap_icon" } },
-            { "action": "cooldown.set", "params": { "pieceId": "$pieceId", "actionId": "special_place_trap", "turns": 2 } },
-            { "action": "turn.end" }
-          ]
-        }
-      ]
-    }
-  }
-}
-
-ACTIONS DISPONIBLES (namespace.action):
-- vfx.play, audio.play
-- decal.set, decal.clear
-- ui.toast
-- cooldown.set, turn.end, state.pushUndo
+Actions autorisées (namespace.action):
+- vfx.play, audio.play, ui.toast
+- cooldown.set, turn.end, state.pushUndo, state.set, state.inc, state.delete
 - piece.capture, piece.move, piece.spawn, piece.duplicate, piece.setInvisible, piece.setStatus, piece.clearStatus
 - board.capture, board.areaEffect
 - tile.setTrap, tile.clearTrap, tile.resolveTrap
 - status.add, status.remove, status.tickAll
-- state.set, state.inc, state.delete
 - area.forEachTile, composite
 
-Ne mets jamais de markdown ni de texte hors JSON. Suis strictement ces formats.`;
+Rappels stricts:
+- Zéro prose. Sortie = JSON pur.
+- Si tu manques d’une info cruciale: renvoie "need_info".
+- Une unique question par tour, 3 options catégorisées (classique/offensive/créative).
+`;
 
   return basePrompt;
+}
+
+function buildDeveloperPrompt(): string {
+  return `Entrée utilisateur = (a) prompt brut et/ou (b) historique de conversation {role, content} + contexte de plateau (optionnel).
+Sortie = JSON “need_info” OU JSON “ready”.
+
+Tu dois:
+- Résumer mentalement le besoin.
+- Si incertitude structurelle (déclencheur, portée, ressources, cooldown, interface): poser 1 question.
+- Sinon, produire la règle normalisée prête à valider côté serveur.
+
+Interdits:
+- Pas de YAML, pas de triple backticks, pas de commentaire.
+- Pas d’option "Autre (précisez)".`;
 }
 
 function parseNeedInfoQuestions(raw: unknown): NeedInfoQuestion[] {
