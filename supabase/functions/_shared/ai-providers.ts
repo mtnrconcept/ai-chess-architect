@@ -1,7 +1,12 @@
 // supabase/functions/_shared/ai-providers.ts
 // Unifier l'appel LLM avec options "forceJson"
 
-export type AiProviderName = "openai" | "gemini" | "groq" | "lovable";
+export type AiProviderName =
+  | "openai"
+  | "gemini"
+  | "groq"
+  | "lovable"
+  | "openrouter";
 
 export class AiProviderHTTPError extends Error {
   readonly code = "ai_provider_http_error" as const;
@@ -21,6 +26,7 @@ const PROVIDER_ENV_VARS: Record<AiProviderName, string> = {
   gemini: "GEMINI_API_KEY",
   groq: "GROQ_API_KEY",
   lovable: "LOVABLE_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
 };
 
 export class MissingApiKeyError extends Error {
@@ -64,7 +70,20 @@ type InvokeResult = {
 
 const DEFAULT_MAX_TOKENS = 1200;
 
-const FALLBACK_PROVIDERS: AiProviderName[] = ["openai", "gemini", "groq"];
+const FALLBACK_PROVIDERS: AiProviderName[] = [
+  "openrouter",
+  "openai",
+  "gemini",
+  "groq",
+];
+
+const OPENROUTER_SITE_URL = (Deno.env.get("OPENROUTER_SITE_URL") ?? "").trim();
+const OPENROUTER_APP_NAME = (Deno.env.get("OPENROUTER_APP_NAME") ?? "").trim();
+const OPENROUTER_DEFAULT_MODEL_RAW = (
+  Deno.env.get("OPENROUTER_DEFAULT_MODEL") ?? ""
+).trim();
+const DEFAULT_OPENROUTER_MODEL =
+  OPENROUTER_DEFAULT_MODEL_RAW || "openai/gpt-4o";
 
 const resolveOverrideKey = (
   provider: AiProviderName,
@@ -96,7 +115,8 @@ const normaliseProvider = (value: string | undefined | null) => {
     normalised === "openai" ||
     normalised === "gemini" ||
     normalised === "groq" ||
-    normalised === "lovable"
+    normalised === "lovable" ||
+    normalised === "openrouter"
   ) {
     return normalised as AiProviderName;
   }
@@ -157,6 +177,52 @@ export async function invokeChatCompletion(
     ms.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
 
   // Per-provider calls (pseudo-implémentations — branche selon tes SDKs réels)
+  if (provider === "openrouter") {
+    const body = {
+      model: model ?? DEFAULT_OPENROUTER_MODEL,
+      messages: args.messages,
+      temperature,
+      max_tokens: maxTokens,
+      ...(forceJson
+        ? { response_format: { type: "json_object" as const } }
+        : {}),
+    } satisfies Record<string, unknown>;
+
+    const apiKey = resolveOverrideKey("openrouter", args.overrides);
+    if (!apiKey) {
+      throw new MissingApiKeyError("openrouter", PROVIDER_ENV_VARS.openrouter);
+    }
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    };
+    if (OPENROUTER_SITE_URL) {
+      headers["HTTP-Referer"] = OPENROUTER_SITE_URL;
+    }
+    if (OPENROUTER_APP_NAME) {
+      headers["X-Title"] = OPENROUTER_APP_NAME;
+    }
+
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new AiProviderHTTPError("openrouter", res.status, t);
+    }
+    const json = await res.json();
+    const resolvedModel =
+      typeof json?.model === "string" ? json.model : body.model;
+    return {
+      content: json.choices?.[0]?.message?.content ?? "",
+      provider,
+      model: resolvedModel ?? null,
+    } satisfies InvokeResult;
+  }
+
   if (provider === "openai") {
     // JSON mode (responses as single JSON object)
     const body = {
