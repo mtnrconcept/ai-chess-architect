@@ -2,26 +2,38 @@
 // Compile custom chess rules with Groq, seeded by the heuristic engine pipeline.
 
 import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
-import type { RuleJSON } from "@/engine/types";
-import { extractProgram } from "@/features/rules-pipeline/nlp/programExtractor";
-import type { ProgramExtractionWarning } from "@/features/rules-pipeline/nlp/programExtractor";
-import { buildRuleFromProgram } from "@/features/rules-pipeline/factory/ruleFactory";
-import type {
-  RuleFactoryWarning,
-  RuleFactoryResult,
-} from "@/features/rules-pipeline/factory/ruleFactory";
-import { compileIntentToRule } from "@/features/rules-pipeline/compiler";
-import type { CompilationWarning } from "@/features/rules-pipeline/compiler";
-import { validateRule } from "@/features/rules-pipeline/validation/ruleValidator";
-import type { ValidationIssue } from "@/features/rules-pipeline/validation/ruleValidator";
-import { dryRunRule } from "@/features/rules-pipeline/simulation/dryRun";
-import type { DryRunResult } from "@/features/rules-pipeline/simulation/dryRun";
-import { buildExecutionPlan } from "@/features/rules-pipeline/plan/buildPlan";
-import type { ExecutionPlan } from "@/features/rules-pipeline/plan/buildPlan";
-import { buildFallbackProvider } from "@/features/rules-pipeline/fallback/providerGenerator";
-import type { FallbackProvider } from "@/features/rules-pipeline/fallback/providerGenerator";
-import type { CanonicalIntent } from "@/features/rules-pipeline/schemas/canonicalIntent";
-import type { RuleProgram } from "@/features/rules-pipeline/rule-language/types";
+import type { RuleJSON } from "../../../src/engine/types.ts";
+import {
+  extractProgram,
+  type ProgramExtractionWarning,
+} from "../../../src/features/rules-pipeline/nlp/programExtractor.ts";
+import {
+  buildRuleFromProgram,
+  type RuleFactoryResult,
+  type RuleFactoryWarning,
+} from "../../../src/features/rules-pipeline/factory/ruleFactory.ts";
+import {
+  compileIntentToRule,
+  type CompilationWarning,
+} from "../../../src/features/rules-pipeline/compiler/index.ts";
+import {
+  validateRule,
+  type ValidationIssue,
+} from "../../../src/features/rules-pipeline/validation/ruleValidator.ts";
+import {
+  dryRunRule,
+  type DryRunResult,
+} from "../../../src/features/rules-pipeline/simulation/dryRun.ts";
+import {
+  buildExecutionPlan,
+  type ExecutionPlan,
+} from "../../../src/features/rules-pipeline/plan/buildPlan.ts";
+import {
+  buildFallbackProvider,
+  type FallbackProvider,
+} from "../../../src/features/rules-pipeline/fallback/providerGenerator.ts";
+import type { CanonicalIntent } from "../../../src/features/rules-pipeline/schemas/canonicalIntent.ts";
+import type { RuleProgram } from "../../../src/features/rules-pipeline/rule-language/types.ts";
 import {
   type InvokeOverrides,
   type AiProviderName,
