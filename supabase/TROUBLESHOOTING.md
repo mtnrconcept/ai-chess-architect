@@ -9,7 +9,7 @@ testing the UI again:
    environments.
    ```bash
    VITE_SUPABASE_URL="https://ucaqbhmyutlnitnedowk.supabase.co"
-   VITE_SUPABASE_PROJECT_NAME="AI Chess Architect"
+   VITE_SUPABASE_PROJECT_NAME="Youaregood"
    VITE_SUPABASE_ANON_KEY="<your anon key>"
    ```
    The anon key is safe to expose to the browser; grab it from **Project Settings → API** in Supabase (or regenerate it from the

@@ -76,7 +76,7 @@ loadEnv(resolveProjectRoot());
 const env = process.env;
 
 const EXPECTED_PROJECT_ID = 'ucaqbhmyutlnitnedowk';
-const EXPECTED_PROJECT_NAME = 'AI Chess Architect';
+const EXPECTED_PROJECT_NAME = 'Youaregood';
 
 const configuredProjectRef =
   normaliseEnv(env.SUPABASE_PROJECT_ID) ??

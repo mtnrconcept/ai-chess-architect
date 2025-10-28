@@ -7,7 +7,7 @@ const normalizeEnv = (value: string | undefined | null) => {
 };
 
 const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
-const EXPECTED_PROJECT_NAME = "AI Chess Architect";
+const EXPECTED_PROJECT_NAME = "Youaregood";
 
 const rawSupabaseUrl =
   normalizeEnv(Deno.env.get("SUPABASE_URL")) ??
