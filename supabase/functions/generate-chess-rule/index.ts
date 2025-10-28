@@ -88,7 +88,15 @@ const DEFAULT_LOCALE = "fr-CH";
 const MAX_PROMPT_LENGTH = 2000;
 
 serve(async (req) => {
-  const preflight = preflightIfOptions(req);
+  const preflight = preflightIfOptions(req, {
+    headers: [
+      "Content-Type",
+      "Authorization",
+      "apikey",
+      "x-client-info",
+      "X-Client-Info",
+    ],
+  });
   if (preflight) return preflight;
 
   if (req.method !== "POST") {

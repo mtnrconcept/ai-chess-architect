@@ -55,12 +55,12 @@ const buildCorsHeaders = (overrides?: CorsOverrides, request?: Request) => {
     .filter((header) => header.length > 0);
   const requestOrigin = request?.headers.get("origin");
 
-const allowHeaders = Array.from(
+  const allowHeaders = Array.from(
     new Set(overrides?.headers ?? DEFAULT_ALLOW_HEADERS),
   )
     .map((header) => header.trim())
     .filter((header) => header.length > 0)
-    .join(",");
+    .join(", ");
 
   const allowOrigin = resolveAllowedOrigin(requestOrigin, overrides?.origin);
 
