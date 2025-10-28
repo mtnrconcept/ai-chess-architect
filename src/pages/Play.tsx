@@ -1262,8 +1262,26 @@ const Play = () => {
 
         const dataRecord = toRecord(data);
         const resultRecord = toRecord(dataRecord?.result);
+        const resultStatus =
+          typeof resultRecord?.status === "string"
+            ? resultRecord.status
+            : undefined;
+
+        if (resultStatus && resultStatus !== "ready") {
+          safeToast({
+            title: "Informations requises",
+            description:
+              "Le générateur a besoin d'informations supplémentaires pour terminer la règle.",
+            variant: "destructive",
+          });
+          return;
+        }
+
         const ruleCandidate =
-          resultRecord?.rule ?? dataRecord?.rule ?? dataRecord?.["rule_json"];
+          (resultStatus === "ready" ? resultRecord?.rule : undefined) ??
+          resultRecord?.rule ??
+          dataRecord?.rule ??
+          dataRecord?.["rule_json"];
 
         if (!ruleCandidate) {
           safeToast({
