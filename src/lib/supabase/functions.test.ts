@@ -6,6 +6,7 @@ const invokeMock = vi.fn();
 const getSessionMock = vi.fn().mockResolvedValue({ data: { session: null } });
 const resolveSupabaseFunctionUrlMock =
   vi.fn<(path: string) => string | null | undefined>();
+const pipelineMock = vi.fn();
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
@@ -24,6 +25,28 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
   supabaseFunctionsUrl: null,
 }));
+
+vi.mock("@/features/rules-pipeline", () => ({
+  generateRulePipeline: pipelineMock,
+}));
+
+const buildPipelineResult = () => ({
+  program: {},
+  programWarnings: [],
+  intent: {},
+  factoryWarnings: [],
+  rule: {
+    meta: { ruleId: "fallback", ruleName: "Fallback Rule" },
+    logic: { effects: [] },
+    scope: {},
+    state: { namespace: "rules.fallback", initial: {} },
+  },
+  compilationWarnings: [],
+  validation: { issues: [], isValid: true },
+  dryRun: { passed: true, issues: [] },
+  plan: [],
+  fallbackProvider: undefined,
+});
 
 const buildNeedInfoResponse = () => ({
   ok: true as const,
@@ -56,6 +79,8 @@ describe("invokeRuleGeneratorChat", () => {
     invokeMock.mockReset();
     resolveSupabaseFunctionUrlMock.mockReset();
     getSessionMock.mockResolvedValue({ data: { session: null } });
+    pipelineMock.mockReset();
+    pipelineMock.mockReturnValue(buildPipelineResult());
   });
 
   it("omits the prompt when it is shorter than the minimum length", async () => {
@@ -216,6 +241,27 @@ describe("invokeRuleGeneratorChat", () => {
       }
     } finally {
       fetchSpy.mockRestore();
+    }
+  });
+
+  it("utilises the local pipeline fallback when Supabase fails", async () => {
+    invokeMock.mockResolvedValueOnce({
+      data: null,
+      error: new Error("500 Internal Server Error"),
+    });
+
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    const result = await invokeRuleGeneratorChat({
+      prompt: "Variante agressive pour la reine",
+      conversation: [{ role: "user", content: "Je veux une règle agressive" }],
+    });
+
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.provider).toContain("local-pipeline");
+      expect(result.rule).toHaveProperty("meta.ruleId", "fallback");
     }
   });
 });
