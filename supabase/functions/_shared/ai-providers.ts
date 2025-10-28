@@ -70,9 +70,7 @@ function providerFromEnv(): AiProviderName {
     if (lovableKeyPresent) {
       return "lovable";
     }
-    const fallback = FALLBACK_PROVIDERS.find((provider) =>
-      hasEnvVar(PROVIDER_ENV_VARS[provider]),
-    );
+    const fallback = FALLBACK_PROVIDERS.find((provider) => hasEnvVar(PROVIDER_ENV_VARS[provider]));
     if (fallback) {
       return fallback;
     }
@@ -83,18 +81,14 @@ function providerFromEnv(): AiProviderName {
   if (lovableKeyPresent) {
     return "lovable";
   }
-  const fallback = FALLBACK_PROVIDERS.find((provider) =>
-    hasEnvVar(PROVIDER_ENV_VARS[provider]),
-  );
+  const fallback = FALLBACK_PROVIDERS.find((provider) => hasEnvVar(PROVIDER_ENV_VARS[provider]));
   if (fallback) {
     return fallback;
   }
   throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
 }
 
-export async function invokeChatCompletion(
-  args: InvokeArgs,
-): Promise<InvokeResult> {
+export async function invokeChatCompletion(args: InvokeArgs): Promise<InvokeResult> {
   const provider = providerFromEnv();
   const model = args.preferredModels?.[provider];
   const forceJson = !!args.forceJson;
@@ -103,8 +97,7 @@ export async function invokeChatCompletion(
   const maxTokens = args.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
 
   // Helpers
-  const join = (ms: Message[]) =>
-    ms.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+  const join = (ms: Message[]) => ms.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
 
   // Per-provider calls (pseudo-implémentations — branche selon tes SDKs réels)
   if (provider === "openai") {
@@ -114,9 +107,7 @@ export async function invokeChatCompletion(
       messages: args.messages,
       temperature,
       max_tokens: maxTokens,
-      ...(forceJson
-        ? { response_format: { type: "json_object" as const } }
-        : {}),
+      ...(forceJson ? { response_format: { type: "json_object" as const } } : {}),
     };
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -162,9 +153,7 @@ export async function invokeChatCompletion(
     }
     const json = await res.json();
     const text = Array.isArray(json.candidates)
-      ? (json.candidates?.[0]?.content?.parts
-          ?.map((part: { text?: string }) => part?.text ?? "")
-          .join("") ?? "")
+      ? (json.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part?.text ?? "").join("") ?? "")
       : "";
     return { content: text };
   }
@@ -182,7 +171,7 @@ export async function invokeChatCompletion(
       : args.messages;
 
     const body = {
-      model: model ?? "llama-3.1-70b-versatile",
+      model: model ?? "llama-3.1-8b-instant",
       messages: guarded,
       temperature,
       max_tokens: maxTokens,
@@ -222,22 +211,19 @@ export async function invokeChatCompletion(
         ]
       : args.messages;
 
-    const res = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: model ?? "google/gemini-2.5-flash",
-          messages: guarded,
-          temperature,
-          max_tokens: maxTokens,
-        }),
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify({
+        model: model ?? "google/gemini-2.5-flash",
+        messages: guarded,
+        temperature,
+        max_tokens: maxTokens,
+      }),
+    });
     if (!res.ok) {
       const t = await res.text();
       console.error(`[lovable] API error ${res.status}:`, t.slice(0, 500));
