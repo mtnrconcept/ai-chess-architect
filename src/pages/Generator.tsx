@@ -94,7 +94,12 @@ const Generator = () => {
         const resolvedRuleId =
           typeof metaRecord.ruleId === "string" && metaRecord.ruleId.length > 0
             ? metaRecord.ruleId
-            : crypto.randomUUID();
+            : typeof globalThis.crypto !== "undefined" &&
+                typeof globalThis.crypto.randomUUID === "function"
+              ? globalThis.crypto.randomUUID()
+              : `${Date.now().toString(36)}-${Math.random()
+                  .toString(36)
+                  .substring(2, 8)}`;
         const resolvedRuleName =
           typeof metaRecord.ruleName === "string" &&
           metaRecord.ruleName.length > 0
@@ -341,10 +346,9 @@ const Generator = () => {
             />
           </CardContent>
         </Card>
-
       </div>
 
-      {/* Overlay d'animation pendant la génération */}
+      {/* Animation pendant la génération */}
       {saving && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-xl">
           <ChessMorphingAnimation duration={3000} />

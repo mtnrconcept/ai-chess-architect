@@ -640,6 +640,13 @@ function ensureResultRecord(
 export async function invokeRuleGeneratorChat(
   body: RuleGeneratorChatRequest,
 ): Promise<RuleGeneratorChatResult> {
+  // Détecte une configuration Supabase incomplète : absence de client ou de clé anon.
+  // Dans ce cas, la fonction se rabat sur le pipeline local sans tenter d'appel réseau.
+  const supabaseMisconfigured =
+    !supabase ||
+    typeof supabase.functions?.invoke !== "function" ||
+    !supabaseAnonKey;
+
   if (!body || !Array.isArray(body.conversation)) {
     throw new Error("ruleGeneratorChat: conversation manquante");
   }
@@ -654,6 +661,18 @@ export async function invokeRuleGeneratorChat(
   const instruction = collectUserInstructions(prompt, sanitizedConversation);
   if (!instruction) {
     throw new Error("ruleGeneratorChat: aucune instruction utilisateur");
+  }
+
+  // Utilise le pipeline local si Supabase est mal configuré.
+  if (supabaseMisconfigured) {
+    const fallback = buildLocalPipelineFallback(
+      prompt,
+      sanitizedConversation,
+      "supabase-misconfigured",
+    );
+    if (fallback) {
+      return fallback;
+    }
   }
 
   const payload: Record<string, unknown> = {
