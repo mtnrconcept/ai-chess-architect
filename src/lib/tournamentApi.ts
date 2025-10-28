@@ -859,7 +859,7 @@ export const fetchTournamentDetails = async (
       .select(
         `
         *,
-        current_match:tournament_matches!tournament_registrations_current_match_fkey(
+        current_match:tournament_matches!tournament_registrations_current_match_id_fkey(
           *,
           lobby:lobbies!lobby_id(id, name, status, mode, opponent_name, opponent_id)
         )
@@ -910,7 +910,7 @@ export const fetchUserTournamentRegistrations = async (
     .select(
       `
       *,
-      current_match:tournament_matches!tournament_registrations_current_match_fkey(
+      current_match:tournament_matches!tournament_registrations_current_match_id_fkey(
         *,
         lobby:lobbies!lobby_id(id, name, status, mode, opponent_name, opponent_id)
       )
