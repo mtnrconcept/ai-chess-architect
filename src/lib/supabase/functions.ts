@@ -7,6 +7,7 @@ import {
   supabaseFunctionsUrl,
 } from "@/integrations/supabase/client";
 import { generateRulePipeline } from "@/features/rules-pipeline";
+import { getGroqApiKey } from "@/lib/groqApiKeyStore";
 
 export type GeneratedRule = Record<string, unknown>;
 
@@ -686,6 +687,14 @@ export async function invokeRuleGeneratorChat(
 
   if (body.options) {
     payload.options = body.options;
+  }
+
+  const groqApiKey = getGroqApiKey();
+  if (groqApiKey) {
+    payload.clientOverrides = {
+      provider: "groq",
+      apiKeys: { groq: groqApiKey },
+    } satisfies Record<string, unknown>;
   }
 
   try {
