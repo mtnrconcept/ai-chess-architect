@@ -143,12 +143,17 @@ Deno.serve(async (req) => {
     // Mode mock si test=true ou clé absente
     if (test || !groqKey) {
       console.info("MOCK response used (GROQ disabled or test=true)");
-      const latestUserMessage = lastUserMessage?.content ?? userPrompt;
+      const latestUserMessage = lastUserMessage?.content ?? userPrompt ?? "";
+      const promptValue =
+        typeof latestUserMessage === "string" && latestUserMessage.trim().length
+          ? latestUserMessage.trim()
+          : "";
       const mock = buildMock(latestUserMessage);
       const result = {
         status: "ready" as const,
         rule: mock,
-        prompt: latestUserMessage,
+        prompt: promptValue,
+        promptHash: undefined,
         rawModelResponse: {
           model: "mock",
           text: JSON.stringify(mock),
@@ -293,13 +298,40 @@ Deno.serve(async (req) => {
       });
       return buildErrorResponse("validation_failed", { errors });
     }
+    const normalizedRecord =
+      normalized && typeof normalized === "object" ? normalized : {};
+    const promptValue = (() => {
+      if (typeof userPrompt === "string" && userPrompt.trim().length > 0) {
+        return userPrompt.trim();
+      }
+      const embeddedPrompt =
+        typeof (normalizedRecord as { prompt?: unknown }).prompt === "string"
+          ? (normalizedRecord as { prompt?: string }).prompt
+          : undefined;
+      if (embeddedPrompt && embeddedPrompt.trim().length > 0) {
+        return embeddedPrompt.trim();
+      }
+      return "";
+    })();
+
+    const promptHashValue = (() => {
+      const candidate =
+        (normalizedRecord as { promptHash?: unknown }).promptHash ??
+        (normalizedRecord as { prompt_hash?: unknown }).prompt_hash;
+      return typeof candidate === "string" && candidate.trim().length > 0
+        ? candidate.trim()
+        : null;
+    })();
+
     const result = {
       status: "ready" as const,
-      rule: normalized,
-      prompt: userPrompt,
+      rule: normalizedRecord,
+      prompt: promptValue,
+      promptHash: promptHashValue ?? undefined,
       rawModelResponse: {
         model: reqBody.model,
         text: candidateText,
+        status,
       },
       provider: "groq",
       correlationId: crypto.randomUUID(),
