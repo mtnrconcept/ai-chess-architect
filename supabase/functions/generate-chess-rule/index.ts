@@ -76,6 +76,21 @@ const defaultCors: Record<string, string> = {
   "Access-Control-Allow-Headers": CORS_ALLOW_HEADERS,
 };
 
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  extraHeaders: Record<string, string> = {},
+) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...defaultCors,
+      "Content-Type": "application/json; charset=utf-8",
+      ...extraHeaders,
+    },
+  });
+}
+
 // ---------- Prompting ----------
 function makeEnrichedPrompt(userPrompt: string) {
   return `Tu es un expert en création de variantes de jeu d'échecs.
@@ -296,13 +311,7 @@ Deno.serve(async (req) => {
     // Auth minimale côté edge (transmets anon key ou JWT user depuis le front)
     const auth = req.headers.get("authorization");
     if (!auth) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "missing_authorization" }),
-        {
-          status: 401,
-          headers: { ...defaultCors, "Content-Type": "application/json" },
-        },
-      );
+      return jsonResponse({ error: "missing_authorization" }, 401);
     }
 
     const url = new URL(req.url);
@@ -323,21 +332,7 @@ Deno.serve(async (req) => {
     if (!groqKey || forceMock) {
       const mock = normalizeAndValidate(buildMock(userPrompt), userPrompt);
       console.info("MOCK response used (GROQ disabled or test=true)");
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          result: {
-            status: "ready",
-            rule: mock,
-            prompt: mock.prompt || userPrompt,
-            provider: "MOCK",
-          },
-        }),
-        {
-          status: 200,
-          headers: { ...defaultCors, "Content-Type": "application/json" },
-        },
-      );
+      return jsonResponse(mock, 200, { "X-AI-Provider": "MOCK" });
     }
 
     let lastError: unknown = null;
@@ -355,22 +350,10 @@ Deno.serve(async (req) => {
       console.info(`GROQ candidate length=${candidateText?.length ?? 0}`);
       const normalized = normalizeAndValidate(candidateText, userPrompt);
 
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          result: {
-            status: "ready",
-            rule: normalized,
-            prompt: normalized.prompt || userPrompt,
-            provider: "GROQ",
-            rawModelResponse: { text: candidateText },
-          },
-        }),
-        {
-          status: 200,
-          headers: { ...defaultCors, "Content-Type": "application/json" },
-        },
-      );
+      return jsonResponse(normalized, 200, {
+        "X-AI-Provider": "GROQ",
+        "X-AI-Model": Deno.env.get("GROQ_MODEL") || "mixtral-8x7b-32768",
+      });
     } catch (err) {
       console.error("GROQ call failed", { error: String(err) });
       lastError = { provider: "GROQ", error: String(err) };
@@ -380,44 +363,21 @@ Deno.serve(async (req) => {
     if (Deno.env.get("ALLOW_MOCK_ON_FAILURE") === "true") {
       const mock = normalizeAndValidate(buildMock(userPrompt), userPrompt);
       console.warn("GROQ failed → returning MOCK due to ALLOW_MOCK_ON_FAILURE");
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          result: {
-            status: "ready",
-            rule: mock,
-            prompt: mock.prompt || userPrompt,
-            provider: "MOCK",
-          },
-          fallback: true,
-          detail: lastError,
-        }),
-        {
-          status: 200,
-          headers: { ...defaultCors, "Content-Type": "application/json" },
-        },
-      );
+      return jsonResponse(mock, 200, {
+        "X-AI-Provider": "MOCK",
+        "X-AI-Fallback": "true",
+      });
     }
 
-    return new Response(
-      JSON.stringify({ ok: false, error: "groq_failed", detail: lastError }),
-      {
-        status: 502,
-        headers: { ...defaultCors, "Content-Type": "application/json" },
-      },
-    );
+    return jsonResponse({ error: "groq_failed", detail: lastError }, 502);
   } catch (err) {
     console.error("Unhandled error", String(err));
-    return new Response(
-      JSON.stringify({
-        ok: false,
+    return jsonResponse(
+      {
         error: "internal_error",
         detail: String(err),
-      }),
-      {
-        status: 500,
-        headers: { ...defaultCors, "Content-Type": "application/json" },
       },
+      500,
     );
   }
 });
