@@ -24,6 +24,19 @@ const buildNeedInfoResponse = () => ({
   },
 });
 
+const buildReadyResponse = () => ({
+  ok: true as const,
+  result: {
+    status: "ready" as const,
+    rule: { id: "rule-id" },
+    prompt: "server-prompt",
+    promptHash: "hash",
+    correlationId: "correlation",
+    rawModelResponse: { text: "raw" },
+    provider: "test",
+  },
+});
+
 describe("invokeRuleGeneratorChat", () => {
   beforeEach(() => {
     invokeMock.mockReset();
@@ -84,5 +97,27 @@ describe("invokeRuleGeneratorChat", () => {
 
     expect(body).toBeTruthy();
     expect(body).toHaveProperty("prompt", validPrompt);
+  });
+
+  it("propagates ready responses with the new result shape", async () => {
+    invokeMock.mockResolvedValue({
+      data: buildReadyResponse(),
+      error: null,
+    });
+
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    const result = await invokeRuleGeneratorChat({
+      prompt: "x".repeat(RULE_GENERATOR_MIN_PROMPT_LENGTH),
+      conversation: [
+        {
+          role: "user",
+          content: "Hello there",
+        },
+      ],
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.rule).toEqual({ id: "rule-id" });
   });
 });

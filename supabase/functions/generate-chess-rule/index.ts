@@ -321,10 +321,18 @@ Deno.serve(async (req) => {
 
     // Mode mock si clé manquante ou test explicite
     if (!groqKey || forceMock) {
-      const mock = buildMock(userPrompt);
+      const mock = normalizeAndValidate(buildMock(userPrompt), userPrompt);
       console.info("MOCK response used (GROQ disabled or test=true)");
       return new Response(
-        JSON.stringify({ ok: true, provider: "MOCK", data: mock }),
+        JSON.stringify({
+          ok: true,
+          result: {
+            status: "ready",
+            rule: mock,
+            prompt: mock.prompt || userPrompt,
+            provider: "MOCK",
+          },
+        }),
         {
           status: 200,
           headers: { ...defaultCors, "Content-Type": "application/json" },
@@ -348,7 +356,16 @@ Deno.serve(async (req) => {
       const normalized = normalizeAndValidate(candidateText, userPrompt);
 
       return new Response(
-        JSON.stringify({ ok: true, provider: "GROQ", data: normalized }),
+        JSON.stringify({
+          ok: true,
+          result: {
+            status: "ready",
+            rule: normalized,
+            prompt: normalized.prompt || userPrompt,
+            provider: "GROQ",
+            rawModelResponse: { text: candidateText },
+          },
+        }),
         {
           status: 200,
           headers: { ...defaultCors, "Content-Type": "application/json" },
@@ -361,13 +378,17 @@ Deno.serve(async (req) => {
 
     // Fallback final
     if (Deno.env.get("ALLOW_MOCK_ON_FAILURE") === "true") {
-      const mock = buildMock(userPrompt);
+      const mock = normalizeAndValidate(buildMock(userPrompt), userPrompt);
       console.warn("GROQ failed → returning MOCK due to ALLOW_MOCK_ON_FAILURE");
       return new Response(
         JSON.stringify({
           ok: true,
-          provider: "MOCK",
-          data: mock,
+          result: {
+            status: "ready",
+            rule: mock,
+            prompt: mock.prompt || userPrompt,
+            provider: "MOCK",
+          },
           fallback: true,
           detail: lastError,
         }),
