@@ -7,8 +7,8 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
 const MODEL_FALLBACKS = [
   // ordre de préférence (tous Groq, tous chat-completions)
-  "llama-3.3-70b-versatile",
-  "llama-3.3-8b-instant",
+  "llama-3.1-70b-versatile",
+  "llama-3.1-8b-instant",
 ];
 
 const DEFAULT_TIMEOUT_MS = Number(

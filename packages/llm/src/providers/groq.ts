@@ -8,7 +8,7 @@ export class GroqDriver extends HttpLLMDriver {
       apiKeyEnv: "GROQ_API_KEY",
       modelEnv: "GROQ_MODEL",
       baseUrl: "https://api.groq.com/openai/v1/chat/completions",
-      defaultModel: "llama-3.3-70b-versatile",
+      defaultModel: "llama-3.1-8b-instant",
     });
   }
 
