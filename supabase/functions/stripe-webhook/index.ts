@@ -1,4 +1,5 @@
-import Stripe from "stripe";
+// ✅ Correct (Deno compatible)
+import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
 
 import { getSupabaseServiceRoleClient } from "../_shared/auth.ts";
 import { jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
@@ -38,15 +39,11 @@ const corsOptions = { methods: ["POST"] } as const;
 
 const logPrefix = "[stripe-webhook]";
 
-const nullSupabaseWarning =
-  "Client Supabase non initialisé (service role key manquante ?).";
+const nullSupabaseWarning = "Client Supabase non initialisé (service role key manquante ?).";
 
 const nowIso = () => new Date().toISOString();
 
-const upsertInto = async (
-  table: "payments" | "invoices",
-  payload: Record<string, unknown>,
-): Promise<UpsertResult> => {
+const upsertInto = async (table: "payments" | "invoices", payload: Record<string, unknown>): Promise<UpsertResult> => {
   if (!supabase) {
     return { ok: false, warning: nullSupabaseWarning };
   }
@@ -62,15 +59,12 @@ const upsertInto = async (
 
     return { ok: true };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : JSON.stringify(error);
+    const message = error instanceof Error ? error.message : JSON.stringify(error);
     return { ok: false, warning: `${table}: ${message}` };
   }
 };
 
-const handleCheckoutSessionCompleted = async (
-  event: Stripe.Event,
-): Promise<ProcessResult> => {
+const handleCheckoutSessionCompleted = async (event: Stripe.Event): Promise<ProcessResult> => {
   const actions: string[] = [];
   const warnings: string[] = [];
 
@@ -81,10 +75,7 @@ const handleCheckoutSessionCompleted = async (
 
   const session = event.data.object as Stripe.Checkout.Session;
 
-  const paymentId =
-    typeof session.payment_intent === "string"
-      ? session.payment_intent
-      : session.id;
+  const paymentId = typeof session.payment_intent === "string" ? session.payment_intent : session.id;
 
   const record = {
     id: paymentId,
@@ -113,9 +104,7 @@ const handleCheckoutSessionCompleted = async (
   return { handled: result.ok, actions, warnings };
 };
 
-const handleInvoiceEvent = async (
-  event: Stripe.Event,
-): Promise<ProcessResult> => {
+const handleInvoiceEvent = async (event: Stripe.Event): Promise<ProcessResult> => {
   const actions: string[] = [];
   const warnings: string[] = [];
 
@@ -154,9 +143,7 @@ const handleInvoiceEvent = async (
   return { handled: result.ok, actions, warnings };
 };
 
-const processStripeEvent = async (
-  event: Stripe.Event,
-): Promise<ProcessResult> => {
+const processStripeEvent = async (event: Stripe.Event): Promise<ProcessResult> => {
   switch (event.type) {
     case "checkout.session.completed":
       return await handleCheckoutSessionCompleted(event);
@@ -181,14 +168,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!stripe || !webhookSecret) {
-    console.error(
-      `${logPrefix} Stripe n'est pas configuré (STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET).`,
-    );
-    return jsonResponse(
-      { error: "Stripe n'est pas configuré côté serveur." },
-      500,
-      req,
-    );
+    console.error(`${logPrefix} Stripe n'est pas configuré (STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET).`);
+    return jsonResponse({ error: "Stripe n'est pas configuré côté serveur." }, 500, req);
   }
 
   const signature = req.headers.get("stripe-signature");
@@ -200,22 +181,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     payload = await req.text();
   } catch (error) {
-    console.error(
-      `${logPrefix} Impossible de lire le corps de la requête:`,
-      error,
-    );
+    console.error(`${logPrefix} Impossible de lire le corps de la requête:`, error);
     return jsonResponse({ error: "Corps de requête illisible." }, 400, req);
   }
 
   let event: Stripe.Event;
   try {
-    event = await stripe.webhooks.constructEventAsync(
-      payload,
-      signature,
-      webhookSecret,
-      undefined,
-      cryptoProvider,
-    );
+    event = await stripe.webhooks.constructEventAsync(payload, signature, webhookSecret, undefined, cryptoProvider);
   } catch (error) {
     console.error(`${logPrefix} Signature Stripe invalide:`, error);
     return jsonResponse({ error: "Signature Stripe invalide." }, 400, req);
