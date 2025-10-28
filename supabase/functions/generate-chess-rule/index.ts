@@ -11,8 +11,42 @@ function snippet(s, n = 2000) {
 const defaultCors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, apikey, x-client-info",
 };
+
+function buildSuccessResponse(result: unknown) {
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      result,
+    }),
+    {
+      status: 200,
+      headers: {
+        ...defaultCors,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+    },
+  );
+}
+
+function buildErrorResponse(error: string, details?: unknown, status = 200) {
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error,
+      details,
+    }),
+    {
+      status,
+      headers: {
+        ...defaultCors,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+    },
+  );
+}
 function buildMock(userPrompt) {
   return {
     id: crypto.randomUUID(),
@@ -60,18 +94,7 @@ Deno.serve(async (req) => {
   // Auth facultative (garde si tu veux imposer un JWT Supabase)
   const auth = req.headers.get("authorization");
   if (!auth) {
-    return new Response(
-      JSON.stringify({
-        error: "missing_authorization",
-      }),
-      {
-        status: 401,
-        headers: {
-          ...defaultCors,
-          "Content-Type": "application/json; charset=utf-8",
-        },
-      },
-    );
+    return buildErrorResponse("missing_authorization", null, 401);
   }
   try {
     const url = new URL(req.url);
@@ -101,13 +124,18 @@ Deno.serve(async (req) => {
     if (test || !groqKey) {
       console.info("MOCK response used (GROQ disabled or test=true)");
       const mock = buildMock(userPrompt);
-      return new Response(JSON.stringify(mock), {
-        status: 200,
-        headers: {
-          ...defaultCors,
-          "Content-Type": "application/json; charset=utf-8",
+      const result = {
+        status: "ready" as const,
+        rule: mock,
+        prompt: userPrompt,
+        rawModelResponse: {
+          model: "mock",
+          text: JSON.stringify(mock),
         },
-      });
+        provider: "mock",
+        correlationId: crypto.randomUUID(),
+      };
+      return buildSuccessResponse(result);
     }
     // ---- GROQ call (OpenAI-compatible) ----
     const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
@@ -116,7 +144,8 @@ Deno.serve(async (req) => {
       messages: [
         {
           role: "system",
-          content: "Réponds uniquement avec un JSON valide. Aucun texte hors JSON.",
+          content:
+            "Réponds uniquement avec un JSON valide. Aucun texte hors JSON.",
         },
         {
           role: "user",
@@ -138,7 +167,10 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify(reqBody),
     });
-    const res = await Promise.race([fetchPromise, timeoutPromise(timeoutMs, "ai_provider_timeout")]);
+    const res = await Promise.race([
+      fetchPromise,
+      timeoutPromise(timeoutMs, "ai_provider_timeout"),
+    ]);
     const status = res.status;
     const raw = await res.text();
     if (!res.ok) {
@@ -146,26 +178,19 @@ Deno.serve(async (req) => {
         status,
         bodySnippet: snippet(raw),
       });
-      return new Response(
-        JSON.stringify({
-          error: "groq_http_error",
-          status,
-          detail: snippet(raw),
-        }),
-        {
-          status: 502,
-          headers: {
-            ...defaultCors,
-            "Content-Type": "application/json; charset=utf-8",
-          },
-        },
-      );
+      return buildErrorResponse("groq_http_error", {
+        status,
+        detail: snippet(raw),
+      });
     }
     // Tentative de parse
     let candidateText = raw;
     try {
       const parsedTop = JSON.parse(raw);
-      candidateText = parsedTop?.choices?.[0]?.message?.content ?? parsedTop?.choices?.[0]?.text ?? candidateText;
+      candidateText =
+        parsedTop?.choices?.[0]?.message?.content ??
+        parsedTop?.choices?.[0]?.text ??
+        candidateText;
     } catch {
       // Le top-level n'est pas JSON (peu probable ici), on garde raw
     }
@@ -186,7 +211,9 @@ Deno.serve(async (req) => {
       for (const o of objects) {
         try {
           return JSON.parse(o);
-        } catch (_e) {}
+        } catch (_e) {
+          continue;
+        }
       }
       return null;
     }
@@ -200,67 +227,40 @@ Deno.serve(async (req) => {
       console.error("invalid_json_from_model", {
         bodySnippet: snippet(candidateText),
       });
-      return new Response(
-        JSON.stringify({
-          error: "invalid_json_from_model",
-          detail: snippet(candidateText),
-        }),
-        {
-          status: 502,
-          headers: {
-            ...defaultCors,
-            "Content-Type": "application/json; charset=utf-8",
-          },
-        },
-      );
+      return buildErrorResponse("invalid_json_from_model", {
+        bodySnippet: snippet(candidateText),
+      });
     }
     // Validation minimale
     const errors = [];
     if (!normalized.id) errors.push("missing id");
     if (!normalized.created_at) errors.push("missing created_at");
     if (!normalized.prompt) errors.push("missing prompt");
-    if (!Array.isArray(normalized.rules) || normalized.rules.length === 0) errors.push("rules empty");
+    if (!Array.isArray(normalized.rules) || normalized.rules.length === 0)
+      errors.push("rules empty");
     if (errors.length) {
       console.error("validation_errors", {
         errors,
         bodySnippet: snippet(JSON.stringify(normalized)),
       });
-      return new Response(
-        JSON.stringify({
-          error: "validation_failed",
-          errors,
-        }),
-        {
-          status: 422,
-          headers: {
-            ...defaultCors,
-            "Content-Type": "application/json; charset=utf-8",
-          },
-        },
-      );
+      return buildErrorResponse("validation_failed", { errors });
     }
-    // ✅ SUCCÈS : renvoie l'objet au NIVEAU RACINE (ce que ta UI attend)
-    return new Response(JSON.stringify(normalized), {
-      status: 200,
-      headers: {
-        ...defaultCors,
-        "Content-Type": "application/json; charset=utf-8",
+    const result = {
+      status: "ready" as const,
+      rule: normalized,
+      prompt: userPrompt,
+      rawModelResponse: {
+        model: reqBody.model,
+        text: candidateText,
       },
-    });
+      provider: "groq",
+      correlationId: crypto.randomUUID(),
+    };
+
+    // ✅ SUCCÈS : renvoie la structure attendue par le frontend
+    return buildSuccessResponse(result);
   } catch (err) {
     console.error("Unhandled error", String(err));
-    return new Response(
-      JSON.stringify({
-        error: "internal_error",
-        detail: String(err),
-      }),
-      {
-        status: 500,
-        headers: {
-          ...defaultCors,
-          "Content-Type": "application/json; charset=utf-8",
-        },
-      },
-    );
+    return buildErrorResponse("internal_error", String(err), 500);
   }
 });
