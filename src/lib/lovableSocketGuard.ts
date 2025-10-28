@@ -165,6 +165,17 @@ export const installLovableSocketGuard = () => {
 
   const NativeWebSocket = globalScope.WebSocket;
 
+  const isPrototypeFrozen =
+    Object.isFrozen?.(NativeWebSocket.prototype) ?? false;
+
+  if (isPrototypeFrozen) {
+    console.warn(
+      "[lovable] WebSocket prototype is frozen — skipping collaboration socket guard installation.",
+    );
+    globalScope[INSTALL_KEY] = true;
+    return;
+  }
+
   const WebSocketProxy = new Proxy(NativeWebSocket, {
     construct(target, args, newTarget) {
       const [url] = args;
