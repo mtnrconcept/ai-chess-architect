@@ -7,14 +7,16 @@ const vfxEffects = [
   { name: "Hologramme", color: "#00F1FF" },
   { name: "Explosion", color: "#FF6A00" },
   { name: "Gel", color: "#76E0FF" },
-  { name: "Lumière", color: "#FFD166" }
+  { name: "Lumière", color: "#FFD166" },
 ];
 
 interface ChessMorphingAnimationProps {
   duration?: number;
 }
 
-export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimationProps) {
+export function ChessMorphingAnimation({
+  duration = 3000,
+}: ChessMorphingAnimationProps) {
   const [currentPieceIndex, setCurrentPieceIndex] = useState(0);
   const [currentEffectIndex, setCurrentEffectIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -35,7 +37,7 @@ export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimati
     const progressTimer = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) return 0;
-        return prev + (100 / (duration / 50));
+        return prev + 100 / (duration / 50);
       });
     }, 50);
 
@@ -65,7 +67,7 @@ export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimati
         const radius = 80 + Math.sin(Date.now() / 500 + i) * 20;
         const x = centerX + Math.cos(angle) * radius;
         const y = centerY + Math.sin(angle) * radius;
-        
+
         ctx.fillStyle = vfxEffects[currentEffectIndex].color + "40";
         ctx.beginPath();
         ctx.arc(x, y, 4, 0, Math.PI * 2);
@@ -73,11 +75,18 @@ export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimati
       }
 
       // Effet de glow autour de la pièce
-      const gradient = ctx.createRadialGradient(centerX, centerY, 40, centerX, centerY, 120);
+      const gradient = ctx.createRadialGradient(
+        centerX,
+        centerY,
+        40,
+        centerX,
+        centerY,
+        120,
+      );
       gradient.addColorStop(0, vfxEffects[currentEffectIndex].color + "80");
       gradient.addColorStop(0.5, vfxEffects[currentEffectIndex].color + "20");
       gradient.addColorStop(1, vfxEffects[currentEffectIndex].color + "00");
-      
+
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -100,24 +109,24 @@ export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimati
 
       {/* Pièce d'échecs animée */}
       <motion.div
-        key={currentPieceIndex}
+        key={`piece-${currentPieceIndex}`}
         initial={{ scale: 0.5, opacity: 0, rotateY: -180 }}
-        animate={{ 
-          scale: 1, 
-          opacity: 1, 
+        animate={{
+          scale: 1,
+          opacity: 1,
           rotateY: 0,
-          rotate: [0, 10, -10, 0]
+          rotate: [0, 10, -10, 0],
         }}
         exit={{ scale: 0.5, opacity: 0, rotateY: 180 }}
-        transition={{ 
+        transition={{
           duration: 0.6,
           ease: "easeInOut",
-          rotate: { repeat: Infinity, duration: 2 }
+          rotate: { repeat: Infinity, duration: 2 },
         }}
         className="relative z-10 text-[120px] select-none"
         style={{
           textShadow: `0 0 40px ${vfxEffects[currentEffectIndex].color}, 0 0 80px ${vfxEffects[currentEffectIndex].color}`,
-          filter: `drop-shadow(0 0 20px ${vfxEffects[currentEffectIndex].color})`
+          filter: `drop-shadow(0 0 20px ${vfxEffects[currentEffectIndex].color})`,
         }}
       >
         {chessPieces[currentPieceIndex]}
@@ -125,7 +134,7 @@ export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimati
 
       {/* Nom de l'effet VFX */}
       <motion.div
-        key={currentEffectIndex}
+        key={`effect-${currentEffectIndex}`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
@@ -152,7 +161,7 @@ export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimati
             className="h-full rounded-full"
             style={{
               background: `linear-gradient(90deg, ${vfxEffects[0].color}, ${vfxEffects[1].color}, ${vfxEffects[2].color}, ${vfxEffects[3].color})`,
-              width: `${progress}%`
+              width: `${progress}%`,
             }}
             initial={{ width: 0 }}
             animate={{ width: `${progress}%` }}
@@ -174,11 +183,11 @@ export function ChessMorphingAnimation({ duration = 3000 }: ChessMorphingAnimati
             }}
             animate={{
               rotate: 360,
-              scale: [1, 1.1, 1]
+              scale: [1, 1.1, 1],
             }}
             transition={{
               rotate: { duration: 3 + i, repeat: Infinity, ease: "linear" },
-              scale: { duration: 2, repeat: Infinity, ease: "easeInOut" }
+              scale: { duration: 2, repeat: Infinity, ease: "easeInOut" },
             }}
           />
         ))}
