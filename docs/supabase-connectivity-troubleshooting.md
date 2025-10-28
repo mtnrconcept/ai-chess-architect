@@ -4,7 +4,7 @@ This document captures connectivity failures encountered when running Supabase-r
 
 ## Observed symptoms
 
-- `nslookup db.pfcaolibtgvynnwaxvol.supabase.co` returns `NXDOMAIN`.
+- `nslookup db.ucaqbhmyutlnitnedowk.supabase.co` returns `NXDOMAIN`.
 - `pnpm run db:migrate` fails because the Supabase database hostname cannot be resolved.
 - `npx supabase --version` succeeds, confirming the CLI is installed, but other commands cannot run due to missing network connectivity.
 
@@ -23,7 +23,7 @@ This document captures connectivity failures encountered when running Supabase-r
 ## Recommended mitigations
 
 - Ensure the environment allows outbound DNS queries. If you are running inside a restricted container, request network access or run the command from a host with proper DNS resolution.
-- Verify that the Supabase project reference (`pfcaolibtgvynnwaxvol`) is correct. A typo in the project ref will produce an `NXDOMAIN` error.
+- Verify that the Supabase project reference (`ucaqbhmyutlnitnedowk`) is correct. A typo in the project ref will produce an `NXDOMAIN` error.
 - If issues persist, consult Supabase status pages or try resolving a known hostname such as `supabase.co` to determine whether the failure is limited to the project subdomain.
 
 ## Next steps

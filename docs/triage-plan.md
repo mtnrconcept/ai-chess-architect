@@ -6,7 +6,7 @@
 3. Vérifier que chaque plateforme de déploiement (Next.js, Vite, Nginx, CDN) applique les en-têtes mis à jour.
 
 ## B. Supabase Edge Function `generate-chess-rule` (500)
-1. Consulter les logs temps réel de la fonction (`supabase functions logs --project-ref pfcaolibtgvynnwaxvol --follow`).
+1. Consulter les logs temps réel de la fonction (`supabase functions logs --project-ref ucaqbhmyutlnitnedowk --follow`).
 2. Vérifier les secrets runtime (`supabase secrets list`), renseigner les clés manquantes et valider le format du payload entrant.
 3. Durcir le handler avec validation (Zod), gestion explicite des erreurs et timeout sur les appels externes, puis re-déployer.
 
