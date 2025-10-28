@@ -198,7 +198,37 @@ export const installLovableSocketGuard = () => {
     CLOSED: { value: NativeWebSocket.CLOSED },
   });
 
-  WebSocketProxy.prototype = NativeWebSocket.prototype;
+  const nativePrototypeDescriptor = Object.getOwnPropertyDescriptor(
+    NativeWebSocket,
+    "prototype",
+  );
+  const proxyPrototypeDescriptor = Object.getOwnPropertyDescriptor(
+    WebSocketProxy,
+    "prototype",
+  );
+
+  const isPrototypeWritable = (descriptor: PropertyDescriptor | undefined) => {
+    if (!descriptor) {
+      return true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(descriptor, "writable")) {
+      return descriptor.writable !== false;
+    }
+
+    return !!descriptor.set;
+  };
+
+  if (
+    isPrototypeWritable(nativePrototypeDescriptor) &&
+    isPrototypeWritable(proxyPrototypeDescriptor)
+  ) {
+    WebSocketProxy.prototype = NativeWebSocket.prototype;
+  } else {
+    console.warn(
+      "[lovable] WebSocket prototype is not writable — skipping collaboration socket guard prototype reassignment.",
+    );
+  }
 
   globalScope.WebSocket = WebSocketProxy as typeof WebSocket;
   globalScope[INSTALL_KEY] = true;
