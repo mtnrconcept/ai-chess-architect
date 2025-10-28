@@ -120,4 +120,31 @@ describe("invokeRuleGeneratorChat", () => {
     expect(result.status).toBe("ready");
     expect(result.rule).toEqual({ id: "rule-id" });
   });
+
+  it("sends the full conversation transcript to the backend", async () => {
+    invokeMock.mockResolvedValue({
+      data: buildNeedInfoResponse(),
+      error: null,
+    });
+
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    const conversation = [
+      { role: "user", content: "Bonjour" },
+      { role: "assistant", content: "Salut" },
+      { role: "user", content: "Propose une variante" },
+    ];
+
+    await invokeRuleGeneratorChat({
+      prompt: "x".repeat(RULE_GENERATOR_MIN_PROMPT_LENGTH),
+      conversation,
+    });
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    const invokeArgs = invokeMock.mock.calls[0]?.[1];
+    const body = (invokeArgs as { body?: Record<string, unknown> } | undefined)
+      ?.body as { conversation?: unknown } | undefined;
+
+    expect(body?.conversation).toEqual(conversation);
+  });
 });
