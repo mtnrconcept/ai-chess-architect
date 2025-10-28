@@ -25,6 +25,15 @@ type MechanicBrick = {
   commands: RuleCommand[];
 };
 
+type RuleBlueprint = {
+  id: string;
+  ruleName: string;
+  templateId: string;
+  category: string;
+  requiredBricks: string[];
+  forcedPieces?: string[];
+};
+
 /**
  * Construit une commande DEFINE_RULE.
  * Nous n'utilisons plus 'buildDefineRule' dans les briques,
@@ -78,7 +87,13 @@ const mechanicBricks: MechanicBrick[] = [
   },
   {
     id: "piece_all_but_king",
-    keywords: ["pièces", "toutes les pièces"],
+    keywords: [
+      "pièces",
+      "toutes les pièces",
+      "chaque pièce",
+      "chaque piece",
+      "chaque pieces",
+    ],
     commands: [
       {
         type: "SET_PIECES",
@@ -416,7 +431,7 @@ const mechanicBricks: MechanicBrick[] = [
   },
   {
     id: "action_anchor",
-    keywords: ["ancre", "immobilise", "enracine", "bloque"],
+    keywords: ["ancre", "immobilise", "enracine", "fige"],
     commands: [
       { type: "ADD_MECHANIC", mechanic: "status:anchored" },
       { type: "ADD_STATUS", status: "anchored" },
@@ -620,7 +635,7 @@ const mechanicBricks: MechanicBrick[] = [
   },
   {
     id: "action_pull",
-    keywords: ["attire", "grappin", "tire", "ramène"],
+    keywords: ["attire", "grappin", "ramène", "ramene", "traction"],
     commands: [
       { type: "ADD_MECHANIC", mechanic: "control:pull" },
       {
@@ -834,7 +849,16 @@ const mechanicBricks: MechanicBrick[] = [
   },
   {
     id: "action_spawn_ally",
-    keywords: ["invoque", "crée allié", "clone", "duplique", "copie"],
+    keywords: [
+      "invoque un allié",
+      "invoque un pion",
+      "crée allié",
+      "créé allié",
+      "cree allie",
+      "clone",
+      "duplique",
+      "copie",
+    ],
     commands: [
       { type: "ADD_MECHANIC", mechanic: "spawn:ally" },
       {
@@ -901,7 +925,7 @@ const mechanicBricks: MechanicBrick[] = [
   },
   {
     id: "action_chain_lightning",
-    keywords: ["chaîne", "éclair", "électrique", "arc"],
+    keywords: ["chaîne", "éclair", "électrique", "foudre"],
     commands: [
       { type: "ADD_MECHANIC", mechanic: "projectile:chain" },
       {
@@ -924,6 +948,131 @@ const mechanicBricks: MechanicBrick[] = [
     ],
   },
 ];
+
+const ruleBlueprints: RuleBlueprint[] = [
+  {
+    id: "pawn_mines",
+    ruleName: "Pions Mineurs",
+    templateId: "pawn_mines",
+    category: "special",
+    requiredBricks: ["piece_pawn", "action_mine"],
+    forcedPieces: ["pawn"],
+  },
+  {
+    id: "bishop_blink",
+    ruleName: "Blink du fou",
+    templateId: "bishop_blink",
+    category: "movement",
+    requiredBricks: ["piece_bishop", "action_teleport"],
+    forcedPieces: ["bishop"],
+  },
+  {
+    id: "queen_ice_missile",
+    ruleName: "Missile de glace",
+    templateId: "queen_ice_missile",
+    category: "capture",
+    requiredBricks: ["piece_queen", "action_ice_missile"],
+    forcedPieces: ["queen"],
+  },
+  {
+    id: "knight_quicksand",
+    ruleName: "Sables mouvants du cavalier",
+    templateId: "knight_quicksand",
+    category: "restriction",
+    requiredBricks: ["piece_knight", "action_quicksand"],
+    forcedPieces: ["knight"],
+  },
+  {
+    id: "pawn_wall",
+    ruleName: "Mur de pion",
+    templateId: "pawn_wall",
+    category: "defense",
+    requiredBricks: ["piece_pawn", "action_wall"],
+    forcedPieces: ["pawn"],
+  },
+  {
+    id: "knight_archer",
+    ruleName: "Chevalier archer",
+    templateId: "knight_archer",
+    category: "special",
+    requiredBricks: ["piece_knight", "action_morph_archer"],
+    forcedPieces: ["knight"],
+  },
+  {
+    id: "bishop_swap",
+    ruleName: "Permutation du fou",
+    templateId: "bishop_swap",
+    category: "special",
+    requiredBricks: ["piece_bishop", "action_swap_enemy"],
+    forcedPieces: ["bishop"],
+  },
+  {
+    id: "dynamite_once",
+    ruleName: "Dynamite tactique",
+    templateId: "dynamite_once",
+    category: "special",
+    requiredBricks: ["action_dynamite"],
+    forcedPieces: ["pawn", "knight", "bishop", "rook", "queen"],
+  },
+  {
+    id: "glue_slow",
+    ruleName: "Champ de colle",
+    templateId: "glue_slow",
+    category: "restriction",
+    requiredBricks: ["action_glue"],
+    forcedPieces: ["rook", "bishop", "queen"],
+  },
+];
+
+const resolveBlueprint = (
+  bricks: MechanicBrick[],
+): RuleBlueprint | undefined => {
+  const matchedIds = new Set(bricks.map((brick) => brick.id));
+
+  const scoredCandidates = ruleBlueprints
+    .map((blueprint) => {
+      const matches = blueprint.requiredBricks.every((id) =>
+        matchedIds.has(id),
+      );
+
+      if (!matches) return null;
+
+      return {
+        blueprint,
+        score: blueprint.requiredBricks.length,
+      };
+    })
+    .filter(
+      (candidate): candidate is { blueprint: RuleBlueprint; score: number } =>
+        candidate !== null,
+    )
+    .sort((a, b) => b.score - a.score);
+
+  return scoredCandidates[0]?.blueprint;
+};
+
+const overridePieces = (
+  commands: RuleCommand[],
+  forcedPieces: string[],
+): RuleCommand[] => {
+  if (!forcedPieces.length) return commands;
+
+  const normalizedPieces = Array.from(
+    new Set(forcedPieces.map((piece) => piece.toLowerCase())),
+  );
+
+  const withoutPieces = commands.filter(
+    (command) => command.type !== "SET_PIECES",
+  );
+
+  return [
+    {
+      type: "SET_PIECES",
+      pieces: normalizedPieces,
+    } satisfies SetPiecesCommand,
+    ...withoutPieces,
+  ];
+};
 
 const normalizeText = (input: string) => input.normalize("NFKC").toLowerCase();
 
@@ -1018,7 +1167,7 @@ export const extractProgram = (
   // 2. Gérer le cas où aucune brique n'est trouvée
   if (matchedBricks.length === 0) {
     warnings.push({
-      code: "no_match_bricks",
+      code: "no_match",
       message:
         "Aucune brique de mécanique ne correspond, fallback few-shot utilisé.",
     });
@@ -1026,21 +1175,31 @@ export const extractProgram = (
   }
 
   // 3. Combiner les commandes des briques trouvées
-  const combinedCommands = combineCommands(matchedBricks);
+  const blueprint = resolveBlueprint(matchedBricks);
+
+  let combinedCommands = combineCommands(matchedBricks);
+  if (blueprint?.forcedPieces) {
+    combinedCommands = overridePieces(combinedCommands, blueprint.forcedPieces);
+  }
 
   // 4. Construire le programme final
-  const ruleName = matchedBricks
-    .map((brick) => brick.id.split("_").pop())
-    .map((name) => name?.charAt(0).toUpperCase() + name?.slice(1))
-    .join(" ");
+  const ruleName =
+    blueprint?.ruleName ??
+    matchedBricks
+      .map((brick) => brick.id.split("_").pop())
+      .map((name) => name?.charAt(0).toUpperCase() + name?.slice(1))
+      .join(" ");
 
-  const templateId = matchedBricks.map((brick) => brick.id).join("-");
+  const templateId =
+    blueprint?.templateId ?? matchedBricks.map((brick) => brick.id).join("-");
+
+  const category = blueprint?.category ?? "custom";
 
   const finalCommands: RuleCommand[] = [
     buildDefineRule(
       ruleName || "Règle Combinée",
       templateId || `custom_${Date.now()}`,
-      "custom",
+      category,
     ),
     { type: "SET_SUMMARY", summary: input.trim() },
     ...combinedCommands,
