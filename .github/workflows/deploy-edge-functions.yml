@@ -49,7 +49,7 @@ jobs:
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
-      # ✅ Définit le cache Deno sans utiliser runner.* dans env
+      # ✅ Configure le cache Deno via $RUNNER_TEMP
       - name: Configure Deno cache directory
         run: |
           mkdir -p "$RUNNER_TEMP/deno"
@@ -61,9 +61,7 @@ jobs:
           set -euo pipefail
           if [ -f "$IMPORT_MAP" ]; then
             echo "Import map detected at $IMPORT_MAP"
-            # Corrige les URLs mal formées `https:/esm.sh` → `https://esm.sh`
             sed -i 's#https:/esm.sh#https://esm.sh#g' "$IMPORT_MAP"
-            # Valide la syntaxe JSON
             jq empty "$IMPORT_MAP"
             echo "Validated import_map.json:"
             cat "$IMPORT_MAP"
@@ -80,6 +78,7 @@ jobs:
             echo "No functions directory at $FUNCTIONS_DIR" >&2
             exit 1
           fi
+
           mapfile -t functions < <(find "$FUNCTIONS_DIR" -mindepth 1 -maxdepth 1 -type d \
             ! -name '_*' -printf '%f\n' | sort)
 
@@ -88,10 +87,14 @@ jobs:
             exit 1
           fi
 
-          printf '%s\n' "${functions[@]}" | jq -R . | jq -s . > "$RUNNER_TEMP/functions.json"
-          echo "functions=$(cat "$RUNNER_TEMP/functions.json")" >> "$GITHUB_OUTPUT"
+          # JSON pretty pour log
+          printf '%s\n' "${functions[@]}" | jq -R . | jq -s . > "$RUNNER_TEMP/functions.pretty.json"
           echo "Found functions:"
-          cat "$RUNNER_TEMP/functions.json"
+          cat "$RUNNER_TEMP/functions.pretty.json"
+
+          # ✅ JSON compact pour GITHUB_OUTPUT (une seule ligne)
+          jq -c . "$RUNNER_TEMP/functions.pretty.json" > "$RUNNER_TEMP/functions.compact.json"
+          echo "functions=$(cat "$RUNNER_TEMP/functions.compact.json")" >> "$GITHUB_OUTPUT"
 
       - name: Pre-bundle (fail-fast)
         shell: bash
@@ -144,7 +147,7 @@ jobs:
                 break
               fi
               n=$((n+1))
-              sleep $((5 * n))  # backoff
+              sleep $((5 * n))
               echo "Retry $n/3 for $fn ..."
             done
             if [ $n -ge 3 ]; then
