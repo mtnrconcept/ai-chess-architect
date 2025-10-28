@@ -6,10 +6,7 @@ import type { RuleJSON } from "@/engine/types";
 import { extractProgram } from "@/features/rules-pipeline/nlp/programExtractor";
 import type { ProgramExtractionWarning } from "@/features/rules-pipeline/nlp/programExtractor";
 import { buildRuleFromProgram } from "@/features/rules-pipeline/factory/ruleFactory";
-import type {
-  RuleFactoryWarning,
-  RuleFactoryResult,
-} from "@/features/rules-pipeline/factory/ruleFactory";
+import type { RuleFactoryWarning, RuleFactoryResult } from "@/features/rules-pipeline/factory/ruleFactory";
 import { compileIntentToRule } from "@/features/rules-pipeline/compiler";
 import type { CompilationWarning } from "@/features/rules-pipeline/compiler";
 import { validateRule } from "@/features/rules-pipeline/validation/ruleValidator";
@@ -76,10 +73,7 @@ const sanitizeConversation = (value: unknown): ChatMessage[] => {
 
       const role = (entry as { role?: unknown }).role;
       const contentRaw = (entry as { content?: unknown }).content;
-      if (
-        (role !== "user" && role !== "assistant") ||
-        typeof contentRaw !== "string"
-      ) {
+      if ((role !== "user" && role !== "assistant") || typeof contentRaw !== "string") {
         return null;
       }
 
@@ -93,10 +87,7 @@ const sanitizeConversation = (value: unknown): ChatMessage[] => {
     .filter((entry): entry is ChatMessage => entry !== null);
 };
 
-const resolveInstruction = (
-  prompt: unknown,
-  conversation: ChatMessage[],
-): string | null => {
+const resolveInstruction = (prompt: unknown, conversation: ChatMessage[]): string | null => {
   const promptText = typeof prompt === "string" ? prompt.trim() : "";
   if (promptText.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH) {
     return promptText;
@@ -104,10 +95,7 @@ const resolveInstruction = (
 
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     const message = conversation[index];
-    if (
-      message.role === "user" &&
-      message.content.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH
-    ) {
+    if (message.role === "user" && message.content.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH) {
       return message.content;
     }
   }
@@ -117,24 +105,14 @@ const resolveInstruction = (
 
 const runHeuristicPipeline = (instruction: string): HeuristicPipeline => {
   const { program, warnings: programWarnings } = extractProgram(instruction);
-  const {
-    intent,
-    warnings: factoryWarnings,
-    tests,
-    movementOverrides,
-  } = buildRuleFromProgram(program);
-  const { rule: heuristicRule, warnings: compilationWarnings } =
-    compileIntentToRule(intent);
+  const { intent, warnings: factoryWarnings, tests, movementOverrides } = buildRuleFromProgram(program);
+  const { rule: heuristicRule, warnings: compilationWarnings } = compileIntentToRule(intent);
   const validation = validateRule(intent, heuristicRule);
   const dryRun = dryRunRule(intent, heuristicRule, tests, movementOverrides);
   const plan = buildExecutionPlan(heuristicRule);
 
-  const needsFallback = compilationWarnings.some(
-    (warning) => warning.code === "missing_compiler",
-  );
-  const fallbackProvider = needsFallback
-    ? buildFallbackProvider(intent)
-    : undefined;
+  const needsFallback = compilationWarnings.some((warning) => warning.code === "missing_compiler");
+  const fallbackProvider = needsFallback ? buildFallbackProvider(intent) : undefined;
 
   return {
     program,
@@ -175,10 +153,7 @@ const parseRuleJson = (content: string): RuleJSON | null => {
   }
 };
 
-const buildAiMessages = (
-  instruction: string,
-  pipeline: HeuristicPipeline,
-): ChatMessage[] => {
+const buildAiMessages = (instruction: string, pipeline: HeuristicPipeline): ChatMessage[] => {
   const heuristicsContext = JSON.stringify(
     {
       instruction,
@@ -229,12 +204,7 @@ const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
   const providerValue = record.provider;
   if (typeof providerValue === "string") {
     const normalised = providerValue.toLowerCase();
-    if (
-      normalised === "openai" ||
-      normalised === "gemini" ||
-      normalised === "groq" ||
-      normalised === "lovable"
-    ) {
+    if (normalised === "openai" || normalised === "gemini" || normalised === "groq" || normalised === "lovable") {
       overrides.provider = normalised as AiProviderName;
     }
   }
@@ -278,10 +248,7 @@ const callRemoteCompiler = async (
   pipeline: HeuristicPipeline,
   overrides?: InvokeOverrides,
 ): Promise<AiSuccess | AiFailure> => {
-  const groqModel =
-    Deno.env.get("AI_MODEL") ??
-    Deno.env.get("GROQ_MODEL") ??
-    "llama-3.3-70b-versatile";
+  const groqModel = Deno.env.get("AI_MODEL") ?? Deno.env.get("GROQ_MODEL") ?? "llama-3.1-8b-instant";
 
   try {
     const { content, provider, model } = await invokeChatCompletion({
@@ -333,8 +300,7 @@ const callRemoteCompiler = async (
     }
 
     return {
-      error:
-        (error instanceof Error ? error.message : String(error)) ?? "unknown",
+      error: (error instanceof Error ? error.message : String(error)) ?? "unknown",
     } satisfies AiFailure;
   }
 };
@@ -347,11 +313,7 @@ const computePromptHash = async (instruction: string): Promise<string> => {
     .join("");
 };
 
-const buildReadyResult = async (
-  instruction: string,
-  pipeline: HeuristicPipeline,
-  aiOutcome: AiSuccess | AiFailure,
-) => {
+const buildReadyResult = async (instruction: string, pipeline: HeuristicPipeline, aiOutcome: AiSuccess | AiFailure) => {
   let rule = pipeline.heuristicRule;
   let validation = pipeline.validation;
   let dryRun = pipeline.dryRun;
@@ -364,12 +326,7 @@ const buildReadyResult = async (
   if ("rule" in aiOutcome) {
     const candidateRule = aiOutcome.rule;
     const candidateValidation = validateRule(pipeline.intent, candidateRule);
-    const candidateDryRun = dryRunRule(
-      pipeline.intent,
-      candidateRule,
-      pipeline.tests,
-      pipeline.movementOverrides,
-    );
+    const candidateDryRun = dryRunRule(pipeline.intent, candidateRule, pipeline.tests, pipeline.movementOverrides);
     const candidatePlan = buildExecutionPlan(candidateRule);
 
     if (candidateValidation.isValid && candidateDryRun.passed) {
@@ -377,9 +334,7 @@ const buildReadyResult = async (
       validation = candidateValidation;
       dryRun = candidateDryRun;
       plan = candidatePlan;
-      const providerLabel = aiOutcome.model
-        ? `${aiOutcome.provider}:${aiOutcome.model}`
-        : aiOutcome.provider;
+      const providerLabel = aiOutcome.model ? `${aiOutcome.provider}:${aiOutcome.model}` : aiOutcome.provider;
       provider = providerLabel;
       llmMeta.status = "success";
       llmMeta.provider = aiOutcome.provider;
@@ -432,8 +387,7 @@ const buildReadyResult = async (
 };
 
 Deno.serve(async (req) => {
-  const CORS_ALLOW_HEADERS =
-    "Content-Type, Authorization, apikey, x-client-info";
+  const CORS_ALLOW_HEADERS = "Content-Type, Authorization, apikey, x-client-info";
   const defaultCors = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -452,13 +406,10 @@ Deno.serve(async (req) => {
 
   const auth = req.headers.get("authorization");
   if (!auth) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "missing_authorization" }),
-      {
-        status: 401,
-        headers: { ...defaultCors, "Content-Type": "application/json" },
-      },
-    );
+    return new Response(JSON.stringify({ ok: false, error: "missing_authorization" }), {
+      status: 401,
+      headers: { ...defaultCors, "Content-Type": "application/json" },
+    });
   }
 
   let payload: Record<string, unknown>;
@@ -472,25 +423,17 @@ Deno.serve(async (req) => {
   const instruction = resolveInstruction(payload.prompt, conversation);
 
   if (!instruction) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "invalid_prompt" }),
-      {
-        status: 400,
-        headers: { ...defaultCors, "Content-Type": "application/json" },
-      },
-    );
+    return new Response(JSON.stringify({ ok: false, error: "invalid_prompt" }), {
+      status: 400,
+      headers: { ...defaultCors, "Content-Type": "application/json" },
+    });
   }
 
   try {
     const pipeline = runHeuristicPipeline(instruction);
-    const rawOverrides = (payload as { clientOverrides?: unknown })
-      .clientOverrides;
+    const rawOverrides = (payload as { clientOverrides?: unknown }).clientOverrides;
     const overrides = parseClientOverrides(rawOverrides);
-    const aiOutcome = await callRemoteCompiler(
-      instruction,
-      pipeline,
-      overrides,
-    );
+    const aiOutcome = await callRemoteCompiler(instruction, pipeline, overrides);
     const result = await buildReadyResult(instruction, pipeline, aiOutcome);
 
     return new Response(JSON.stringify({ ok: true, result }), {
