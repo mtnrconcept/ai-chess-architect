@@ -9,8 +9,8 @@ const normalizeEnv = (value: string | undefined | null) => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
-const EXPECTED_PROJECT_NAME = "Youaregood";
+const EXPECTED_PROJECT_ID = "pfcaolibtgvynnwaxvol";
+const EXPECTED_PROJECT_NAME = "AI Chess Architect";
 
 const rawSupabaseUrl =
   normalizeEnv(Deno.env.get("SUPABASE_URL")) ??

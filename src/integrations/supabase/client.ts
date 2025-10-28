@@ -42,8 +42,8 @@ const readEnvValue = (...keys: string[]) => {
   return undefined;
 };
 
-const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
-const EXPECTED_PROJECT_NAME = "Youaregood";
+const EXPECTED_PROJECT_ID = "pfcaolibtgvynnwaxvol";
+const EXPECTED_PROJECT_NAME = "AI Chess Architect";
 
 const RAW_SUPABASE_PROJECT_ID = readEnvValue(
   "VITE_SUPABASE_PROJECT_ID",
@@ -125,13 +125,13 @@ const SUPABASE_FUNCTIONS_URL =
     : undefined);
 
 const SUPABASE_ANON_KEY = readEnvValue(
-  "VITE_SUPABASE_ANON_KEY",
   "VITE_SUPABASE_PUBLISHABLE_KEY",
+  "VITE_SUPABASE_ANON_KEY",
   "VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
   "VITE_SUPABASE_PUBLIC_ANON_KEY",
   "VITE_ANON_KEY",
-  "SUPABASE_ANON_KEY",
   "SUPABASE_PUBLISHABLE_KEY",
+  "SUPABASE_ANON_KEY",
   "SUPABASE_PUBLISHABLE_DEFAULT_KEY",
   "SUPABASE_PUBLIC_ANON_KEY",
   "ANON_KEY",
@@ -224,7 +224,7 @@ function createSingletonClient(): SupabaseInitialisation {
   const globalScope = globalThis as typeof globalThis & {
     __SUPABASE_CLIENT__?: SupabaseClient<Database> | null;
     __SUPABASE_ENV_DIAG__?: SupabaseDiagnostics;
-    __YOUAREGOOD_SUPABASE_LOGGED__?: boolean;
+    __CHESS_ARCHITECT_SUPABASE_LOGGED__?: boolean;
   };
 
   if (
@@ -239,7 +239,7 @@ function createSingletonClient(): SupabaseInitialisation {
 
   const problems = buildEnvProblems();
 
-  if (!globalScope.__YOUAREGOOD_SUPABASE_LOGGED__) {
+  if (!globalScope.__CHESS_ARCHITECT_SUPABASE_LOGGED__) {
     const messages: string[] = [];
 
     if (!NORMALISED_PROJECT_ID) {
@@ -267,14 +267,14 @@ function createSingletonClient(): SupabaseInitialisation {
     }
 
     if (messages.length > 0) {
-      console.warn(`[Youaregood] ${messages.join(" ")}`);
+    console.warn(`[AI Chess Architect] ${messages.join(" ")}`);
     } else {
       console.log(
-        `[Youaregood] Client configuré pour ${EXPECTED_PROJECT_NAME} (${EFFECTIVE_PROJECT_ID}).`,
+        `[AI Chess Architect] Client configuré pour ${EXPECTED_PROJECT_NAME} (${EFFECTIVE_PROJECT_ID}).`,
       );
     }
 
-    globalScope.__YOUAREGOOD_SUPABASE_LOGGED__ = true;
+    globalScope.__CHESS_ARCHITECT_SUPABASE_LOGGED__ = true;
   }
 
   const diagnostics: SupabaseDiagnostics = {
@@ -317,7 +317,7 @@ function createSingletonClient(): SupabaseInitialisation {
 
   if (isWebSocketPrototypeFrozen) {
     console.warn(
-      "[Youaregood] WebSocket prototype is frozen — skipping realtime patches that rely on prototype mutation.",
+      "[AI Chess Architect] WebSocket prototype is frozen — skipping realtime patches that rely on prototype mutation.",
     );
   }
 
