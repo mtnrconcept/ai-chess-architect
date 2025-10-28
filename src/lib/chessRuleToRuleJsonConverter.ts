@@ -185,16 +185,14 @@ function generateIcon(effect: RuleEffect): string {
 
 type ConditionMapper = {
   matches: (condition: RuleCondition) => boolean;
-  map: (
-    condition: RuleCondition,
-  ) => ConditionDescriptor | ConditionDescriptor[];
+  map: (condition: RuleCondition) => ConditionDescriptor[];
 };
 
 const CONDITION_MAPPERS: ConditionMapper[] = [
   {
     matches: (condition) =>
       condition.type === "pieceType" && condition.operator === "equals",
-    map: () => "piece.isTypeInScope",
+    map: () => ["piece.isTypeInScope"],
   },
   {
     matches: (condition) =>
@@ -202,9 +200,11 @@ const CONDITION_MAPPERS: ConditionMapper[] = [
       (condition.operator === "greaterOrEqual" ||
         condition.operator === "greaterThan"),
     map: (condition) => [
-      "match.turnNumber.atLeast",
-      ensureNumber(condition.value, condition.type) +
-        (condition.operator === "greaterThan" ? 1 : 0),
+      [
+        "match.turnNumber.atLeast",
+        ensureNumber(condition.value, condition.type) +
+          (condition.operator === "greaterThan" ? 1 : 0),
+      ],
     ],
   },
   {
@@ -213,17 +213,18 @@ const CONDITION_MAPPERS: ConditionMapper[] = [
       (condition.operator === "lessThan" ||
         condition.operator === "lessOrEqual"),
     map: (condition) => [
-      "match.turnNumber.lessThan",
-      ensureNumber(condition.value, condition.type) +
-        (condition.operator === "lessOrEqual" ? 1 : 0),
+      [
+        "match.turnNumber.lessThan",
+        ensureNumber(condition.value, condition.type) +
+          (condition.operator === "lessOrEqual" ? 1 : 0),
+      ],
     ],
   },
   {
     matches: (condition) =>
       condition.type === "hasMoved" && condition.operator === "equals",
     map: (condition) => [
-      "piece.hasMoved.equals",
-      ensureBoolean(condition.value, condition.type),
+      ["piece.hasMoved.equals", ensureBoolean(condition.value, condition.type)],
     ],
   },
 ];
@@ -258,12 +259,7 @@ function convertConditions(conditions: RuleCondition[]): ConditionDescriptor[] {
       );
     }
 
-    const mapped = mapper.map(condition);
-    if (Array.isArray(mapped)) {
-      results.push(...(mapped as ConditionDescriptor[]));
-    } else {
-      results.push(mapped as ConditionDescriptor);
-    }
+    results.push(...mapper.map(condition));
   }
   return results;
 }
