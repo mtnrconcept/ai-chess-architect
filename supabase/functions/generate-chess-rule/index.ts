@@ -6,7 +6,10 @@ import type { RuleJSON } from "@/engine/types";
 import { extractProgram } from "@/features/rules-pipeline/nlp/programExtractor";
 import type { ProgramExtractionWarning } from "@/features/rules-pipeline/nlp/programExtractor";
 import { buildRuleFromProgram } from "@/features/rules-pipeline/factory/ruleFactory";
-import type { RuleFactoryWarning, RuleFactoryResult } from "@/features/rules-pipeline/factory/ruleFactory";
+import type {
+  RuleFactoryWarning,
+  RuleFactoryResult,
+} from "@/features/rules-pipeline/factory/ruleFactory";
 import { compileIntentToRule } from "@/features/rules-pipeline/compiler";
 import type { CompilationWarning } from "@/features/rules-pipeline/compiler";
 import { validateRule } from "@/features/rules-pipeline/validation/ruleValidator";
@@ -20,9 +23,6 @@ import type { FallbackProvider } from "@/features/rules-pipeline/fallback/provid
 import type { CanonicalIntent } from "@/features/rules-pipeline/schemas/canonicalIntent";
 import type { RuleProgram } from "@/features/rules-pipeline/rule-language/types";
 import {
-  AiProviderHTTPError,
-  MissingApiKeyError,
-  invokeChatCompletion,
   type InvokeOverrides,
   type AiProviderName,
 } from "../_shared/ai-providers.ts";
@@ -73,7 +73,10 @@ const sanitizeConversation = (value: unknown): ChatMessage[] => {
 
       const role = (entry as { role?: unknown }).role;
       const contentRaw = (entry as { content?: unknown }).content;
-      if ((role !== "user" && role !== "assistant") || typeof contentRaw !== "string") {
+      if (
+        (role !== "user" && role !== "assistant") ||
+        typeof contentRaw !== "string"
+      ) {
         return null;
       }
 
@@ -87,7 +90,10 @@ const sanitizeConversation = (value: unknown): ChatMessage[] => {
     .filter((entry): entry is ChatMessage => entry !== null);
 };
 
-const resolveInstruction = (prompt: unknown, conversation: ChatMessage[]): string | null => {
+const resolveInstruction = (
+  prompt: unknown,
+  conversation: ChatMessage[],
+): string | null => {
   const promptText = typeof prompt === "string" ? prompt.trim() : "";
   if (promptText.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH) {
     return promptText;
@@ -95,7 +101,10 @@ const resolveInstruction = (prompt: unknown, conversation: ChatMessage[]): strin
 
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     const message = conversation[index];
-    if (message.role === "user" && message.content.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH) {
+    if (
+      message.role === "user" &&
+      message.content.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH
+    ) {
       return message.content;
     }
   }
@@ -105,14 +114,24 @@ const resolveInstruction = (prompt: unknown, conversation: ChatMessage[]): strin
 
 const runHeuristicPipeline = (instruction: string): HeuristicPipeline => {
   const { program, warnings: programWarnings } = extractProgram(instruction);
-  const { intent, warnings: factoryWarnings, tests, movementOverrides } = buildRuleFromProgram(program);
-  const { rule: heuristicRule, warnings: compilationWarnings } = compileIntentToRule(intent);
+  const {
+    intent,
+    warnings: factoryWarnings,
+    tests,
+    movementOverrides,
+  } = buildRuleFromProgram(program);
+  const { rule: heuristicRule, warnings: compilationWarnings } =
+    compileIntentToRule(intent);
   const validation = validateRule(intent, heuristicRule);
   const dryRun = dryRunRule(intent, heuristicRule, tests, movementOverrides);
   const plan = buildExecutionPlan(heuristicRule);
 
-  const needsFallback = compilationWarnings.some((warning) => warning.code === "missing_compiler");
-  const fallbackProvider = needsFallback ? buildFallbackProvider(intent) : undefined;
+  const needsFallback = compilationWarnings.some(
+    (warning) => warning.code === "missing_compiler",
+  );
+  const fallbackProvider = needsFallback
+    ? buildFallbackProvider(intent)
+    : undefined;
 
   return {
     program,
@@ -153,7 +172,10 @@ const parseRuleJson = (content: string): RuleJSON | null => {
   }
 };
 
-const buildAiMessages = (instruction: string, pipeline: HeuristicPipeline): ChatMessage[] => {
+const buildAiMessages = (
+  instruction: string,
+  pipeline: HeuristicPipeline,
+): ChatMessage[] => {
   const heuristicsContext = JSON.stringify(
     {
       instruction,
@@ -204,7 +226,12 @@ const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
   const providerValue = record.provider;
   if (typeof providerValue === "string") {
     const normalised = providerValue.toLowerCase();
-    if (normalised === "openai" || normalised === "gemini" || normalised === "groq" || normalised === "lovable") {
+    if (
+      normalised === "openai" ||
+      normalised === "gemini" ||
+      normalised === "groq" ||
+      normalised === "lovable"
+    ) {
       overrides.provider = normalised as AiProviderName;
     }
   }
@@ -243,26 +270,57 @@ const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
   return overrides;
 };
 
+const LOCAL_MODEL_ENDPOINT =
+  Deno.env.get("LOCAL_RULE_MODEL_URL") ??
+  "http://127.0.0.1:1234/v1/chat/completions";
+const LOCAL_MODEL_NAME =
+  Deno.env.get("LOCAL_RULE_MODEL_NAME") ?? "openai/gpt-oss-20b";
+
 const callRemoteCompiler = async (
   instruction: string,
   pipeline: HeuristicPipeline,
-  overrides?: InvokeOverrides,
+  _overrides?: InvokeOverrides,
 ): Promise<AiSuccess | AiFailure> => {
-  const groqModel = Deno.env.get("AI_MODEL") ?? Deno.env.get("GROQ_MODEL") ?? "llama-3.1-8b-instant";
+  const messages = buildAiMessages(instruction, pipeline);
+  const requestBody = {
+    model: LOCAL_MODEL_NAME,
+    messages,
+    temperature: 0.35,
+    max_tokens: 1800,
+    stream: false,
+  } satisfies Record<string, unknown>;
 
   try {
-    const { content, provider, model } = await invokeChatCompletion({
-      messages: buildAiMessages(instruction, pipeline),
-      temperature: 0.35,
-      maxOutputTokens: 1800,
-      preferredModels: { groq: groqModel },
-      forceJson: true,
-      overrides,
+    const res = await fetch(LOCAL_MODEL_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
     });
 
+    if (!res.ok) {
+      const raw = await res.text();
+      return {
+        error: `http_${res.status}`,
+        rawContent: raw,
+        provider: "local",
+        model: LOCAL_MODEL_NAME,
+      } satisfies AiFailure;
+    }
+
+    const json = (await res.json()) as {
+      model?: unknown;
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const content = json.choices?.[0]?.message?.content ?? "";
     const trimmed = content.trim();
     if (!trimmed) {
-      return { error: "empty_message", rawContent: content, provider, model };
+      return {
+        error: "empty_message",
+        rawContent: content,
+        provider: "local",
+        model: LOCAL_MODEL_NAME,
+      };
     }
 
     const parsedRule = parseRuleJson(trimmed);
@@ -270,37 +328,23 @@ const callRemoteCompiler = async (
       return {
         error: "invalid_json_payload",
         rawContent: content,
-        provider,
-        model,
-      };
+        provider: "local",
+        model: typeof json.model === "string" ? json.model : LOCAL_MODEL_NAME,
+      } satisfies AiFailure;
     }
 
     return {
       rule: parsedRule,
       rawContent: content,
-      provider,
-      model,
+      provider: "local",
+      model: typeof json.model === "string" ? json.model : LOCAL_MODEL_NAME,
     } satisfies AiSuccess;
   } catch (error) {
-    if (error instanceof MissingApiKeyError) {
-      return {
-        error: error.code,
-        provider: error.provider,
-        model: null,
-      } satisfies AiFailure;
-    }
-
-    if (error instanceof AiProviderHTTPError) {
-      return {
-        error: `http_${error.status}`,
-        rawContent: error.responseText,
-        provider: error.provider,
-        model: null,
-      } satisfies AiFailure;
-    }
-
     return {
-      error: (error instanceof Error ? error.message : String(error)) ?? "unknown",
+      error:
+        (error instanceof Error ? error.message : String(error)) ?? "unknown",
+      provider: "local",
+      model: LOCAL_MODEL_NAME,
     } satisfies AiFailure;
   }
 };
@@ -313,7 +357,11 @@ const computePromptHash = async (instruction: string): Promise<string> => {
     .join("");
 };
 
-const buildReadyResult = async (instruction: string, pipeline: HeuristicPipeline, aiOutcome: AiSuccess | AiFailure) => {
+const buildReadyResult = async (
+  instruction: string,
+  pipeline: HeuristicPipeline,
+  aiOutcome: AiSuccess | AiFailure,
+) => {
   let rule = pipeline.heuristicRule;
   let validation = pipeline.validation;
   let dryRun = pipeline.dryRun;
@@ -326,7 +374,12 @@ const buildReadyResult = async (instruction: string, pipeline: HeuristicPipeline
   if ("rule" in aiOutcome) {
     const candidateRule = aiOutcome.rule;
     const candidateValidation = validateRule(pipeline.intent, candidateRule);
-    const candidateDryRun = dryRunRule(pipeline.intent, candidateRule, pipeline.tests, pipeline.movementOverrides);
+    const candidateDryRun = dryRunRule(
+      pipeline.intent,
+      candidateRule,
+      pipeline.tests,
+      pipeline.movementOverrides,
+    );
     const candidatePlan = buildExecutionPlan(candidateRule);
 
     if (candidateValidation.isValid && candidateDryRun.passed) {
@@ -334,7 +387,9 @@ const buildReadyResult = async (instruction: string, pipeline: HeuristicPipeline
       validation = candidateValidation;
       dryRun = candidateDryRun;
       plan = candidatePlan;
-      const providerLabel = aiOutcome.model ? `${aiOutcome.provider}:${aiOutcome.model}` : aiOutcome.provider;
+      const providerLabel = aiOutcome.model
+        ? `${aiOutcome.provider}:${aiOutcome.model}`
+        : aiOutcome.provider;
       provider = providerLabel;
       llmMeta.status = "success";
       llmMeta.provider = aiOutcome.provider;
@@ -387,7 +442,8 @@ const buildReadyResult = async (instruction: string, pipeline: HeuristicPipeline
 };
 
 Deno.serve(async (req) => {
-  const CORS_ALLOW_HEADERS = "Content-Type, Authorization, apikey, x-client-info";
+  const CORS_ALLOW_HEADERS =
+    "Content-Type, Authorization, apikey, x-client-info";
   const defaultCors = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -406,10 +462,13 @@ Deno.serve(async (req) => {
 
   const auth = req.headers.get("authorization");
   if (!auth) {
-    return new Response(JSON.stringify({ ok: false, error: "missing_authorization" }), {
-      status: 401,
-      headers: { ...defaultCors, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ ok: false, error: "missing_authorization" }),
+      {
+        status: 401,
+        headers: { ...defaultCors, "Content-Type": "application/json" },
+      },
+    );
   }
 
   let payload: Record<string, unknown>;
@@ -423,17 +482,25 @@ Deno.serve(async (req) => {
   const instruction = resolveInstruction(payload.prompt, conversation);
 
   if (!instruction) {
-    return new Response(JSON.stringify({ ok: false, error: "invalid_prompt" }), {
-      status: 400,
-      headers: { ...defaultCors, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ ok: false, error: "invalid_prompt" }),
+      {
+        status: 400,
+        headers: { ...defaultCors, "Content-Type": "application/json" },
+      },
+    );
   }
 
   try {
     const pipeline = runHeuristicPipeline(instruction);
-    const rawOverrides = (payload as { clientOverrides?: unknown }).clientOverrides;
+    const rawOverrides = (payload as { clientOverrides?: unknown })
+      .clientOverrides;
     const overrides = parseClientOverrides(rawOverrides);
-    const aiOutcome = await callRemoteCompiler(instruction, pipeline, overrides);
+    const aiOutcome = await callRemoteCompiler(
+      instruction,
+      pipeline,
+      overrides,
+    );
     const result = await buildReadyResult(instruction, pipeline, aiOutcome);
 
     return new Response(JSON.stringify({ ok: true, result }), {
