@@ -1,14 +1,14 @@
-import type { LLMRequest, LLMResponse } from '../index';
-import { HttpLLMDriver } from './base';
+import type { LLMRequest, LLMResponse } from "../index";
+import { HttpLLMDriver } from "./base";
 
 export class GroqDriver extends HttpLLMDriver {
   public constructor() {
     super({
-      name: 'groq',
-      apiKeyEnv: 'GROQ_API_KEY',
-      modelEnv: 'GROQ_MODEL',
-      baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
-      defaultModel: 'mixtral-8x7b-32768',
+      name: "groq",
+      apiKeyEnv: "GROQ_API_KEY",
+      modelEnv: "GROQ_MODEL",
+      baseUrl: "https://api.groq.com/openai/v1/chat/completions",
+      defaultModel: "llama-3.1-70b-versatile",
     });
   }
 
@@ -16,13 +16,13 @@ export class GroqDriver extends HttpLLMDriver {
     const apiKey = this.getApiKey();
     const body = {
       model: this.getModelOverride(),
-      messages: [{ role: 'user', content: request.prompt }],
+      messages: [{ role: "user", content: request.prompt }],
       max_tokens: request.maxTokens ?? 1024,
       temperature: request.temperature ?? 0.1,
     };
 
     const response = await fetch(this.baseUrl, {
-      method: 'POST',
+      method: "POST",
       headers: this.getHeaders(apiKey),
       body: JSON.stringify(body),
     });
@@ -32,7 +32,7 @@ export class GroqDriver extends HttpLLMDriver {
     }
 
     const payload: any = await response.json();
-    const choice = payload?.choices?.[0]?.message?.content ?? '';
+    const choice = payload?.choices?.[0]?.message?.content ?? "";
     const usage = this.parseUsage(payload?.usage ?? {});
 
     return {
