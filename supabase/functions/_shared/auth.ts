@@ -190,7 +190,12 @@ export const authenticateRequest = async (
     };
   }
 
-  if (PUBLIC_KEY_SET.has(token)) {
+  const requestApiKey = normalizeEnv(req.headers.get("apikey"));
+
+  if (
+    PUBLIC_KEY_SET.has(token) ||
+    (requestApiKey && requestApiKey.length > 0 && requestApiKey === token)
+  ) {
     // Les clés publishable/anon ne correspondent pas à un utilisateur mais doivent pouvoir accéder aux fonctions
     // pour le mode preview ou les visiteurs non connectés.
     return { success: true, user: null, isGuest: true };
