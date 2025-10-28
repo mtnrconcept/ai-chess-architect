@@ -1,7 +1,4 @@
-import {
-  createClient,
-  type User,
-} from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type User } from "@supabase/supabase-js";
 
 const normalizeEnv = (value: string | undefined | null) => {
   if (typeof value !== "string") return undefined;

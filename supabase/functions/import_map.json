@@ -7,12 +7,5 @@
     "zod": "https://deno.land/x/zod@v3.23.8/mod.ts",
     "@/": "../../src/",
     "packages/": "../../packages/"
-  },
-  "scopes": {
-    "https://esm.sh/": {
-      "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.2?target=deno",
-      "stripe": "https://esm.sh/stripe@13.11.0?target=deno",
-      "ajv": "https://esm.sh/ajv@8.17.1?target=deno"
-    }
   }
 }
