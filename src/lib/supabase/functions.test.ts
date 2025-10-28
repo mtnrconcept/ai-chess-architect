@@ -2,9 +2,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuleGeneratorChatMessage } from "./functions";
 
 const pipelineMock = vi.fn();
+const supabaseInvokeMock = vi.fn();
+const resolveFunctionUrlMock = vi.fn();
+const supabaseAuthMock = vi.fn();
 
 vi.mock("@/features/rules-pipeline", () => ({
   generateRulePipeline: pipelineMock,
+}));
+
+vi.mock("@/integrations/supabase/client", () => ({
+  resolveSupabaseFunctionUrl: resolveFunctionUrlMock,
+  supabase: {
+    functions: { invoke: supabaseInvokeMock },
+    auth: { getSession: supabaseAuthMock },
+  },
+  supabaseAnonKey: "sb_test_anon",
+  supabaseDiagnostics: {
+    functionsUrl: undefined,
+    resolvedProjectId: "test-project",
+    resolvedProjectName: "Test",
+  },
+  supabaseFunctionsUrl: undefined,
 }));
 
 const buildPipelineResult = () => ({
@@ -25,10 +43,32 @@ const buildPipelineResult = () => ({
   fallbackProvider: undefined,
 });
 
+const buildRemoteReadyResult = (prompt: string) => ({
+  status: "ready" as const,
+  rule: {
+    meta: { ruleId: "remote", ruleName: "Remote Rule" },
+    logic: { effects: [] },
+  },
+  validation: { issues: [], isValid: true },
+  dryRun: { passed: true, issues: [] },
+  plan: [],
+  prompt,
+  provider: "groq+heuristic",
+});
+
 describe("invokeRuleGeneratorChat", () => {
   beforeEach(() => {
     pipelineMock.mockReset();
     pipelineMock.mockReturnValue(buildPipelineResult());
+    supabaseInvokeMock.mockReset();
+    supabaseInvokeMock.mockResolvedValue({
+      data: { ok: true, result: buildRemoteReadyResult("remote") },
+      error: null,
+    });
+    resolveFunctionUrlMock.mockReset();
+    resolveFunctionUrlMock.mockReturnValue(null);
+    supabaseAuthMock.mockReset();
+    supabaseAuthMock.mockResolvedValue({ data: { session: null } });
   });
 
   it("throws when the conversation array is missing", async () => {
@@ -62,11 +102,15 @@ describe("invokeRuleGeneratorChat", () => {
       conversation: [{ role: "user", content: "Utilise des chevaliers" }],
     });
 
-    expect(pipelineMock).toHaveBeenCalledTimes(1);
-    expect(pipelineMock).toHaveBeenCalledWith(
-      "Construis une règle pour les cavaliers",
-      { forceFallback: true },
-    );
+    expect(supabaseInvokeMock).toHaveBeenCalledTimes(1);
+    const call = supabaseInvokeMock.mock.calls[0];
+    expect(call?.[0]).toBe("generate-chess-rule");
+    expect(call?.[1]).toMatchObject({
+      body: expect.objectContaining({
+        prompt: "Construis une règle pour les cavaliers",
+      }),
+    });
+    expect(pipelineMock).not.toHaveBeenCalled();
   });
 
   it("falls back to the last user message when no prompt is provided", async () => {
@@ -79,14 +123,26 @@ describe("invokeRuleGeneratorChat", () => {
       ],
     });
 
-    expect(pipelineMock).toHaveBeenCalledTimes(1);
-    expect(pipelineMock).toHaveBeenCalledWith("Transforme les pions en mines", {
-      forceFallback: true,
+    expect(supabaseInvokeMock).toHaveBeenCalledTimes(1);
+    const call = supabaseInvokeMock.mock.calls[0];
+    expect(call?.[1]).toMatchObject({
+      body: expect.objectContaining({
+        prompt: "Transforme les pions en mines",
+      }),
     });
+    expect(pipelineMock).not.toHaveBeenCalled();
   });
 
-  it("returns a ready result built from the heuristic pipeline", async () => {
+  it("returns the remote result when the edge function succeeds", async () => {
     const { invokeRuleGeneratorChat } = await import("./functions");
+
+    supabaseInvokeMock.mockResolvedValueOnce({
+      data: {
+        ok: true,
+        result: buildRemoteReadyResult("Ajoute un blink pour les fous"),
+      },
+      error: null,
+    });
 
     const result = await invokeRuleGeneratorChat({
       conversation: [
@@ -96,15 +152,35 @@ describe("invokeRuleGeneratorChat", () => {
 
     expect(result.status).toBe("ready");
     if (result.status === "ready") {
-      expect(result.provider).toBe("local-pipeline");
-      expect(result.rule).toHaveProperty("meta.ruleId", "fallback");
+      expect(result.provider).toBe("groq+heuristic");
+      expect(result.rule).toHaveProperty("meta.ruleId", "remote");
       expect(result.prompt).toBe("Ajoute un blink pour les fous");
-      expect(result.rawModelResponse?.source).toBe("local-pipeline");
-      expect(result.rawModelResponse?.cause).toBe("heuristic-only");
+    }
+  });
+
+  it("falls back to the heuristic pipeline when the edge function fails", async () => {
+    supabaseInvokeMock.mockRejectedValueOnce(new Error("network"));
+
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    const result = await invokeRuleGeneratorChat({
+      conversation: [
+        { role: "user", content: "Ajoute un blink pour les fous" },
+      ],
+    });
+
+    expect(pipelineMock).toHaveBeenCalledWith("Ajoute un blink pour les fous", {
+      forceFallback: true,
+    });
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.provider).toMatch(/local-pipeline/);
+      expect(result.rule).toHaveProperty("meta.ruleId", "fallback");
     }
   });
 
   it("propagates pipeline failures with a descriptive error", async () => {
+    supabaseInvokeMock.mockRejectedValueOnce(new Error("network"));
     pipelineMock.mockImplementation(() => {
       throw new Error("Pipeline crash");
     });
@@ -115,6 +191,6 @@ describe("invokeRuleGeneratorChat", () => {
       invokeRuleGeneratorChat({
         conversation: [{ role: "user", content: "Décris une règle" }],
       }),
-    ).rejects.toThrow(/pipeline heuristique a échoué/);
+    ).rejects.toThrow(/l'appel distant a échoué/);
   });
 });
