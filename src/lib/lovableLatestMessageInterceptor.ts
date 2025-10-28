@@ -68,13 +68,32 @@ export const installLovableLatestMessageInterceptor = () => {
       const response = await originalFetch(proxied, init);
       if (!response.ok) {
         warn(
-          `[lovable] Latest message proxy returned ${response.status}. Falling back to placeholder.`,
+          `[lovable] Latest message proxy returned ${response.status}. Falling back to direct request.`,
         );
         return null;
       }
       return response;
     } catch (error) {
       warn("[lovable] Latest message proxy failed.", error);
+      return null;
+    }
+  };
+
+  const tryDirectFetch = async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response | null> => {
+    try {
+      const response = await originalFetch(input, init);
+      if (!response.ok) {
+        warn(
+          `[lovable] Latest message endpoint responded with ${response.status}. Falling back to placeholder.`,
+        );
+        return null;
+      }
+      return response;
+    } catch (error) {
+      warn("[lovable] Latest message request failed.", error);
       return null;
     }
   };
@@ -89,6 +108,11 @@ export const installLovableLatestMessageInterceptor = () => {
     const proxiedResponse = await tryProxyFetch(url, init);
     if (proxiedResponse) {
       return proxiedResponse;
+    }
+
+    const directResponse = await tryDirectFetch(input, init);
+    if (directResponse) {
+      return directResponse;
     }
 
     warn(
