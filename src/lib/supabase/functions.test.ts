@@ -1,30 +1,7 @@
-import { describe, expect, it, beforeEach, vi } from "vitest";
-import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuleGeneratorChatMessage } from "./functions";
 
-const invokeMock = vi.fn();
-const getSessionMock = vi.fn().mockResolvedValue({ data: { session: null } });
-const resolveSupabaseFunctionUrlMock =
-  vi.fn<(path: string) => string | null | undefined>();
 const pipelineMock = vi.fn();
-
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    functions: {
-      invoke: invokeMock,
-    },
-    auth: {
-      getSession: getSessionMock,
-    },
-  },
-  resolveSupabaseFunctionUrl: resolveSupabaseFunctionUrlMock,
-  supabaseAnonKey: "anon-test-key",
-  supabaseDiagnostics: {
-    functionsUrl: null,
-    resolvedProjectId: null,
-  },
-  supabaseFunctionsUrl: null,
-}));
 
 vi.mock("@/features/rules-pipeline", () => ({
   generateRulePipeline: pipelineMock,
@@ -48,220 +25,96 @@ const buildPipelineResult = () => ({
   fallbackProvider: undefined,
 });
 
-const buildNeedInfoResponse = () => ({
-  ok: true as const,
-  result: {
-    status: "need_info" as const,
-    questions: [],
-    prompt: "server-prompt",
-    promptHash: "hash",
-    correlationId: "correlation",
-    rawModelResponse: {},
-    provider: "test",
-  },
-});
-
-const buildReadyResponse = () => ({
-  ok: true as const,
-  result: {
-    status: "ready" as const,
-    rule: { id: "rule-id" },
-    prompt: "server-prompt",
-    promptHash: "hash",
-    correlationId: "correlation",
-    rawModelResponse: { text: "raw" },
-    provider: "test",
-  },
-});
-
 describe("invokeRuleGeneratorChat", () => {
   beforeEach(() => {
-    invokeMock.mockReset();
-    resolveSupabaseFunctionUrlMock.mockReset();
-    getSessionMock.mockResolvedValue({ data: { session: null } });
     pipelineMock.mockReset();
     pipelineMock.mockReturnValue(buildPipelineResult());
   });
 
-  it("omits the prompt when it is shorter than the minimum length", async () => {
-    invokeMock.mockResolvedValue({
-      data: buildNeedInfoResponse(),
-      error: null,
-    });
-
+  it("throws when the conversation array is missing", async () => {
     const { invokeRuleGeneratorChat } = await import("./functions");
 
-    const result = await invokeRuleGeneratorChat({
-      prompt: "short",
-      conversation: [
-        {
-          role: "user",
-          content: "Hello there",
-        },
-      ],
-    });
-
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    const invokeArgs = invokeMock.mock.calls[0]?.[1];
-    const body = (invokeArgs as { body?: Record<string, unknown> } | undefined)
-      ?.body;
-
-    expect(body).toBeTruthy();
-    expect(body).not.toHaveProperty("prompt");
-    expect(result.status).toBe("need_info");
+    await expect(
+      // @ts-expect-error - intentionally missing conversation
+      invokeRuleGeneratorChat({ prompt: "Hello" }),
+    ).rejects.toThrow("conversation manquante");
   });
 
-  it("includes the prompt when it meets the minimum length", async () => {
-    invokeMock.mockResolvedValue({
-      data: buildNeedInfoResponse(),
-      error: null,
-    });
-
+  it("throws when the sanitized conversation is empty", async () => {
     const { invokeRuleGeneratorChat } = await import("./functions");
 
-    const validPrompt = "x".repeat(RULE_GENERATOR_MIN_PROMPT_LENGTH);
+    await expect(
+      invokeRuleGeneratorChat({
+        prompt: "Hello",
+        conversation: [
+          { role: "assistant", content: " " },
+          // Empty content should be filtered out entirely
+        ] as RuleGeneratorChatMessage[],
+      }),
+    ).rejects.toThrow("conversation vide");
+  });
+
+  it("prefers the explicit prompt when extracting instructions", async () => {
+    const { invokeRuleGeneratorChat } = await import("./functions");
 
     await invokeRuleGeneratorChat({
-      prompt: validPrompt,
-      conversation: [
-        {
-          role: "user",
-          content: "Hello there",
-        },
-      ],
-    });
-
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    const invokeArgs = invokeMock.mock.calls[0]?.[1];
-    const body = (invokeArgs as { body?: Record<string, unknown> } | undefined)
-      ?.body;
-
-    expect(body).toBeTruthy();
-    expect(body).toHaveProperty("prompt", validPrompt);
-  });
-
-  it("propagates ready responses with the new result shape", async () => {
-    invokeMock.mockResolvedValue({
-      data: buildReadyResponse(),
-      error: null,
-    });
-
-    const { invokeRuleGeneratorChat } = await import("./functions");
-
-    const result = await invokeRuleGeneratorChat({
-      prompt: "x".repeat(RULE_GENERATOR_MIN_PROMPT_LENGTH),
-      conversation: [
-        {
-          role: "user",
-          content: "Hello there",
-        },
-      ],
-    });
-
-    expect(result.status).toBe("ready");
-    if (result.status === "ready") {
-      expect(result.rule).toEqual({ id: "rule-id" });
-    }
-  });
-
-  it("sends the full conversation transcript to the backend", async () => {
-    invokeMock.mockResolvedValue({
-      data: buildNeedInfoResponse(),
-      error: null,
-    });
-
-    const { invokeRuleGeneratorChat } = await import("./functions");
-
-    const conversation: RuleGeneratorChatMessage[] = [
-      { role: "user" as const, content: "Bonjour" },
-      { role: "assistant" as const, content: "Salut" },
-      { role: "user" as const, content: "Propose une variante" },
-    ];
-
-    await invokeRuleGeneratorChat({
-      prompt: "x".repeat(RULE_GENERATOR_MIN_PROMPT_LENGTH),
-      conversation,
-    });
-
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    const invokeArgs = invokeMock.mock.calls[0]?.[1];
-    const body = (invokeArgs as { body?: Record<string, unknown> } | undefined)
-      ?.body as { conversation?: unknown } | undefined;
-
-    expect(body?.conversation).toEqual(conversation);
-  });
-
-  it("falls back to direct fetch responses using the wrapped payload", async () => {
-    invokeMock.mockResolvedValueOnce({
-      data: null,
-      error: new Error("CORS error: missing x-client-info header"),
-    });
-
-    resolveSupabaseFunctionUrlMock.mockReturnValueOnce(
-      "https://edge.example.com/generate-chess-rule",
-    );
-
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-
-    try {
-      fetchSpy.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            result: {
-              status: "ready",
-              rule: { id: "rule-id" },
-              prompt: "server-prompt",
-              promptHash: "hash-value",
-              provider: "edge-test",
-              rawModelResponse: { model: "mock", text: "{}" },
-              correlationId: "edge-correlation",
-            },
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        ),
-      );
-
-      const { invokeRuleGeneratorChat } = await import("./functions");
-
-      const result = await invokeRuleGeneratorChat({
-        prompt: "x".repeat(RULE_GENERATOR_MIN_PROMPT_LENGTH),
-        conversation: [{ role: "user", content: "Bonjour" }],
-      });
-
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      expect(result.status).toBe("ready");
-      if (result.status === "ready") {
-        expect(result.rule).toEqual({ id: "rule-id" });
-        expect(result.provider).toBe("edge-test");
-        expect(result.prompt).toBe("server-prompt");
-      }
-    } finally {
-      fetchSpy.mockRestore();
-    }
-  });
-
-  it("utilises the local pipeline fallback when Supabase fails", async () => {
-    invokeMock.mockResolvedValueOnce({
-      data: null,
-      error: new Error("500 Internal Server Error"),
-    });
-
-    const { invokeRuleGeneratorChat } = await import("./functions");
-
-    const result = await invokeRuleGeneratorChat({
-      prompt: "Variante agressive pour la reine",
-      conversation: [{ role: "user", content: "Je veux une règle agressive" }],
+      prompt: "Construis une règle pour les cavaliers",
+      conversation: [{ role: "user", content: "Utilise des chevaliers" }],
     });
 
     expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(pipelineMock).toHaveBeenCalledWith(
+      "Construis une règle pour les cavaliers",
+      { forceFallback: true },
+    );
+  });
+
+  it("falls back to the last user message when no prompt is provided", async () => {
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    await invokeRuleGeneratorChat({
+      conversation: [
+        { role: "assistant", content: "Je suis prêt" },
+        { role: "user", content: "Transforme les pions en mines" },
+      ],
+    });
+
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(pipelineMock).toHaveBeenCalledWith("Transforme les pions en mines", {
+      forceFallback: true,
+    });
+  });
+
+  it("returns a ready result built from the heuristic pipeline", async () => {
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    const result = await invokeRuleGeneratorChat({
+      conversation: [
+        { role: "user", content: "Ajoute un blink pour les fous" },
+      ],
+    });
+
     expect(result.status).toBe("ready");
     if (result.status === "ready") {
-      expect(result.provider).toContain("local-pipeline");
+      expect(result.provider).toBe("local-pipeline");
       expect(result.rule).toHaveProperty("meta.ruleId", "fallback");
+      expect(result.prompt).toBe("Ajoute un blink pour les fous");
+      expect(result.rawModelResponse?.source).toBe("local-pipeline");
+      expect(result.rawModelResponse?.cause).toBe("heuristic-only");
     }
+  });
+
+  it("propagates pipeline failures with a descriptive error", async () => {
+    pipelineMock.mockImplementation(() => {
+      throw new Error("Pipeline crash");
+    });
+
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    await expect(
+      invokeRuleGeneratorChat({
+        conversation: [{ role: "user", content: "Décris une règle" }],
+      }),
+    ).rejects.toThrow(/pipeline heuristique a échoué/);
   });
 });

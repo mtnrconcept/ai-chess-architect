@@ -7,7 +7,6 @@ import {
   supabaseFunctionsUrl,
 } from "@/integrations/supabase/client";
 import { generateRulePipeline } from "@/features/rules-pipeline";
-import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
 
 export type GeneratedRule = Record<string, unknown>;
 
@@ -372,6 +371,53 @@ const collectUserInstructions = (
   return combined.length > 0 ? combined : undefined;
 };
 
+const buildPipelineReadyResult = (
+  instruction: string,
+  cause: unknown,
+  options: { logWarning?: boolean } = {},
+): RuleGeneratorReady => {
+  const pipeline = generateRulePipeline(instruction, { forceFallback: true });
+  const validation = cloneAsRecord(pipeline.validation) ?? {
+    issues: pipeline.validation.issues,
+    isValid: pipeline.validation.isValid,
+  };
+  const dryRun = cloneAsRecord(pipeline.dryRun) ?? {
+    passed: pipeline.dryRun.passed,
+    issues: pipeline.dryRun.issues,
+  };
+
+  const rawModelResponse = {
+    source: "local-pipeline",
+    cause: toErrorMessage(cause),
+    programWarnings: pipeline.programWarnings,
+    factoryWarnings: pipeline.factoryWarnings,
+    compilationWarnings: pipeline.compilationWarnings,
+    fallbackProvider: pipeline.fallbackProvider ?? null,
+    plan: pipeline.plan,
+  } satisfies Record<string, unknown>;
+
+  if (options.logWarning) {
+    console.warn(
+      "[ruleGenerator] Supabase indisponible, utilisation du pipeline local.",
+      rawModelResponse.cause,
+    );
+  }
+
+  return {
+    status: "ready",
+    rule: (cloneAsRecord(pipeline.rule) ?? pipeline.rule) as GeneratedRule,
+    validation,
+    dryRun,
+    prompt: instruction,
+    promptHash: undefined,
+    correlationId: undefined,
+    rawModelResponse,
+    provider: pipeline.fallbackProvider
+      ? "local-pipeline:fallback"
+      : "local-pipeline",
+  } satisfies RuleGeneratorReady;
+};
+
 const buildLocalPipelineFallback = (
   prompt: string | undefined,
   conversation: RuleGeneratorChatMessage[],
@@ -383,44 +429,7 @@ const buildLocalPipelineFallback = (
   }
 
   try {
-    const pipeline = generateRulePipeline(instruction, { forceFallback: true });
-    const validation = cloneAsRecord(pipeline.validation) ?? {
-      issues: pipeline.validation.issues,
-      isValid: pipeline.validation.isValid,
-    };
-    const dryRun = cloneAsRecord(pipeline.dryRun) ?? {
-      passed: pipeline.dryRun.passed,
-      issues: pipeline.dryRun.issues,
-    };
-
-    const rawModelResponse = {
-      source: "local-pipeline",
-      cause: toErrorMessage(cause),
-      programWarnings: pipeline.programWarnings,
-      factoryWarnings: pipeline.factoryWarnings,
-      compilationWarnings: pipeline.compilationWarnings,
-      fallbackProvider: pipeline.fallbackProvider ?? null,
-      plan: pipeline.plan,
-    } satisfies Record<string, unknown>;
-
-    console.warn(
-      "[ruleGenerator] Supabase indisponible, utilisation du pipeline local.",
-      rawModelResponse.cause,
-    );
-
-    return {
-      status: "ready",
-      rule: (cloneAsRecord(pipeline.rule) ?? pipeline.rule) as GeneratedRule,
-      validation,
-      dryRun,
-      prompt: instruction,
-      promptHash: undefined,
-      correlationId: undefined,
-      rawModelResponse,
-      provider: pipeline.fallbackProvider
-        ? "local-pipeline:fallback"
-        : "local-pipeline",
-    } satisfies RuleGeneratorReady;
+    return buildPipelineReadyResult(instruction, cause, { logWarning: true });
   } catch (pipelineError) {
     console.error("[ruleGenerator] Le pipeline local a échoué", pipelineError);
     return null;
@@ -642,83 +651,20 @@ export async function invokeRuleGeneratorChat(
 
   const prompt =
     typeof body.prompt === "string" ? body.prompt.trim() : undefined;
-  const isPromptLongEnough =
-    typeof prompt === "string" &&
-    prompt.length >= RULE_GENERATOR_MIN_PROMPT_LENGTH;
+  const instruction = collectUserInstructions(prompt, sanitizedConversation);
+  if (!instruction) {
+    throw new Error("ruleGeneratorChat: aucune instruction utilisateur");
+  }
 
-  const payload = JSON.parse(
-    JSON.stringify({
-      prompt: isPromptLongEnough ? prompt : undefined,
-      conversation: sanitizedConversation,
-      board: body.board ?? undefined,
-      options: {
-        locale: "fr-CH",
-        dryRun: false,
-        ...(body.options ?? {}),
-      },
-    }),
-  );
-
-  let response: SupabaseRuleGeneratorResponse;
   try {
-    response = await invokeSupabaseRuleGenerator(payload, 0, 2, 600);
+    return buildPipelineReadyResult(instruction, "heuristic-only");
   } catch (error) {
-    const fallback = buildLocalPipelineFallback(
-      prompt,
-      sanitizedConversation,
-      error,
+    throw new Error(
+      `ruleGeneratorChat: le pipeline heuristique a échoué (${toErrorMessage(
+        error,
+      )})`,
     );
-    if (fallback) {
-      return fallback;
-    }
-    throw error;
   }
-
-  let result: SupabaseNeedInfoResult | SupabaseReadyResult;
-  try {
-    result = ensureResultRecord(response);
-  } catch (error) {
-    const fallback = buildLocalPipelineFallback(
-      prompt,
-      sanitizedConversation,
-      error,
-    );
-    if (fallback) {
-      return fallback;
-    }
-    throw error;
-  }
-
-  if (result.status === "need_info") {
-    const questions = normalizeNeedInfoQuestions(result.questions);
-
-    return {
-      status: "need_info",
-      questions,
-      prompt: result.prompt,
-      promptHash: result.promptHash,
-      correlationId: result.correlationId,
-      rawModelResponse: result.rawModelResponse,
-      provider: result.provider,
-    };
-  }
-
-  const rule = result.rule;
-  if (!rule || typeof rule !== "object") {
-    throw new Error("ruleGeneratorChat: règle manquante dans la réponse");
-  }
-
-  return {
-    status: "ready",
-    rule,
-    validation: result.validation,
-    dryRun: result.dryRun ?? null,
-    prompt: result.prompt,
-    promptHash: result.promptHash,
-    correlationId: result.correlationId,
-    rawModelResponse: result.rawModelResponse,
-    provider: result.provider,
-  };
 }
 
 function normalizeNeedInfoQuestions(
