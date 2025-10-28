@@ -8,7 +8,7 @@ export class GroqDriver extends HttpLLMDriver {
       apiKeyEnv: "GROQ_API_KEY",
       modelEnv: "GROQ_MODEL",
       baseUrl: "https://api.groq.com/openai/v1/chat/completions",
-      defaultModel: "llama-3.1-70b-versatile",
+      defaultModel: "llama-3.3-70b-versatile",
     });
   }
 
@@ -28,10 +28,16 @@ export class GroqDriver extends HttpLLMDriver {
     });
 
     if (!response.ok) {
-      throw new Error(`Groq API error: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Groq API error: ${response.status} ${response.statusText}`,
+      );
     }
 
-    const payload: any = await response.json();
+    const payload = (await response.json()) as {
+      model?: string;
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: Record<string, unknown>;
+    };
     const choice = payload?.choices?.[0]?.message?.content ?? "";
     const usage = this.parseUsage(payload?.usage ?? {});
 
