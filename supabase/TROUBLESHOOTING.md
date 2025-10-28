@@ -8,8 +8,8 @@ testing the UI again:
 1. **Environment variables in Lovable** – Provide the exact project URL and anon key in both the preview and production
    environments.
    ```bash
-   VITE_SUPABASE_URL="https://ucaqbhmyutlnitnedowk.supabase.co"
-   VITE_SUPABASE_PROJECT_NAME="Youaregood"
+   VITE_SUPABASE_URL="https://pfcaolibtgvynnwaxvol.supabase.co"
+   VITE_SUPABASE_PROJECT_NAME="AI Chess Architect"
    VITE_SUPABASE_ANON_KEY="<your anon key>"
    ```
    The anon key is safe to expose to the browser; grab it from **Project Settings → API** in Supabase (or regenerate it from the
@@ -34,7 +34,7 @@ testing the UI again:
 
 * REST health check:
   ```bash
-  curl "https://ucaqbhmyutlnitnedowk.supabase.co/rest/v1/tournaments?select=*" \
+  curl "https://pfcaolibtgvynnwaxvol.supabase.co/rest/v1/tournaments?select=*" \
     -H "apikey: $VITE_SUPABASE_ANON_KEY" \
     -H "Authorization: Bearer $VITE_SUPABASE_ANON_KEY"
   ```
@@ -48,7 +48,7 @@ testing the UI again:
   onnecte via `SUPABASE_DB_URL` et envoie la commande `NOTIFY` automatiquement.
 * Edge function preflight:
   ```bash
-  curl -i -X OPTIONS "https://ucaqbhmyutlnitnedowk.functions.supabase.co/sync-tournaments"
+  curl -i -X OPTIONS "https://pfcaolibtgvynnwaxvol.functions.supabase.co/sync-tournaments"
   ```
 
 Share this checklist with any automation agent (“Codex”) so it knows which secrets, SQL migrations, and validations to execute
@@ -332,7 +332,7 @@ sur une fonction edge (`sync-tournaments`) qui écrit dans les tables `public.to
    `getSupabaseServiceRoleClient()` et renvoie `Supabase client not configured` si `SUPABASE_SERVICE_ROLE_KEY` (ou ses alias
    `SUPABASE_SERVICE_ROLE` / `SERVICE_ROLE_KEY`) n'est pas défini dans les secrets du projet. Ajoute la clé via
    `npx supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...` puis redéploie les fonctions.
-2. **Projet incorrect** – Les fonctions forcent par défaut l'identifiant `ucaqbhmyutlnitnedowk`. Si tu as cloné le projet dans un
+2. **Projet incorrect** – Les fonctions forcent par défaut l'identifiant `pfcaolibtgvynnwaxvol`. Si tu as cloné le projet dans un
    autre environnement, renseigne `SUPABASE_PROJECT_ID`/`SUPABASE_URL` avec l'identifiant exact ou adapte le code. Sans cela, la
    fonction écrira dans un projet vide et l'UI ne verra aucun tournoi.
 3. **Migrations non appliquées** – Sans les tables/vues de `supabase/migrations`, la fonction lève `feature_unavailable`. Exécute
