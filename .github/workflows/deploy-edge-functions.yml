@@ -1,0 +1,63 @@
+name: Deploy Supabase Edge Functions
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/deploy-edge-functions.yml'
+
+jobs:
+  deploy:
+    name: Deploy edge functions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Check required secrets
+        if: ${{ env.SUPABASE_ACCESS_TOKEN == '' || env.SUPABASE_PROJECT_ID == '' }}
+        run: |
+          echo "Missing SUPABASE_ACCESS_TOKEN and/or SUPABASE_PROJECT_ID secrets." >&2
+          echo "Configure these repository secrets before running the workflow." >&2
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy edge functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          FUNCTIONS_DIR="supabase/functions"
+          IMPORT_MAP="$FUNCTIONS_DIR/import_map.json"
+
+          if [ ! -f "$IMPORT_MAP" ]; then
+            echo "Import map not found at $IMPORT_MAP" >&2
+            exit 1
+          fi
+
+          mapfile -t functions < <(find "$FUNCTIONS_DIR" -mindepth 1 -maxdepth 1 -type d \
+            ! -name '_*' \
+            -printf '%f\n' | sort)
+
+          if [ ${#functions[@]} -eq 0 ]; then
+            echo "No edge function directories found under $FUNCTIONS_DIR" >&2
+            exit 1
+          fi
+
+          for fn in "${functions[@]}"; do
+            echo "Deploying $fn"
+            supabase functions deploy "$fn" \
+              --project-ref "$SUPABASE_PROJECT_ID" \
+              --import-map "$IMPORT_MAP"
+          done
