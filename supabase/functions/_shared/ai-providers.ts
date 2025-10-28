@@ -70,11 +70,26 @@ const OPENROUTER_DEFAULT_MODEL_RAW = (
 ).trim();
 const DEFAULT_OPENROUTER_MODEL =
   OPENROUTER_DEFAULT_MODEL_RAW || "openai/gpt-oss-20b";
-const OPENROUTER_BASE_URL = `${(
-  Deno.env.get("OPENROUTER_BASE_URL") ?? "http://127.0.0.1:1234"
-)
-  .trim()
-  .replace(/\/+$/, "")}/v1/chat/completions`;
+const normaliseCompletionsUrl = (raw: string | undefined, fallback: string) => {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const withoutTrailing = trimmed.replace(/\/+$/, "");
+  if (/\/chat\/completions$/i.test(withoutTrailing)) {
+    return withoutTrailing;
+  }
+  if (/\/v1$/i.test(withoutTrailing)) {
+    return `${withoutTrailing}/chat/completions`;
+  }
+  return `${withoutTrailing}/v1/chat/completions`;
+};
+
+const OPENROUTER_BASE_URL = normaliseCompletionsUrl(
+  Deno.env.get("OPENROUTER_BASE_URL"),
+  "http://127.0.0.1:1234/v1/chat/completions",
+);
 
 const resolveOverrideKey = (
   provider: AiProviderName,

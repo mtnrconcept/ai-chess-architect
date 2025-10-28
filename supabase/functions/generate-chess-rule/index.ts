@@ -226,11 +226,56 @@ const buildAiMessages = (
 // The rule generator must stick to the on-premise model even if Supabase hosts
 // API keys for third-party providers. These settings can be overridden via
 // secrets but default to the local inference server.
-const LOCAL_MODEL_ENDPOINT =
-  Deno.env.get("LOCAL_RULE_MODEL_URL") ??
-  "http://127.0.0.1:1234/v1/chat/completions";
+const normaliseChatCompletionUrl = (
+  raw: string | undefined,
+  fallback: string,
+) => {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const withoutTrailing = trimmed.replace(/\/+$/, "");
+  if (/\/chat\/completions$/i.test(withoutTrailing)) {
+    return withoutTrailing;
+  }
+  if (/\/v1$/i.test(withoutTrailing)) {
+    return `${withoutTrailing}/chat/completions`;
+  }
+  return `${withoutTrailing}/v1/chat/completions`;
+};
+
+const firstNonEmpty = (
+  ...values: (string | undefined | null)[]
+): string | null => {
+  for (const value of values) {
+    const trimmed = (value ?? "").trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
+};
+
+const LOCAL_MODEL_ENDPOINT = normaliseChatCompletionUrl(
+  firstNonEmpty(
+    Deno.env.get("LOCAL_RULE_MODEL_URL"),
+    Deno.env.get("OPENAI_BASE_URL"),
+  ),
+  "http://127.0.0.1:1234/v1/chat/completions",
+);
+
 const LOCAL_MODEL_NAME =
-  Deno.env.get("LOCAL_RULE_MODEL_NAME") ?? "openai/gpt-oss-20b";
+  firstNonEmpty(
+    Deno.env.get("LOCAL_RULE_MODEL_NAME"),
+    Deno.env.get("OPENAI_MODEL"),
+  ) ?? "openai/gpt-oss-20b";
+
+const LOCAL_MODEL_API_KEY =
+  firstNonEmpty(
+    Deno.env.get("LOCAL_RULE_MODEL_API_KEY"),
+    Deno.env.get("OPENAI_API_KEY"),
+  ) ?? "";
 
 const callRemoteCompiler = async (
   instruction: string,
@@ -246,9 +291,16 @@ const callRemoteCompiler = async (
   } satisfies Record<string, unknown>;
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (LOCAL_MODEL_API_KEY) {
+      headers.Authorization = `Bearer ${LOCAL_MODEL_API_KEY}`;
+    }
+
     const res = await fetch(LOCAL_MODEL_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(requestBody),
     });
 
