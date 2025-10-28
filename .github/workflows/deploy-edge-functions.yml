@@ -26,8 +26,6 @@ jobs:
       SUPABASE_CLI_VERSION: latest
       FUNCTIONS_DIR: supabase/functions
       IMPORT_MAP: supabase/functions/import_map.json
-      # Active un cache Deno pour accélérer les bundles
-      DENO_DIR: ${{ runner.temp }}/deno
 
     steps:
       - name: Check required secrets
@@ -51,8 +49,11 @@ jobs:
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
-      - name: Ensure DENO cache directory
-        run: mkdir -p "$DENO_DIR"
+      # ✅ Définit le cache Deno sans utiliser runner.* dans env
+      - name: Configure Deno cache directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/deno"
+          echo "DENO_DIR=$RUNNER_TEMP/deno" >> "$GITHUB_ENV"
 
       - name: Fix and validate import_map.json (if present)
         shell: bash
@@ -79,7 +80,6 @@ jobs:
             echo "No functions directory at $FUNCTIONS_DIR" >&2
             exit 1
           fi
-          # Trouve les sous-dossiers non préfixés par '_'
           mapfile -t functions < <(find "$FUNCTIONS_DIR" -mindepth 1 -maxdepth 1 -type d \
             ! -name '_*' -printf '%f\n' | sort)
 
