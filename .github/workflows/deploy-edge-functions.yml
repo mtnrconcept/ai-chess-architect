@@ -49,7 +49,7 @@ jobs:
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
-      # ✅ Configure le cache Deno via $RUNNER_TEMP
+      # Configure un cache Deno (utilisé en interne par le CLI) via $RUNNER_TEMP
       - name: Configure Deno cache directory
         run: |
           mkdir -p "$RUNNER_TEMP/deno"
@@ -61,7 +61,9 @@ jobs:
           set -euo pipefail
           if [ -f "$IMPORT_MAP" ]; then
             echo "Import map detected at $IMPORT_MAP"
+            # Corrige les URLs mal formées `https:/esm.sh` → `https://esm.sh`
             sed -i 's#https:/esm.sh#https://esm.sh#g' "$IMPORT_MAP"
+            # Valide la syntaxe JSON
             jq empty "$IMPORT_MAP"
             echo "Validated import_map.json:"
             cat "$IMPORT_MAP"
@@ -92,29 +94,11 @@ jobs:
           echo "Found functions:"
           cat "$RUNNER_TEMP/functions.pretty.json"
 
-          # ✅ JSON compact pour GITHUB_OUTPUT (une seule ligne)
+          # JSON compact pour GITHUB_OUTPUT (une seule ligne)
           jq -c . "$RUNNER_TEMP/functions.pretty.json" > "$RUNNER_TEMP/functions.compact.json"
           echo "functions=$(cat "$RUNNER_TEMP/functions.compact.json")" >> "$GITHUB_OUTPUT"
 
-      - name: Pre-bundle (fail-fast)
-        shell: bash
-        env:
-          FUNCTIONS_JSON: ${{ steps.discover.outputs.functions }}
-        run: |
-          set -euo pipefail
-          functions=$(echo "$FUNCTIONS_JSON" | jq -r '.[]')
-          for fn in $functions; do
-            echo "::group::Bundling $fn"
-            if [ -f "$IMPORT_MAP" ]; then
-              supabase functions bundle "$fn" \
-                --import-map "$IMPORT_MAP" \
-                --debug
-            else
-              supabase functions bundle "$fn" \
-                --debug
-            fi
-            echo "::endgroup::"
-          done
+      # 🔥 Suppression de l'étape "Pre-bundle" — le CLI bundle au moment du deploy
 
       - name: Deploy (with retries)
         shell: bash
@@ -147,7 +131,7 @@ jobs:
                 break
               fi
               n=$((n+1))
-              sleep $((5 * n))
+              sleep $((5 * n))  # backoff progressif
               echo "Retry $n/3 for $fn ..."
             done
             if [ $n -ge 3 ]; then
