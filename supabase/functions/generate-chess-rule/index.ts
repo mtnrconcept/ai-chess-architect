@@ -1,277 +1,185 @@
-// deno-lint-ignore-file no-explicit-any
-// Edge Runtime (Supabase) — Generate Chess Rule via GROQ only
+// --- generate-chess-rule/index.ts ---
+// Version GROQ-only — sans Lovable / OpenAI / Gemini
+// Compatible Supabase Edge Runtime (Deno v2+)
 
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+const DEFAULT_TIMEOUT = Number(Deno.env.get("AI_REQUEST_TIMEOUT") || "10000");
 
-// ---------- Config ----------
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
-const MODEL_FALLBACKS = [
-  // ordre de préférence (tous Groq, tous chat-completions)
-  "llama-3.1-70b-versatile",
-  "llama-3.1-8b-instant",
-];
+// Utilitaire simple pour timeout
+function timeoutPromise(ms: number, msg = "timeout") {
+  return new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms));
+}
 
-const DEFAULT_TIMEOUT_MS = Number(
-  Deno.env.get("AI_REQUEST_TIMEOUT") ?? "12000",
-);
+// Fonction helper pour tronquer les messages d’erreur
+function snippet(s: string, n = 2000) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n) + "..." : s;
+}
 
-// ---------- CORS ----------
-const ALLOW_ORIGIN = Deno.env
-  .get("CORS_ORIGIN")
-  ?.split(",")
-  .map((s) => s.trim())
-  .filter(Boolean) ?? ["*"];
-
-function corsHeaders(origin: string | null): HeadersInit {
-  const match =
-    origin && (ALLOW_ORIGIN.includes("*") || ALLOW_ORIGIN.includes(origin))
-      ? origin
-      : "*";
-  return {
-    "Access-Control-Allow-Origin": match,
+// Serveur principal
+Deno.serve(async (req) => {
+  // --- CORS ---
+  const CORS_ALLOW_HEADERS = "Content-Type, Authorization, apikey, x-client-info";
+  const defaultCors = {
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, apikey, Prefer, X-Client-Info",
+    "Access-Control-Allow-Headers": CORS_ALLOW_HEADERS,
   };
-}
 
-// ---------- Utils ----------
-const ok = <T>(data: T, origin: string | null, status = 200) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...corsHeaders(origin),
-    },
-  });
-
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
-type JsonObject = { [key: string]: JsonValue };
-
-const err = (
-  message: string,
-  origin: string | null,
-  status = 400,
-  extra?: JsonObject,
-) => ok({ ok: false, error: { message, ...(extra ?? {}) } }, origin, status);
-
-function withTimeout<T>(p: Promise<T>, ms: number) {
-  return Promise.race<T>([
-    p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
-  ]);
-}
-
-// Normalisation/validation très tolérante
-async function readIdea(req: Request): Promise<{ idea: string } | null> {
-  const ct = req.headers.get("content-type") ?? "";
-  try {
-    if (ct.includes("application/json")) {
-      const body = await req.json();
-      // accepte plusieurs clés ou string pur dans "body"
-      const idea =
-        (typeof body === "string" && body) ||
-        body?.idea ||
-        body?.prompt ||
-        body?.message ||
-        body?.text ||
-        null;
-
-      if (!idea || typeof idea !== "string" || !idea.trim()) return null;
-      return { idea: idea.trim() };
-    }
-
-    // si body text brut
-    const txt = (await req.text()).trim();
-    if (txt) return { idea: txt };
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// ---------- GROQ ----------
-type GroqMsg = { role: "system" | "user" | "assistant"; content: string };
-
-async function callGroq(messages: GroqMsg[], model: string) {
-  const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.3,
-      messages,
-    }),
-  });
-
-  if (!resp.ok) {
-    const snippet = await resp.text().catch(() => "");
-    throw new Error(`GROQ ${resp.status}: ${snippet}`);
-  }
-
-  const json = await resp.json();
-  const content: string = json?.choices?.[0]?.message?.content ?? "";
-
-  if (!content) {
-    throw new Error("GROQ: empty content");
-  }
-
-  return content;
-}
-
-async function groqWithFallback(messages: GroqMsg[]) {
-  if (!GROQ_API_KEY) throw new Error("Missing GROQ_API_KEY");
-
-  let lastErr: unknown;
-  for (const model of MODEL_FALLBACKS) {
-    try {
-      return { model, content: await callGroq(messages, model) };
-    } catch (e) {
-      lastErr = e;
-      // si modèle décommissionné -> on essaie le suivant
-      continue;
-    }
-  }
-  throw lastErr ?? new Error("All Groq models failed");
-}
-
-// ---------- Prompting ----------
-const SYSTEM = `Tu es "Voltus Rule Architect". Tu dois transformer une idée de variante d'échecs en **dialogue incrémental**.
-
-RÈGLES IMPORTANTES :
-1) Pour CHAQUE nouvelle idée, tu DOIS d'abord poser une question avec EXACTEMENT 3 choix pour clarifier l'idée.
-2) Les choix doivent être courts (max 5 mots), clairs et exclusifs.
-3) Ne propose JAMAIS une règle finale dès le premier prompt - pose TOUJOURS une question d'abord.
-
-Format pour poser une question (À UTILISER EN PREMIER) :
-{
-  "type": "followup",
-  "question": "Question claire et précise ?",
-  "choices": ["Choix A", "Choix B", "Choix C"]
-}
-
-Format pour la règle finale (SEULEMENT après au moins une question) :
-{
-  "type": "final",
-  "title": "Nom de la variante",
-  "summary": "Description courte",
-  "rules": ["Règle 1", "Règle 2"],
-  "constraints": ["Contrainte optionnelle"]
-}
-
-IMPORTANT : Ne renvoie QUE du JSON valide, sans texte avant ou après.`;
-
-function buildMessages(idea: string): GroqMsg[] {
-  return [
-    { role: "system", content: SYSTEM },
-    {
-      role: "user",
-      content: `Idée de règle (fr) : ${idea}`,
-    },
-  ];
-}
-
-// ---------- HTTP ----------
-serve(async (req) => {
-  const origin = req.headers.get("origin");
-
-  // Preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders(origin) });
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...defaultCors,
+        "Access-Control-Max-Age": "3600",
+      },
+    });
   }
 
-  if (req.method !== "POST") {
-    return err("Method not allowed", origin, 405, { allow: "POST" });
-  }
-
-  const parsed = await readIdea(req);
-  if (!parsed) {
-    return err(
-      "Bad Request: body JSON attendu avec { idea | prompt | message | text } (string) ou string brut.",
-      origin,
-      400,
-      { example: { idea: "les reines peuvent tirer" } },
+  // --- Auth facultative ---
+  const auth = req.headers.get("authorization");
+  if (!auth) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "missing_authorization",
+      }),
+      {
+        status: 401,
+        headers: { ...defaultCors, "Content-Type": "application/json" },
+      },
     );
   }
 
   try {
-    const { model, content } = await withTimeout(
-      groqWithFallback(buildMessages(parsed.idea)),
-      DEFAULT_TIMEOUT_MS,
-    );
+    const body = await req.json().catch(() => ({}));
+    const userPrompt = body.prompt || body.message || "";
 
-    // On sécurise: le modèle DOIT renvoyer un JSON.
-    let payload: JsonObject = {
-      type: "followup",
-      question: "Quel aspect veux-tu définir en priorité pour cette règle ?",
-      choices: ["Déclenchement", "Limites", "Effets secondaires"],
+    // Construction du prompt
+    const enrichedPrompt = `
+Tu es un expert en création de variantes d’échecs.
+Génère une règle complète et jouable à partir de cette idée : "${userPrompt}"
+
+Réponds UNIQUEMENT en JSON suivant ce schéma :
+{
+  "id": "UUID",
+  "created_at": "ISO date",
+  "prompt": "texte original",
+  "rules": [
+    {
+      "id": "string",
+      "title": "string",
+      "description": "string",
+      "metadata": {
+        "category": "string",
+        "pieces_affected": ["array"],
+        "difficulty": "string",
+        "impact": "string"
+      }
+    }
+  ]
+}
+    `.trim();
+
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+    if (!GROQ_API_KEY) {
+      throw new Error("GROQ_API_KEY manquant dans les variables d’environnement");
+    }
+
+    // --- Appel Groq ---
+    const url = "https://api.groq.com/openai/v1/chat/completions";
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
     };
 
+    const reqBody = {
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: "Réponds uniquement en JSON." },
+        { role: "user", content: enrichedPrompt },
+      ],
+      max_tokens: 1200,
+      temperature: 0.7,
+    };
+
+    console.info("Calling GROQ...");
+    const fetchPromise = fetch(url, { method: "POST", headers, body: JSON.stringify(reqBody) });
+    const res = await Promise.race([fetchPromise, timeoutPromise(DEFAULT_TIMEOUT, "groq_timeout")]);
+
+    const text = await res.text();
+    if (!res.ok) {
+      console.error("GROQ http error", { status: res.status, bodySnippet: snippet(text) });
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          provider: "GROQ",
+          error: snippet(text),
+        }),
+        {
+          status: res.status,
+          headers: { ...defaultCors, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // Extraction du JSON retourné
+    let parsed;
     try {
-      const candidate = JSON.parse(content) as JsonValue;
-      if (
-        candidate &&
-        typeof candidate === "object" &&
-        !Array.isArray(candidate)
-      ) {
-        payload = candidate as JsonObject;
-      } else {
-        throw new Error("non-object response");
-      }
-    } catch {
-      // Si le modèle a parlé hors-JSON, on encapsule pour éviter le 400 côté front.
-      payload = {
-        type: "followup",
-        question:
-          "Précise le cadre de la règle : portée, fréquence ou contraintes ?",
-        choices: ["Portée", "Fréquence", "Contraintes"],
-        note: "Le LLM n'a pas renvoyé un JSON strict ; fallback appliqué.",
-      };
+      const json = JSON.parse(text);
+      parsed = JSON.parse(json.choices?.[0]?.message?.content ?? "{}");
+    } catch (e) {
+      console.error("JSON parsing failed", e);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "invalid_json_response",
+          raw: snippet(text),
+        }),
+        {
+          status: 500,
+          headers: { ...defaultCors, "Content-Type": "application/json" },
+        },
+      );
     }
 
-    // Normalisation sortie minimale (front robuste)
-    // type: "followup" | "final"
-    if (payload?.type !== "followup" && payload?.type !== "final") {
-      payload = {
-        type: "followup",
-        question: "Quel aspect veux-tu définir en priorité pour cette règle ?",
-        choices: ["Déclenchement", "Limites", "Effets secondaires"],
-      };
+    // Validation minimale
+    if (!parsed?.rules?.length) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "empty_rules",
+          raw: parsed,
+        }),
+        {
+          status: 400,
+          headers: { ...defaultCors, "Content-Type": "application/json" },
+        },
+      );
     }
 
-    return ok(
-      {
+    return new Response(
+      JSON.stringify({
         ok: true,
-        model,
-        data: payload,
+        provider: "GROQ",
+        data: parsed,
+      }),
+      {
+        status: 200,
+        headers: { ...defaultCors, "Content-Type": "application/json" },
       },
-      origin,
-      200,
     );
-  } catch (e) {
-    const msg = String((e as Error)?.message || e);
-    const isTimeout = /timeout/i.test(msg);
-
-    // 400 si input / 502 si LLM
-    const status = isTimeout ? 504 : /GROQ\s+400/i.test(msg) ? 400 : 502;
-
-    return err(
-      isTimeout
-        ? "LLM timeout"
-        : "Provider failure (GROQ). Consulte 'details' pour debug.",
-      origin,
-      status,
-      { details: msg },
+  } catch (err) {
+    console.error("Unhandled error", String(err));
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "internal_error",
+        detail: String(err),
+      }),
+      {
+        status: 500,
+        headers: { ...defaultCors, "Content-Type": "application/json" },
+      },
     );
   }
 });
