@@ -230,7 +230,8 @@ const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
       normalised === "openai" ||
       normalised === "gemini" ||
       normalised === "groq" ||
-      normalised === "lovable"
+      normalised === "lovable" ||
+      normalised === "openrouter"
     ) {
       overrides.provider = normalised as AiProviderName;
     }
@@ -253,7 +254,8 @@ const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
         normalisedKey === "openai" ||
         normalisedKey === "gemini" ||
         normalisedKey === "groq" ||
-        normalisedKey === "lovable"
+        normalisedKey === "lovable" ||
+        normalisedKey === "openrouter"
       ) {
         apiKeys[normalisedKey as AiProviderName] = trimmed;
       }
