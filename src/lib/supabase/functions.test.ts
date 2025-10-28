@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
+import type { RuleGeneratorChatMessage } from "./functions";
 
 const invokeMock = vi.fn();
 const getSessionMock = vi.fn().mockResolvedValue({ data: { session: null } });
@@ -133,7 +134,9 @@ describe("invokeRuleGeneratorChat", () => {
     });
 
     expect(result.status).toBe("ready");
-    expect(result.rule).toEqual({ id: "rule-id" });
+    if (result.status === "ready") {
+      expect(result.rule).toEqual({ id: "rule-id" });
+    }
   });
 
   it("sends the full conversation transcript to the backend", async () => {
@@ -144,10 +147,10 @@ describe("invokeRuleGeneratorChat", () => {
 
     const { invokeRuleGeneratorChat } = await import("./functions");
 
-    const conversation = [
-      { role: "user", content: "Bonjour" },
-      { role: "assistant", content: "Salut" },
-      { role: "user", content: "Propose une variante" },
+    const conversation: RuleGeneratorChatMessage[] = [
+      { role: "user" as const, content: "Bonjour" },
+      { role: "assistant" as const, content: "Salut" },
+      { role: "user" as const, content: "Propose une variante" },
     ];
 
     await invokeRuleGeneratorChat({
@@ -206,9 +209,11 @@ describe("invokeRuleGeneratorChat", () => {
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(result.status).toBe("ready");
-      expect(result.rule).toEqual({ id: "rule-id" });
-      expect(result.provider).toBe("edge-test");
-      expect(result.prompt).toBe("server-prompt");
+      if (result.status === "ready") {
+        expect(result.rule).toEqual({ id: "rule-id" });
+        expect(result.provider).toBe("edge-test");
+        expect(result.prompt).toBe("server-prompt");
+      }
     } finally {
       fetchSpy.mockRestore();
     }

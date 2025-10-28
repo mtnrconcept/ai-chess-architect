@@ -48,9 +48,16 @@ export function transformAiRuleToEngineRule(input: unknown): RuleJSON {
   const fallbackDescription = toString(aiRule.description) ?? "";
   const fallbackTags = toStringArray(aiRule.tags);
   const affectedPieces = toStringArray(aiRule.affectedPieces);
-  const effects = toArray<Record<string, unknown>>(aiRule.effects);
+  const rawEffects = toArray<Record<string, unknown>>(aiRule.effects);
   const parameters = toRecord(aiRule.parameters);
   const assets = aiRule.visuals ?? aiRule.assets;
+
+  // Transform effects to LogicStep format
+  const effects = rawEffects.map((effect: any, index: number) => ({
+    id: effect.id || `effect_${index}`,
+    when: effect.when || "onAction",
+    do: effect.do || effect.action ? { action: effect.action || effect.do, params: effect.params } : []
+  }));
 
   return {
     meta: {

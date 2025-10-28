@@ -187,7 +187,7 @@ export function corsResponse(...args: unknown[]): Response {
       headers.set(key, value);
     }
 
-    return new Response(body, { ...init, headers });
+    return new Response(body as BodyInit, { ...init, headers });
   }
 
   const req = args[0] as Request;
@@ -197,7 +197,7 @@ export function corsResponse(...args: unknown[]): Response {
   const headers = new Headers(init?.headers);
   const corsHeaders = buildCorsHeaders(overrides, req);
   for (const [key, value] of corsHeaders.entries()) headers.set(key, value);
-  return new Response(body, { ...init, headers });
+  return new Response(body as BodyInit, { ...init, headers });
 }
 
 export function okPreflight(

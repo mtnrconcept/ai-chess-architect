@@ -1,5 +1,5 @@
 import { fewShotIntents } from "./fewShots";
-import type { RuleProgram, RuleCommand } from "../rule-language/types";
+import type { RuleProgram, RuleCommand, AddMechanicCommand } from "../rule-language/types";
 
 export type ProgramExtractionWarning = {
   code: string;
@@ -266,8 +266,8 @@ const fallbackProgram = (input: string): RuleProgram => ({
     buildDefineRule(fewShotIntents[0].ruleName, fewShotIntents[0].templateId),
     { type: "SET_SUMMARY", summary: input },
     { type: "SET_PIECES", pieces: fewShotIntents[0].affectedPieces },
-    ...fewShotIntents[0].mechanics.map((mechanic) => ({
-      type: "ADD_MECHANIC",
+    ...fewShotIntents[0].mechanics.map((mechanic): AddMechanicCommand => ({
+      type: "ADD_MECHANIC" as const,
       mechanic,
     })),
   ],

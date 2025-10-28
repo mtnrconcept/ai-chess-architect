@@ -173,7 +173,7 @@ const processStripeEvent = async (
 export const config = { auth: false } as const;
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  const preflight = preflightIfOptions(req, corsOptions);
+  const preflight = preflightIfOptions(req, { methods: ["POST"] });
   if (preflight) return preflight;
 
   if (req.method !== "POST") {

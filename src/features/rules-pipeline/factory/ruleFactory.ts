@@ -179,11 +179,15 @@ const applyCommand = (
       });
       break;
     }
-    default:
+    default: {
+      // TypeScript exhaustive check - this should never happen
+      const _exhaustiveCheck: never = command;
       warnings.push({
         code: "unknown_command",
-        message: `Commande ${command.type} non gérée par le RuleFactory.`,
+        message: `Commande non gérée par le RuleFactory.`,
       });
+      break;
+    }
   }
 };
 

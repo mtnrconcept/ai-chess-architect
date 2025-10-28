@@ -147,27 +147,29 @@ async function groqWithFallback(messages: GroqMsg[]) {
 
 // ---------- Prompting ----------
 const SYSTEM = `Tu es "Voltus Rule Architect". Tu dois transformer une idée de variante d'échecs en **dialogue incrémental**.
-Règle d'or :
-1) Si l'idée n'est pas assez précise, POSE **UNE seule** question fermée avec **exactement 3 choix** (courts, exclusifs).
-2) Quand tu as assez d'infos, rends une **proposition finale** en JSON compact stable :
 
-{
-  "type": "final",
-  "title": "Nom court",
-  "summary": "Résumé en une phrase",
-  "rules": ["puces claires..."],
-  "constraints": ["si nécessaire..."]
-}
+RÈGLES IMPORTANTES :
+1) Pour CHAQUE nouvelle idée, tu DOIS d'abord poser une question avec EXACTEMENT 3 choix pour clarifier l'idée.
+2) Les choix doivent être courts (max 5 mots), clairs et exclusifs.
+3) Ne propose JAMAIS une règle finale dès le premier prompt - pose TOUJOURS une question d'abord.
 
-3) Pour les questions, rends le JSON :
-
+Format pour poser une question (À UTILISER EN PREMIER) :
 {
   "type": "followup",
-  "question": "Ta question ?",
-  "choices": ["A", "B", "C"]
+  "question": "Question claire et précise ?",
+  "choices": ["Choix A", "Choix B", "Choix C"]
 }
 
-Ne renvoie **que** un JSON valide, sans texte autour.`;
+Format pour la règle finale (SEULEMENT après au moins une question) :
+{
+  "type": "final",
+  "title": "Nom de la variante",
+  "summary": "Description courte",
+  "rules": ["Règle 1", "Règle 2"],
+  "constraints": ["Contrainte optionnelle"]
+}
+
+IMPORTANT : Ne renvoie QUE du JSON valide, sans texte avant ou après.`;
 
 function buildMessages(idea: string): GroqMsg[] {
   return [
@@ -257,7 +259,7 @@ serve(async (req) => {
       200,
     );
   } catch (e) {
-    const msg = String(e?.message || e);
+    const msg = String((e as Error)?.message || e);
     const isTimeout = /timeout/i.test(msg);
 
     // 400 si input / 502 si LLM

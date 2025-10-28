@@ -67,6 +67,17 @@ const createCloseEvent = (): CloseEvent => {
 const createErrorEvent = () => new Event("error");
 
 class DisabledLovableSocket extends EventTarget implements WebSocket {
+  // WebSocket constants
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  
+  readonly CONNECTING = DisabledLovableSocket.CONNECTING;
+  readonly OPEN = DisabledLovableSocket.OPEN;
+  readonly CLOSING = DisabledLovableSocket.CLOSING;
+  readonly CLOSED = DisabledLovableSocket.CLOSED;
+  
   readonly url: string;
   binaryType: BinaryType = "blob";
   readonly bufferedAmount = 0;
