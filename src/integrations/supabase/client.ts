@@ -311,11 +311,24 @@ function createSingletonClient(): SupabaseInitialisation {
     return { client: null, diagnostics } satisfies SupabaseInitialisation;
   }
 
+  const isWebSocketPrototypeFrozen =
+    typeof globalThis.WebSocket === "function" &&
+    (Object.isFrozen?.(globalThis.WebSocket.prototype) ?? false);
+
+  if (isWebSocketPrototypeFrozen) {
+    console.warn(
+      "[Youaregood] WebSocket prototype is frozen — skipping realtime patches that rely on prototype mutation.",
+    );
+  }
+
   const client = createClient<Database>(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+    },
+    realtime: {
+      params: { eventsPerSecond: 10 },
     },
     ...(SUPABASE_FUNCTIONS_URL
       ? {
