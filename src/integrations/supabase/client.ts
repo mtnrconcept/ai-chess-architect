@@ -43,7 +43,7 @@ const readEnvValue = (...keys: string[]) => {
 };
 
 const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
-const EXPECTED_PROJECT_NAME = "AI Chess Architect";
+const EXPECTED_PROJECT_NAME = "Youaregood";
 
 const RAW_SUPABASE_PROJECT_ID = readEnvValue(
   "VITE_SUPABASE_PROJECT_ID",

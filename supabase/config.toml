@@ -1,5 +1,5 @@
 # Supabase project name used across environments
-# project = "AI Chess Architect"
+# project = "Youaregood"
 project_id = "ucaqbhmyutlnitnedowk"
 
 [functions.chess-insights]
