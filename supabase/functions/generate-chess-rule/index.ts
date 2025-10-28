@@ -1,383 +1,266 @@
 // supabase/functions/generate-chess-rule/index.ts
-// GROQ-ONLY hardened edge function
-
-// ---------- Utils ----------
-const DEFAULT_TIMEOUT = Number(Deno.env.get("AI_REQUEST_TIMEOUT") || "15000");
-
-function timeoutPromise(ms: number, msg = "timeout") {
+// --- GROQ-ONLY, JSON racine, CORS strict, mock optionnel ---
+const DEFAULT_TIMEOUT = Number(Deno.env.get("AI_REQUEST_TIMEOUT") || "10000");
+function timeoutPromise(ms, msg = "timeout") {
   return new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms));
 }
-
-function snippet(s: string, n = 2000) {
+function snippet(s, n = 2000) {
   if (!s) return "";
   return s.length > n ? s.slice(0, n) + "..." : s;
 }
-
-function isUUID(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    v,
-  );
-}
-
-function ensureUUID(v?: string) {
-  if (v && isUUID(v)) return v;
-  if (typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  const buffer = new Uint8Array(16);
-  crypto.getRandomValues(buffer);
-  buffer[6] = (buffer[6] & 0x0f) | 0x40;
-  buffer[8] = (buffer[8] & 0x3f) | 0x80;
-  const hex = Array.from(buffer, (byte) => byte.toString(16).padStart(2, "0"));
-  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex
-    .slice(6, 8)
-    .join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
-}
-
-function nowISO() {
-  return new Date().toISOString();
-}
-
-function cleanFences(t: string) {
-  return t
-    .replace(/```json\s*/gi, "")
-    .replace(/```\s*/gi, "")
-    .trim();
-}
-
-function extractJsonBlock(txt: string) {
-  const re = /(\{[\s\S]*\}|\[[\s\S]*\])/g;
-  const matches = [...txt.matchAll(re)].map((m) => m[0]);
-  if (matches.length === 0) return null;
-  matches.sort((a, b) => b.length - a.length);
-  for (const block of matches) {
-    try {
-      return JSON.parse(block);
-    } catch (_error) {
-      continue;
-    }
-  }
-  return null;
-}
-
-// ---------- CORS ----------
-const CORS_ALLOW_HEADERS = [
-  "Content-Type",
-  "Authorization",
-  "apikey",
-  "X-Client-Info",
-  "x-client-info",
-  "Prefer",
-].join(", ");
-
-const defaultCors: Record<string, string> = {
+const defaultCors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": CORS_ALLOW_HEADERS,
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
 };
-
-function jsonResponse(
-  body: unknown,
-  status = 200,
-  extraHeaders: Record<string, string> = {},
-) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...defaultCors,
-      "Content-Type": "application/json; charset=utf-8",
-      ...extraHeaders,
-    },
-  });
-}
-
-// ---------- Prompting ----------
-function makeEnrichedPrompt(userPrompt: string) {
-  return `Tu es un expert en création de variantes de jeu d'échecs.
-Génère une règle complète et détaillée pour une partie d'échecs basée sur cette idée : "${userPrompt}"
-
-IMPORTANT : Réponds UNIQUEMENT avec un objet JSON valide suivant EXACTEMENT ce schéma :
-{
-  "id": "string (UUID)",
-  "created_at": "string (ISO 8601 date)",
-  "prompt": "string (le prompt original de l'utilisateur)",
-  "rules": [
-    {
-      "id": "string (identifiant unique)",
-      "title": "string (titre court)",
-      "description": "string (description détaillée)",
-      "metadata": {
-        "category": "string",
-        "pieces_affected": ["array of strings"],
-        "difficulty": "string",
-        "impact": "string"
-      }
-    }
-  ]
-}
-
-Consignes: crée 2-4 règles, descriptions 3-5 phrases, jouables, pas de texte hors JSON.`;
-}
-
-// ---------- Types ----------
-type Rule = {
-  id?: string;
-  title?: string;
-  description?: string;
-  metadata?: {
-    category?: string;
-    pieces_affected?: string[];
-    difficulty?: string;
-    impact?: string;
-    [k: string]: unknown;
-  };
-  [k: string]: unknown;
-};
-
-type ModelShape = {
-  id?: string;
-  created_at?: string;
-  prompt?: string;
-  rules?: Rule[];
-  [k: string]: unknown;
-};
-
-// ---------- Normalisation/Validation souple ----------
-function normalizeAndValidate(
-  modelJson: unknown,
-  userPrompt: string,
-): ModelShape {
-  const obj: ModelShape =
-    typeof modelJson === "string"
-      ? (() => {
-          try {
-            return JSON.parse(modelJson);
-          } catch {
-            const extracted = extractJsonBlock(modelJson);
-            if (!extracted) throw new Error("invalid_json");
-            return extracted;
-          }
-        })()
-      : (modelJson as ModelShape);
-
-  const genericObj = (obj ?? {}) as Record<string, unknown>;
-
-  const out: ModelShape = {
-    id: ensureUUID(obj?.id),
-    created_at:
-      obj?.created_at && !isNaN(Date.parse(obj.created_at))
-        ? obj.created_at
-        : nowISO(),
-    prompt: obj?.prompt || userPrompt || "",
-    rules: Array.isArray(obj?.rules) && obj.rules.length > 0 ? obj.rules : [],
-  };
-
-  if (!out.rules || out.rules.length === 0) {
-    const maybeRule: Rule = {
-      id: ensureUUID(),
-      title:
-        typeof genericObj.title === "string"
-          ? (genericObj.title as string)
-          : "Règle",
-      description:
-        typeof genericObj.description === "string"
-          ? (genericObj.description as string)
-          : "Description manquante.",
-      metadata: {
-        category: "spécial",
-        pieces_affected: [],
-        difficulty: "moyen",
-        impact: "modéré",
-      },
-    };
-    out.rules = [maybeRule];
-  }
-
-  out.rules = out.rules.map((r, idx) => {
-    const metadata = r?.metadata ?? {};
-    const pieces = Array.isArray(metadata.pieces_affected)
-      ? metadata.pieces_affected
-      : [];
-
-    const normalizedMetadata = {
-      ...(metadata as Record<string, unknown>),
-      category:
-        typeof metadata.category === "string" &&
-        metadata.category.trim().length > 0
-          ? metadata.category
-          : "spécial",
-      pieces_affected: pieces,
-      difficulty:
-        typeof metadata.difficulty === "string" &&
-        metadata.difficulty.trim().length > 0
-          ? metadata.difficulty
-          : "moyen",
-      impact:
-        typeof metadata.impact === "string" && metadata.impact.trim().length > 0
-          ? metadata.impact
-          : "modéré",
-    };
-
-    return {
-      ...r,
-      id: ensureUUID(r?.id || undefined),
-      title: r?.title || `Règle ${idx + 1}`,
-      description: r?.description || "Description manquante.",
-      metadata: normalizedMetadata,
-    };
-  });
-
-  return out;
-}
-
-// ---------- Mock ----------
-function buildMock(userPrompt: string) {
+function buildMock(userPrompt) {
   return {
-    id: ensureUUID(),
-    created_at: nowISO(),
+    id: crypto.randomUUID(),
+    created_at: new Date().toISOString(),
     prompt: userPrompt,
     rules: [
       {
-        id: ensureUUID(),
-        title: "Mines fantômes",
+        id: "r1",
+        title: "Tir royal",
         description:
-          "À leur premier déplacement, les pions déposent une « mine fantôme » sur la case quittée. Une pièce adverse qui termine dessus est immobilisée un tour. Une seule mine par case. Le roi dissipe la mine s'il s'y arrête.",
+          "La reine peut tirer une fois par partie sur une case à portée de tour. La case devient inutilisable pendant un tour. Le roi adverse ne peut pas être pris par un tir.",
         metadata: {
-          category: "piège",
-          pieces_affected: ["pion", "roi"],
+          category: "spécial",
+          pieces_affected: ["reine"],
           difficulty: "moyen",
           impact: "modéré",
         },
       },
       {
-        id: ensureUUID(),
-        title: "Fou balistique",
+        id: "r2",
+        title: "Reine surchauffe",
         description:
-          "Chaque fou peut, une fois par partie, neutraliser une pièce située sur sa diagonale au lieu de se déplacer. La cible saute son prochain tour. Ne traverse pas les pièces et ne fonctionne pas sur le roi.",
+          "Après un tir, la reine ne peut plus se déplacer au tour suivant (surchauffe). Elle retrouve toutes ses capacités ensuite.",
         metadata: {
-          category: "spécial",
-          pieces_affected: ["fou"],
-          difficulty: "moyen",
-          impact: "significatif",
+          category: "contrainte",
+          pieces_affected: ["reine"],
+          difficulty: "facile",
+          impact: "mineur",
         },
       },
     ],
   };
 }
-
-// ---------- GROQ adapter ----------
-async function callGroq(url: string, key: string, enrichedPrompt: string) {
-  const body = {
-    model: Deno.env.get("GROQ_MODEL") || "mixtral-8x7b-32768",
-    messages: [
-      { role: "system", content: "Réponds uniquement en JSON." },
-      { role: "user", content: enrichedPrompt },
-    ],
-    max_tokens: 1200,
-    temperature: 0.7,
-  };
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const raw = await res.text();
-  if (!res.ok) throw new Error(`GROQ ${res.status}: ${snippet(raw)}`);
-  try {
-    const parsed = JSON.parse(raw);
-    return cleanFences(
-      parsed?.choices?.[0]?.message?.content ??
-        parsed?.choices?.[0]?.text ??
-        raw,
-    );
-  } catch {
-    return cleanFences(raw);
-  }
-}
-
-// ---------- HTTP handler (GROQ only) ----------
 Deno.serve(async (req) => {
-  try {
-    if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: { ...defaultCors, "Access-Control-Max-Age": "3600" },
-      });
-    }
-
-    // Auth minimale côté edge (transmets anon key ou JWT user depuis le front)
-    const auth = req.headers.get("authorization");
-    if (!auth) {
-      return jsonResponse({ error: "missing_authorization" }, 401);
-    }
-
-    const url = new URL(req.url);
-    const forceMock =
-      url.searchParams.get("test") === "true" ||
-      Deno.env.get("TEST_AI_MOCK") === "true";
-
-    const bodyJson = await req.json().catch(() => ({}));
-    const userPrompt: string = bodyJson.prompt || bodyJson.message || "";
-    const enrichedPrompt = makeEnrichedPrompt(userPrompt);
-
-    const groqKey = Deno.env.get("GROQ_API_KEY");
-    const groqUrl =
-      Deno.env.get("GROQ_API_URL") ||
-      "https://api.groq.com/openai/v1/chat/completions";
-
-    // Mode mock si clé manquante ou test explicite
-    if (!groqKey || forceMock) {
-      const mock = normalizeAndValidate(buildMock(userPrompt), userPrompt);
-      console.info("MOCK response used (GROQ disabled or test=true)");
-      return jsonResponse(mock, 200, { "X-AI-Provider": "MOCK" });
-    }
-
-    let lastError: unknown = null;
-    const timeoutMs = Number(
-      Deno.env.get("AI_REQUEST_TIMEOUT") || DEFAULT_TIMEOUT,
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...defaultCors,
+        "Access-Control-Max-Age": "3600",
+      },
+    });
+  }
+  // Auth facultative (garde si tu veux imposer un JWT Supabase)
+  const auth = req.headers.get("authorization");
+  if (!auth) {
+    return new Response(
+      JSON.stringify({
+        error: "missing_authorization",
+      }),
+      {
+        status: 401,
+        headers: {
+          ...defaultCors,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+      },
     );
-
+  }
+  try {
+    const url = new URL(req.url);
+    const test = url.searchParams.get("test") === "true";
+    const body = await req.json().catch(() => ({}));
+    const userPrompt = body.prompt || body.message || "";
+    // Prompt enrichi + consigne "JSON only"
+    const enrichedPrompt = [
+      "Tu es un expert en création de variantes d'échecs.",
+      `Idée utilisateur: "${userPrompt}"`,
+      "Génère UNIQUEMENT un objet JSON valide respectant strictement ce schéma:",
+      "{",
+      '  "id": "string (UUID)",',
+      '  "created_at": "string (ISO 8601)",',
+      '  "prompt": "string",',
+      '  "rules": [',
+      '    { "id":"string", "title":"string", "description":"string", "metadata":{',
+      '      "category":"string", "pieces_affected":["string"], "difficulty":"string", "impact":"string"',
+      "    }}",
+      "  ]",
+      "}",
+      "Crée 2 à 4 règles, descriptions 3 à 5 phrases, jouables, pas de texte hors JSON.",
+    ].join("\n");
+    const groqKey = Deno.env.get("GROQ_API_KEY");
+    const timeoutMs = DEFAULT_TIMEOUT;
+    // Mode mock si test=true ou clé absente
+    if (test || !groqKey) {
+      console.info("MOCK response used (GROQ disabled or test=true)");
+      const mock = buildMock(userPrompt);
+      return new Response(JSON.stringify(mock), {
+        status: 200,
+        headers: {
+          ...defaultCors,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+      });
+    }
+    // ---- GROQ call (OpenAI-compatible) ----
+    const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
+    const reqBody = {
+      model: "mixtral-8x7b-32768",
+      messages: [
+        {
+          role: "system",
+          content: "Réponds uniquement avec un JSON valide. Aucun texte hors JSON.",
+        },
+        {
+          role: "user",
+          content: enrichedPrompt,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 1200,
+    };
+    console.info("Calling GROQ", {
+      url: groqUrl,
+      model: reqBody.model,
+    });
+    const fetchPromise = fetch(groqUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${groqKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(reqBody),
+    });
+    const res = await Promise.race([fetchPromise, timeoutPromise(timeoutMs, "ai_provider_timeout")]);
+    const status = res.status;
+    const raw = await res.text();
+    if (!res.ok) {
+      console.error("GROQ http error", {
+        status,
+        bodySnippet: snippet(raw),
+      });
+      return new Response(
+        JSON.stringify({
+          error: "groq_http_error",
+          status,
+          detail: snippet(raw),
+        }),
+        {
+          status: 502,
+          headers: {
+            ...defaultCors,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+    // Tentative de parse
+    let candidateText = raw;
     try {
-      console.info(`Calling GROQ url=${groqUrl}`);
-      const candidateText = (await Promise.race([
-        callGroq(groqUrl, groqKey, enrichedPrompt),
-        timeoutPromise(timeoutMs, "ai_provider_timeout"),
-      ])) as string;
-
-      console.info(`GROQ candidate length=${candidateText?.length ?? 0}`);
-      const normalized = normalizeAndValidate(candidateText, userPrompt);
-
-      return jsonResponse(normalized, 200, {
-        "X-AI-Provider": "GROQ",
-        "X-AI-Model": Deno.env.get("GROQ_MODEL") || "mixtral-8x7b-32768",
-      });
-    } catch (err) {
-      console.error("GROQ call failed", { error: String(err) });
-      lastError = { provider: "GROQ", error: String(err) };
+      const parsedTop = JSON.parse(raw);
+      candidateText = parsedTop?.choices?.[0]?.message?.content ?? parsedTop?.choices?.[0]?.text ?? candidateText;
+    } catch {
+      // Le top-level n'est pas JSON (peu probable ici), on garde raw
     }
-
-    // Fallback final
-    if (Deno.env.get("ALLOW_MOCK_ON_FAILURE") === "true") {
-      const mock = normalizeAndValidate(buildMock(userPrompt), userPrompt);
-      console.warn("GROQ failed → returning MOCK due to ALLOW_MOCK_ON_FAILURE");
-      return jsonResponse(mock, 200, {
-        "X-AI-Provider": "MOCK",
-        "X-AI-Fallback": "true",
-      });
+    // Nettoyage éventuel des fences ```json
+    candidateText = candidateText
+      .replace(/```json\s*/gi, "")
+      .replace(/```\s*/g, "")
+      .trim();
+    // Extraction JSON robuste
+    function extractJson(txt) {
+      const objects = [];
+      const re = /\{[\s\S]*\}|\[[\s\S]*\]/g;
+      let m;
+      while ((m = re.exec(txt)) !== null) objects.push(m[0]);
+      if (!objects.length) return null;
+      // privilégier le plus gros bloc
+      objects.sort((a, b) => b.length - a.length);
+      for (const o of objects) {
+        try {
+          return JSON.parse(o);
+        } catch (_e) {}
+      }
+      return null;
     }
-
-    return jsonResponse({ error: "groq_failed", detail: lastError }, 502);
+    let normalized = null;
+    try {
+      normalized = JSON.parse(candidateText);
+    } catch {
+      normalized = extractJson(candidateText);
+    }
+    if (!normalized) {
+      console.error("invalid_json_from_model", {
+        bodySnippet: snippet(candidateText),
+      });
+      return new Response(
+        JSON.stringify({
+          error: "invalid_json_from_model",
+          detail: snippet(candidateText),
+        }),
+        {
+          status: 502,
+          headers: {
+            ...defaultCors,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+    // Validation minimale
+    const errors = [];
+    if (!normalized.id) errors.push("missing id");
+    if (!normalized.created_at) errors.push("missing created_at");
+    if (!normalized.prompt) errors.push("missing prompt");
+    if (!Array.isArray(normalized.rules) || normalized.rules.length === 0) errors.push("rules empty");
+    if (errors.length) {
+      console.error("validation_errors", {
+        errors,
+        bodySnippet: snippet(JSON.stringify(normalized)),
+      });
+      return new Response(
+        JSON.stringify({
+          error: "validation_failed",
+          errors,
+        }),
+        {
+          status: 422,
+          headers: {
+            ...defaultCors,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+    // ✅ SUCCÈS : renvoie l'objet au NIVEAU RACINE (ce que ta UI attend)
+    return new Response(JSON.stringify(normalized), {
+      status: 200,
+      headers: {
+        ...defaultCors,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+    });
   } catch (err) {
     console.error("Unhandled error", String(err));
-    return jsonResponse(
-      {
+    return new Response(
+      JSON.stringify({
         error: "internal_error",
         detail: String(err),
+      }),
+      {
+        status: 500,
+        headers: {
+          ...defaultCors,
+          "Content-Type": "application/json; charset=utf-8",
+        },
       },
-      500,
     );
   }
 });
