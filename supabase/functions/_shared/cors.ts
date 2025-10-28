@@ -9,7 +9,8 @@ type CorsOverrides = {
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://1e794698-feca-4fca-ab3b-11990c0b270d.lovableproject.com",
-  "https://preview--ai-chess-architect.lovable.app", // <-- Add this line
+  "https://ai-chess-architect.lovable.app",
+  "https://preview--ai-chess-architect.lovable.app",
   "http://localhost:5173",
 ];
 
