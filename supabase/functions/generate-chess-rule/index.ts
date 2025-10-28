@@ -1,346 +1,275 @@
-// supabase/functions/generate-chess-rule/index.ts
-// --- GROQ-ONLY, JSON racine, CORS strict, mock optionnel ---
-const DEFAULT_TIMEOUT = Number(Deno.env.get("AI_REQUEST_TIMEOUT") || "10000");
-function timeoutPromise(ms, msg = "timeout") {
-  return new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms));
-}
-function snippet(s, n = 2000) {
-  if (!s) return "";
-  return s.length > n ? s.slice(0, n) + "..." : s;
-}
-const defaultCors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, apikey, x-client-info",
-};
+// deno-lint-ignore-file no-explicit-any
+// Edge Runtime (Supabase) — Generate Chess Rule via GROQ only
 
-function buildSuccessResponse(result: unknown) {
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      result,
-    }),
-    {
-      status: 200,
-      headers: {
-        ...defaultCors,
-        "Content-Type": "application/json; charset=utf-8",
-      },
-    },
-  );
-}
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
-function buildErrorResponse(error: string, details?: unknown, status = 200) {
-  return new Response(
-    JSON.stringify({
-      ok: false,
-      error,
-      details,
-    }),
-    {
-      status,
-      headers: {
-        ...defaultCors,
-        "Content-Type": "application/json; charset=utf-8",
-      },
-    },
-  );
-}
-function buildMock(userPrompt) {
+// ---------- Config ----------
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
+const MODEL_FALLBACKS = [
+  // ordre de préférence (tous Groq, tous chat-completions)
+  "llama-3.1-70b-versatile",
+  "llama-3.1-8b-instant",
+];
+
+const DEFAULT_TIMEOUT_MS = Number(
+  Deno.env.get("AI_REQUEST_TIMEOUT") ?? "12000",
+);
+
+// ---------- CORS ----------
+const ALLOW_ORIGIN = Deno.env
+  .get("CORS_ORIGIN")
+  ?.split(",")
+  .map((s) => s.trim())
+  .filter(Boolean) ?? ["*"];
+
+function corsHeaders(origin: string | null): HeadersInit {
+  const match =
+    origin && (ALLOW_ORIGIN.includes("*") || ALLOW_ORIGIN.includes(origin))
+      ? origin
+      : "*";
   return {
-    id: crypto.randomUUID(),
-    created_at: new Date().toISOString(),
-    prompt: userPrompt,
-    rules: [
-      {
-        id: "r1",
-        title: "Tir royal",
-        description:
-          "La reine peut tirer une fois par partie sur une case à portée de tour. La case devient inutilisable pendant un tour. Le roi adverse ne peut pas être pris par un tir.",
-        metadata: {
-          category: "spécial",
-          pieces_affected: ["reine"],
-          difficulty: "moyen",
-          impact: "modéré",
-        },
-      },
-      {
-        id: "r2",
-        title: "Reine surchauffe",
-        description:
-          "Après un tir, la reine ne peut plus se déplacer au tour suivant (surchauffe). Elle retrouve toutes ses capacités ensuite.",
-        metadata: {
-          category: "contrainte",
-          pieces_affected: ["reine"],
-          difficulty: "facile",
-          impact: "mineur",
-        },
-      },
-    ],
+    "Access-Control-Allow-Origin": match,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, apikey, Prefer, X-Client-Info",
   };
 }
-Deno.serve(async (req) => {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        ...defaultCors,
-        "Access-Control-Max-Age": "3600",
-      },
-    });
-  }
-  // Auth facultative (garde si tu veux imposer un JWT Supabase)
-  const auth = req.headers.get("authorization");
-  if (!auth) {
-    return buildErrorResponse("missing_authorization", null, 401);
-  }
+
+// ---------- Utils ----------
+const ok = <T>(data: T, origin: string | null, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...corsHeaders(origin),
+    },
+  });
+
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+type JsonObject = { [key: string]: JsonValue };
+
+const err = (
+  message: string,
+  origin: string | null,
+  status = 400,
+  extra?: JsonObject,
+) => ok({ ok: false, error: { message, ...(extra ?? {}) } }, origin, status);
+
+function withTimeout<T>(p: Promise<T>, ms: number) {
+  return Promise.race<T>([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
+  ]);
+}
+
+// Normalisation/validation très tolérante
+async function readIdea(req: Request): Promise<{ idea: string } | null> {
+  const ct = req.headers.get("content-type") ?? "";
   try {
-    const url = new URL(req.url);
-    const test = url.searchParams.get("test") === "true";
-    const body = await req.json().catch(() => ({}));
-    const conversation = Array.isArray(body.conversation)
-      ? body.conversation.filter(
-          (entry) =>
-            entry &&
-            typeof entry === "object" &&
-            typeof entry.role === "string" &&
-            typeof entry.content === "string",
-        )
-      : [];
-    const lastUserMessage = [...conversation]
-      .reverse()
-      .find((entry) => entry.role === "user");
-    const fallbackPrompt =
-      typeof body.prompt === "string"
-        ? body.prompt
-        : typeof body.message === "string"
-          ? body.message
-          : typeof lastUserMessage?.content === "string"
-            ? lastUserMessage.content
-            : "";
-    const userPrompt = fallbackPrompt;
-    // Prompt enrichi + consigne "JSON only"
-    const enrichedPrompt = [
-      "Tu es un expert en création de variantes d'échecs.",
-      `Idée utilisateur: "${userPrompt}"`,
-      "Génère UNIQUEMENT un objet JSON valide respectant strictement ce schéma:",
-      "{",
-      '  "id": "string (UUID)",',
-      '  "created_at": "string (ISO 8601)",',
-      '  "prompt": "string",',
-      '  "rules": [',
-      '    { "id":"string", "title":"string", "description":"string", "metadata":{',
-      '      "category":"string", "pieces_affected":["string"], "difficulty":"string", "impact":"string"',
-      "    }}",
-      "  ]",
-      "}",
-      "Crée 2 à 4 règles, descriptions 3 à 5 phrases, jouables, pas de texte hors JSON.",
-    ].join("\n");
-    const groqKey = Deno.env.get("GROQ_API_KEY");
-    const timeoutMs = DEFAULT_TIMEOUT;
-    // Mode mock si test=true ou clé absente
-    if (test || !groqKey) {
-      console.info("MOCK response used (GROQ disabled or test=true)");
-      const latestUserMessage = lastUserMessage?.content ?? userPrompt ?? "";
-      const promptValue =
-        typeof latestUserMessage === "string" && latestUserMessage.trim().length
-          ? latestUserMessage.trim()
-          : "";
-      const mock = buildMock(latestUserMessage);
-      const result = {
-        status: "ready" as const,
-        rule: mock,
-        prompt: promptValue,
-        promptHash: undefined,
-        rawModelResponse: {
-          model: "mock",
-          text: JSON.stringify(mock),
-        },
-        provider: "mock",
-        correlationId: crypto.randomUUID(),
+    if (ct.includes("application/json")) {
+      const body = await req.json();
+      // accepte plusieurs clés ou string pur dans "body"
+      const idea =
+        (typeof body === "string" && body) ||
+        body?.idea ||
+        body?.prompt ||
+        body?.message ||
+        body?.text ||
+        null;
+
+      if (!idea || typeof idea !== "string" || !idea.trim()) return null;
+      return { idea: idea.trim() };
+    }
+
+    // si body text brut
+    const txt = (await req.text()).trim();
+    if (txt) return { idea: txt };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- GROQ ----------
+type GroqMsg = { role: "system" | "user" | "assistant"; content: string };
+
+async function callGroq(messages: GroqMsg[], model: string) {
+  const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.3,
+      messages,
+    }),
+  });
+
+  if (!resp.ok) {
+    const snippet = await resp.text().catch(() => "");
+    throw new Error(`GROQ ${resp.status}: ${snippet}`);
+  }
+
+  const json = await resp.json();
+  const content: string = json?.choices?.[0]?.message?.content ?? "";
+
+  if (!content) {
+    throw new Error("GROQ: empty content");
+  }
+
+  return content;
+}
+
+async function groqWithFallback(messages: GroqMsg[]) {
+  if (!GROQ_API_KEY) throw new Error("Missing GROQ_API_KEY");
+
+  let lastErr: unknown;
+  for (const model of MODEL_FALLBACKS) {
+    try {
+      return { model, content: await callGroq(messages, model) };
+    } catch (e) {
+      lastErr = e;
+      // si modèle décommissionné -> on essaie le suivant
+      continue;
+    }
+  }
+  throw lastErr ?? new Error("All Groq models failed");
+}
+
+// ---------- Prompting ----------
+const SYSTEM = `Tu es "Voltus Rule Architect". Tu dois transformer une idée de variante d'échecs en **dialogue incrémental**.
+Règle d'or :
+1) Si l'idée n'est pas assez précise, POSE **UNE seule** question fermée avec **exactement 3 choix** (courts, exclusifs).
+2) Quand tu as assez d'infos, rends une **proposition finale** en JSON compact stable :
+
+{
+  "type": "final",
+  "title": "Nom court",
+  "summary": "Résumé en une phrase",
+  "rules": ["puces claires..."],
+  "constraints": ["si nécessaire..."]
+}
+
+3) Pour les questions, rends le JSON :
+
+{
+  "type": "followup",
+  "question": "Ta question ?",
+  "choices": ["A", "B", "C"]
+}
+
+Ne renvoie **que** un JSON valide, sans texte autour.`;
+
+function buildMessages(idea: string): GroqMsg[] {
+  return [
+    { role: "system", content: SYSTEM },
+    {
+      role: "user",
+      content: `Idée de règle (fr) : ${idea}`,
+    },
+  ];
+}
+
+// ---------- HTTP ----------
+serve(async (req) => {
+  const origin = req.headers.get("origin");
+
+  // Preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders(origin) });
+  }
+
+  if (req.method !== "POST") {
+    return err("Method not allowed", origin, 405, { allow: "POST" });
+  }
+
+  const parsed = await readIdea(req);
+  if (!parsed) {
+    return err(
+      "Bad Request: body JSON attendu avec { idea | prompt | message | text } (string) ou string brut.",
+      origin,
+      400,
+      { example: { idea: "les reines peuvent tirer" } },
+    );
+  }
+
+  try {
+    const { model, content } = await withTimeout(
+      groqWithFallback(buildMessages(parsed.idea)),
+      DEFAULT_TIMEOUT_MS,
+    );
+
+    // On sécurise: le modèle DOIT renvoyer un JSON.
+    let payload: JsonObject = {
+      type: "followup",
+      question: "Quel aspect veux-tu définir en priorité pour cette règle ?",
+      choices: ["Déclenchement", "Limites", "Effets secondaires"],
+    };
+
+    try {
+      const candidate = JSON.parse(content) as JsonValue;
+      if (
+        candidate &&
+        typeof candidate === "object" &&
+        !Array.isArray(candidate)
+      ) {
+        payload = candidate as JsonObject;
+      } else {
+        throw new Error("non-object response");
+      }
+    } catch {
+      // Si le modèle a parlé hors-JSON, on encapsule pour éviter le 400 côté front.
+      payload = {
+        type: "followup",
+        question:
+          "Précise le cadre de la règle : portée, fréquence ou contraintes ?",
+        choices: ["Portée", "Fréquence", "Contraintes"],
+        note: "Le LLM n'a pas renvoyé un JSON strict ; fallback appliqué.",
       };
-      return buildSuccessResponse(result);
     }
-    // ---- GROQ call (OpenAI-compatible) ----
-    const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
-    const conversationMessages = (() => {
-      if (!conversation.length) {
-        return userPrompt
-          ? [
-              {
-                role: "user",
-                content: enrichedPrompt,
-              },
-            ]
-          : [];
-      }
-      const normalized = conversation.map((entry) => ({
-        role: entry.role,
-        content: entry.content,
-      }));
-      const lastUserIndex = [...normalized]
-        .map((entry, index) => ({ entry, index }))
-        .reverse()
-        .find(({ entry }) => entry.role === "user")?.index;
-      if (typeof lastUserIndex === "number") {
-        normalized[lastUserIndex] = {
-          role: "user",
-          content: enrichedPrompt,
-        };
-      } else if (userPrompt) {
-        normalized.push({ role: "user", content: enrichedPrompt });
-      }
-      return normalized;
-    })();
 
-    const reqBody = {
-      model: "llama-3.1-70b-versatile",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Réponds uniquement avec un JSON valide. Aucun texte hors JSON.",
-        },
-        ...conversationMessages,
-      ],
-      temperature: 0.7,
-      max_tokens: 1200,
-    };
-    console.info("Calling GROQ", {
-      url: groqUrl,
-      model: reqBody.model,
-    });
-    const fetchPromise = fetch(groqUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${groqKey}`,
-        "Content-Type": "application/json",
+    // Normalisation sortie minimale (front robuste)
+    // type: "followup" | "final"
+    if (payload?.type !== "followup" && payload?.type !== "final") {
+      payload = {
+        type: "followup",
+        question: "Quel aspect veux-tu définir en priorité pour cette règle ?",
+        choices: ["Déclenchement", "Limites", "Effets secondaires"],
+      };
+    }
+
+    return ok(
+      {
+        ok: true,
+        model,
+        data: payload,
       },
-      body: JSON.stringify(reqBody),
-    });
-    const res = await Promise.race([
-      fetchPromise,
-      timeoutPromise(timeoutMs, "ai_provider_timeout"),
-    ]);
-    const status = res.status;
-    const raw = await res.text();
-    if (!res.ok) {
-      console.error("GROQ http error", {
-        status,
-        bodySnippet: snippet(raw),
-      });
-      return buildErrorResponse("groq_http_error", {
-        status,
-        detail: snippet(raw),
-      });
-    }
-    // Tentative de parse
-    let candidateText = raw;
-    try {
-      const parsedTop = JSON.parse(raw);
-      candidateText =
-        parsedTop?.choices?.[0]?.message?.content ??
-        parsedTop?.choices?.[0]?.text ??
-        candidateText;
-    } catch {
-      // Le top-level n'est pas JSON (peu probable ici), on garde raw
-    }
-    // Nettoyage éventuel des fences ```json
-    candidateText = candidateText
-      .replace(/```json\s*/gi, "")
-      .replace(/```\s*/g, "")
-      .trim();
-    // Extraction JSON robuste
-    function extractJson(txt) {
-      const objects = [];
-      const re = /\{[\s\S]*\}|\[[\s\S]*\]/g;
-      let m;
-      while ((m = re.exec(txt)) !== null) objects.push(m[0]);
-      if (!objects.length) return null;
-      // privilégier le plus gros bloc
-      objects.sort((a, b) => b.length - a.length);
-      for (const o of objects) {
-        try {
-          return JSON.parse(o);
-        } catch (_e) {
-          continue;
-        }
-      }
-      return null;
-    }
-    let normalized = null;
-    try {
-      normalized = JSON.parse(candidateText);
-    } catch {
-      normalized = extractJson(candidateText);
-    }
-    if (!normalized) {
-      console.error("invalid_json_from_model", {
-        bodySnippet: snippet(candidateText),
-      });
-      return buildErrorResponse("invalid_json_from_model", {
-        bodySnippet: snippet(candidateText),
-      });
-    }
-    // Validation minimale
-    const errors = [];
-    if (!normalized.id) errors.push("missing id");
-    if (!normalized.created_at) errors.push("missing created_at");
-    if (!normalized.prompt) errors.push("missing prompt");
-    if (!Array.isArray(normalized.rules) || normalized.rules.length === 0)
-      errors.push("rules empty");
-    if (errors.length) {
-      console.error("validation_errors", {
-        errors,
-        bodySnippet: snippet(JSON.stringify(normalized)),
-      });
-      return buildErrorResponse("validation_failed", { errors });
-    }
-    const normalizedRecord =
-      normalized && typeof normalized === "object" ? normalized : {};
-    const promptValue = (() => {
-      if (typeof userPrompt === "string" && userPrompt.trim().length > 0) {
-        return userPrompt.trim();
-      }
-      const embeddedPrompt =
-        typeof (normalizedRecord as { prompt?: unknown }).prompt === "string"
-          ? (normalizedRecord as { prompt?: string }).prompt
-          : undefined;
-      if (embeddedPrompt && embeddedPrompt.trim().length > 0) {
-        return embeddedPrompt.trim();
-      }
-      return "";
-    })();
+      origin,
+      200,
+    );
+  } catch (e) {
+    const msg = String(e?.message || e);
+    const isTimeout = /timeout/i.test(msg);
 
-    const promptHashValue = (() => {
-      const candidate =
-        (normalizedRecord as { promptHash?: unknown }).promptHash ??
-        (normalizedRecord as { prompt_hash?: unknown }).prompt_hash;
-      return typeof candidate === "string" && candidate.trim().length > 0
-        ? candidate.trim()
-        : null;
-    })();
+    // 400 si input / 502 si LLM
+    const status = isTimeout ? 504 : /GROQ\s+400/i.test(msg) ? 400 : 502;
 
-    const result = {
-      status: "ready" as const,
-      rule: normalizedRecord,
-      prompt: promptValue,
-      promptHash: promptHashValue ?? undefined,
-      rawModelResponse: {
-        model: reqBody.model,
-        text: candidateText,
-        status,
-      },
-      provider: "groq",
-      correlationId: crypto.randomUUID(),
-    };
-
-    // ✅ SUCCÈS : renvoie la structure attendue par le frontend
-    return buildSuccessResponse(result);
-  } catch (err) {
-    console.error("Unhandled error", String(err));
-    return buildErrorResponse("internal_error", String(err), 500);
+    return err(
+      isTimeout
+        ? "LLM timeout"
+        : "Provider failure (GROQ). Consulte 'details' pour debug.",
+      origin,
+      status,
+      { details: msg },
+    );
   }
 });
