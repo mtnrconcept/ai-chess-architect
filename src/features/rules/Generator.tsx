@@ -135,7 +135,7 @@ export default function RuleGenerator({
   const [engineResult, setEngineResult] = useState<RuleJSON | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [selectedOptions, setSelectedOptions] = useState<
-    Record<string, string | null>
+    Record<string, string[]>
   >({});
   const isSendingAnswersRef = useRef(false);
 
@@ -168,7 +168,8 @@ export default function RuleGenerator({
     }
 
     const key = `${activeQuestionMessage.id}-0`;
-    return selectedOptions[key] ? 1 : 0;
+    const answers = selectedOptions[key] ?? [];
+    return answers.length;
   }, [activeQuestionMessage, selectedOptions]);
 
   const totalQuestionCount = latestQuestionMessage ? 1 : 0;
@@ -179,8 +180,8 @@ export default function RuleGenerator({
     }
 
     const key = `${activeQuestionMessage.id}-0`;
-    const answer = selectedOptions[key];
-    return typeof answer === "string" && answer.length > 0;
+    const answers = selectedOptions[key] ?? [];
+    return answers.length > 0;
   }, [hasPendingQuestions, activeQuestionMessage, selectedOptions]);
 
   const processConversation = async (
@@ -226,7 +227,7 @@ export default function RuleGenerator({
           ...prev,
           { id: messageId, role: "assistant", question },
         ]);
-        setSelectedOptions({ [`${messageId}-0`]: null });
+        setSelectedOptions({ [`${messageId}-0`]: [] });
       } else {
         setReadyResult(result);
         const summary = buildAssistantSummary(result);
@@ -310,7 +311,7 @@ export default function RuleGenerator({
       UiMessage,
       { question: RuleGeneratorNeedInfoQuestion }
     >;
-    answer: string;
+    answer: string[];
   }) => {
     const questionMessage = override?.questionMessage ?? activeQuestionMessage;
 
@@ -325,14 +326,16 @@ export default function RuleGenerator({
     }
 
     const key = `${questionMessage.id}-0`;
-    const selected = override?.answer ?? selectedOptions[key];
-    if (!selected || isSendingAnswersRef.current) {
+    const selected = override?.answer ?? selectedOptions[key] ?? [];
+    if (selected.length === 0 || isSendingAnswersRef.current) {
       return;
     }
 
     isSendingAnswersRef.current = true;
 
-    const answerSection = `${questionMessage.question.question}\nRéponse: ${selected}`;
+    const answerLabel = selected.length > 1 ? "Réponses" : "Réponse";
+    const formattedAnswers = selected.join(", ");
+    const answerSection = `${questionMessage.question.question}\n${answerLabel}: ${formattedAnswers}`;
     const additionalNotes = inputValue.trim();
     const combinedContent =
       additionalNotes.length > 0
@@ -384,28 +387,38 @@ export default function RuleGenerator({
       return;
     }
 
-    let nextSelection: string | null = null;
+    const isActive = activeQuestionMessage?.id === message.id;
+    let nextSelection: string[] = [];
 
     setSelectedOptions((prev) => {
       const key = `${message.id}-0`;
-      const current = prev[key] ?? null;
-      const next: Record<string, string | null> = { ...prev };
+      const current = prev[key] ?? [];
 
-      if (current === option) {
-        next[key] = null;
-        nextSelection = null;
-      } else {
-        next[key] = option;
-        nextSelection = option;
+      if (message.question.allowMultiple) {
+        const updated = [...current];
+        const optionIndex = updated.indexOf(option);
+        if (optionIndex >= 0) {
+          updated.splice(optionIndex, 1);
+        } else {
+          updated.push(option);
+        }
+        nextSelection = updated;
+        return { ...prev, [key]: updated };
       }
 
-      return next;
+      if (current.length === 1 && current[0] === option) {
+        nextSelection = [];
+        return { ...prev, [key]: [] };
+      }
+
+      nextSelection = [option];
+      return { ...prev, [key]: nextSelection };
     });
 
     if (
-      nextSelection &&
-      activeQuestionMessage?.id === message.id &&
-      message.question.allowMultiple !== true
+      !message.question.allowMultiple &&
+      isActive &&
+      nextSelection.length > 0
     ) {
       void sendAnswers({
         questionMessage: message,
@@ -455,7 +468,7 @@ export default function RuleGenerator({
               const isLatestQuestion = latestQuestionMessage?.id === message.id;
               const canInteract = isLatestQuestion && !loading && !hasFinished;
               const questionKey = `${message.id}-0`;
-              const selectedForQuestion = selectedOptions[questionKey] ?? null;
+              const selectedForQuestion = selectedOptions[questionKey] ?? [];
 
               return (
                 <div key={message.id} className="flex flex-col gap-4">
@@ -477,19 +490,22 @@ export default function RuleGenerator({
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {message.question.options.map((option, optionIndex) => {
-                          const isSelected = selectedForQuestion === option;
+                          const isSelected =
+                            selectedForQuestion.includes(option);
                           const icons = [Zap, Target, Sparkles];
                           const Icon = icons[optionIndex % icons.length];
                           const gradients = [
                             "from-blue-500/10 to-cyan-500/10",
                             "from-orange-500/10 to-red-500/10",
-                            "from-purple-500/10 to-pink-500/10"
+                            "from-purple-500/10 to-pink-500/10",
                           ];
 
                           return (
                             <motion.div
                               key={`${questionKey}-option-${optionIndex}`}
-                              whileHover={canInteract ? { scale: 1.03, y: -4 } : {}}
+                              whileHover={
+                                canInteract ? { scale: 1.03, y: -4 } : {}
+                              }
                               whileTap={canInteract ? { scale: 0.98 } : {}}
                               onClick={() => {
                                 if (canInteract) {
@@ -500,17 +516,23 @@ export default function RuleGenerator({
                                 "relative cursor-pointer rounded-2xl border-2 p-6 transition-all",
                                 `bg-gradient-to-br ${gradients[optionIndex % gradients.length]}`,
                                 "backdrop-blur-xl shadow-lg",
-                                canInteract ? "" : "opacity-60 cursor-not-allowed",
+                                canInteract
+                                  ? ""
+                                  : "opacity-60 cursor-not-allowed",
                                 isSelected
                                   ? "border-primary shadow-glow scale-[1.02]"
-                                  : "border-border hover:border-primary/50"
+                                  : "border-border hover:border-primary/50",
                               )}
                             >
                               {isSelected && (
                                 <motion.div
                                   layoutId={`selected-${message.id}`}
                                   className="absolute inset-0 rounded-2xl border-4 border-primary/50"
-                                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                                  transition={{
+                                    type: "spring",
+                                    bounce: 0.2,
+                                    duration: 0.6,
+                                  }}
                                 />
                               )}
 
@@ -518,13 +540,17 @@ export default function RuleGenerator({
                                 <div
                                   className={cn(
                                     "p-4 rounded-xl transition-all",
-                                    isSelected ? "bg-primary/20 scale-110" : "bg-muted/50"
+                                    isSelected
+                                      ? "bg-primary/20 scale-110"
+                                      : "bg-muted/50",
                                   )}
                                 >
                                   <Icon
                                     className={cn(
                                       "w-8 h-8 transition-colors",
-                                      isSelected ? "text-primary" : "text-muted-foreground"
+                                      isSelected
+                                        ? "text-primary"
+                                        : "text-muted-foreground",
                                     )}
                                   />
                                 </div>
@@ -532,7 +558,9 @@ export default function RuleGenerator({
                                 <p
                                   className={cn(
                                     "text-center font-medium leading-snug transition-colors",
-                                    isSelected ? "text-primary" : "text-foreground"
+                                    isSelected
+                                      ? "text-primary"
+                                      : "text-foreground",
                                   )}
                                 >
                                   {option}
