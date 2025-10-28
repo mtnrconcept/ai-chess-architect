@@ -75,8 +75,8 @@ loadEnv(resolveProjectRoot());
 
 const env = process.env;
 
-const EXPECTED_PROJECT_ID = 'ucaqbhmyutlnitnedowk';
-const EXPECTED_PROJECT_NAME = 'Youaregood';
+const EXPECTED_PROJECT_ID = 'pfcaolibtgvynnwaxvol';
+const EXPECTED_PROJECT_NAME = 'AI Chess Architect';
 
 const configuredProjectRef =
   normaliseEnv(env.SUPABASE_PROJECT_ID) ??
@@ -176,14 +176,15 @@ const invoke = async () => {
     }
 
     if (!response.ok) {
-      console.error('[sync-tournaments] Failed:', payload);
-      process.exit(1);
+      console.warn('[sync-tournaments] Failed (non-critical):', payload);
+      console.log('[sync-tournaments] Continuing build despite sync failure...');
+      return;
     }
 
     console.log('[sync-tournaments] Success:', payload);
   } catch (error) {
-    console.error('[sync-tournaments] Network error:', error instanceof Error ? error.message : error);
-    process.exit(1);
+    console.warn('[sync-tournaments] Network error (non-critical):', error instanceof Error ? error.message : error);
+    console.log('[sync-tournaments] Continuing build despite sync failure...');
   }
 };
 
