@@ -609,7 +609,6 @@ function normalizeNeedInfoQuestions(
     const record = entry as Record<string, unknown>;
     const questionValue = record["question"];
     const optionsValue = record["options"];
-    const allowMultipleValue = record["allowMultiple"];
 
     if (typeof questionValue !== "string") {
       continue;
@@ -624,20 +623,46 @@ function normalizeNeedInfoQuestions(
       continue;
     }
 
-    const normalizedOptions = optionsValue
-      .map((option) => (typeof option === "string" ? option.trim() : undefined))
-      .filter((option): option is string => !!option && option.length > 0);
+    const collectedOptions: string[] = [];
+    const seenOptions = new Set<string>();
 
-    if (normalizedOptions.length !== 3) {
-      continue;
+    for (const option of optionsValue) {
+      let label: string | undefined;
+
+      if (typeof option === "string") {
+        label = option.trim();
+      } else if (option && typeof option === "object") {
+        const objectOption = option as Record<string, unknown>;
+        const candidateRaw =
+          typeof objectOption.label === "string"
+            ? objectOption.label
+            : typeof objectOption.value === "string"
+              ? objectOption.value
+              : typeof objectOption.title === "string"
+                ? objectOption.title
+                : undefined;
+
+        label =
+          typeof candidateRaw === "string" ? candidateRaw.trim() : undefined;
+      }
+
+      if (!label) {
+        continue;
+      }
+
+      if (seenOptions.has(label)) {
+        continue;
+      }
+
+      seenOptions.add(label);
+      collectedOptions.push(label);
+
+      if (collectedOptions.length === 3) {
+        break;
+      }
     }
 
-    const uniqueOptionCount = new Set(normalizedOptions).size;
-    if (uniqueOptionCount !== 3) {
-      continue;
-    }
-
-    if (allowMultipleValue === true) {
+    if (collectedOptions.length < 3) {
       continue;
     }
 
@@ -645,9 +670,9 @@ function normalizeNeedInfoQuestions(
       {
         question: trimmedQuestion,
         options: [
-          normalizedOptions[0],
-          normalizedOptions[1],
-          normalizedOptions[2],
+          collectedOptions[0],
+          collectedOptions[1],
+          collectedOptions[2],
         ],
         allowMultiple: false,
       },
