@@ -42,7 +42,7 @@ const readEnvValue = (...keys: string[]) => {
   return undefined;
 };
 
-const EXPECTED_PROJECT_ID = "pfcaolibtgvynnwaxvol";
+const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
 const EXPECTED_PROJECT_NAME = "AI Chess Architect";
 
 const RAW_SUPABASE_PROJECT_ID = readEnvValue(
@@ -267,7 +267,7 @@ function createSingletonClient(): SupabaseInitialisation {
     }
 
     if (messages.length > 0) {
-    console.warn(`[AI Chess Architect] ${messages.join(" ")}`);
+      console.warn(`[AI Chess Architect] ${messages.join(" ")}`);
     } else {
       console.log(
         `[AI Chess Architect] Client configuré pour ${EXPECTED_PROJECT_NAME} (${EFFECTIVE_PROJECT_ID}).`,

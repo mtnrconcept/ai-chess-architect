@@ -11,7 +11,7 @@ You will need two values to deploy Edge Functions:
 | Variable | Description |
 | --- | --- |
 | `SUPABASE_ACCESS_TOKEN` | A personal access token created from the Supabase dashboard (Settings → Access Tokens) or a service role token. |
-| `SUPABASE_PROJECT_ID` | The project reference/id visible in the dashboard URL (e.g. `pfcaolibtgvynnwaxvol`). |
+| `SUPABASE_PROJECT_ID` | The project reference/id visible in the dashboard URL (e.g. `ucaqbhmyutlnitnedowk`). |
 
 The public anon or publishable keys are **not** sufficient to deploy Edge
 Functions. Make sure you generate a token with the `functions.deploy`
@@ -23,7 +23,7 @@ permission.
    variables → Actions**.
 2. Create two repository secrets:
    - `SUPABASE_ACCESS_TOKEN`: paste the token from step 1.
-   - `SUPABASE_PROJECT_ID`: paste your project id, for example `pfcaolibtgvynnwaxvol`.
+   - `SUPABASE_PROJECT_ID`: paste your project id, for example `ucaqbhmyutlnitnedowk`.
 3. Push a commit touching files in `supabase/functions/` or trigger the workflow
    manually from the **Actions** tab by selecting "Deploy Supabase Edge
    Functions" and clicking **Run workflow**.
@@ -45,7 +45,7 @@ npm install -g supabase
 
 # Export your credentials
 export SUPABASE_ACCESS_TOKEN="<your-access-token>"
-export SUPABASE_PROJECT_ID="pfcaolibtgvynnwaxvol"
+export SUPABASE_PROJECT_ID="ucaqbhmyutlnitnedowk"
 
 # Deploy every function
 ./supabase/scripts/deploy-edge-functions.sh
