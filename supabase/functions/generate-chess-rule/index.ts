@@ -226,13 +226,7 @@ const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
   const providerValue = record.provider;
   if (typeof providerValue === "string") {
     const normalised = providerValue.toLowerCase();
-    if (
-      normalised === "openai" ||
-      normalised === "gemini" ||
-      normalised === "groq" ||
-      normalised === "lovable" ||
-      normalised === "openrouter"
-    ) {
+    if (normalised === "openrouter") {
       overrides.provider = normalised as AiProviderName;
     }
   }
@@ -250,13 +244,7 @@ const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
         continue;
       }
       const normalisedKey = key.toLowerCase();
-      if (
-        normalisedKey === "openai" ||
-        normalisedKey === "gemini" ||
-        normalisedKey === "groq" ||
-        normalisedKey === "lovable" ||
-        normalisedKey === "openrouter"
-      ) {
+      if (normalisedKey === "openrouter") {
         apiKeys[normalisedKey as AiProviderName] = trimmed;
       }
     }

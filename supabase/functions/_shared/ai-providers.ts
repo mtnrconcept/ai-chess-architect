@@ -1,12 +1,7 @@
 // supabase/functions/_shared/ai-providers.ts
 // Unifier l'appel LLM avec options "forceJson"
 
-export type AiProviderName =
-  | "openai"
-  | "gemini"
-  | "groq"
-  | "lovable"
-  | "openrouter";
+export type AiProviderName = "openrouter";
 
 export class AiProviderHTTPError extends Error {
   readonly code = "ai_provider_http_error" as const;
@@ -22,10 +17,6 @@ export class AiProviderHTTPError extends Error {
 }
 
 const PROVIDER_ENV_VARS: Record<AiProviderName, string> = {
-  openai: "OPENAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  groq: "GROQ_API_KEY",
-  lovable: "LOVABLE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
 };
 
@@ -70,12 +61,7 @@ type InvokeResult = {
 
 const DEFAULT_MAX_TOKENS = 1200;
 
-const FALLBACK_PROVIDERS: AiProviderName[] = [
-  "openrouter",
-  "openai",
-  "gemini",
-  "groq",
-];
+const FALLBACK_PROVIDERS: AiProviderName[] = ["openrouter"];
 
 const OPENROUTER_SITE_URL = (Deno.env.get("OPENROUTER_SITE_URL") ?? "").trim();
 const OPENROUTER_APP_NAME = (Deno.env.get("OPENROUTER_APP_NAME") ?? "").trim();
@@ -83,7 +69,12 @@ const OPENROUTER_DEFAULT_MODEL_RAW = (
   Deno.env.get("OPENROUTER_DEFAULT_MODEL") ?? ""
 ).trim();
 const DEFAULT_OPENROUTER_MODEL =
-  OPENROUTER_DEFAULT_MODEL_RAW || "openai/gpt-4o";
+  OPENROUTER_DEFAULT_MODEL_RAW || "openai/gpt-oss-20b";
+const OPENROUTER_BASE_URL = `${(
+  Deno.env.get("OPENROUTER_BASE_URL") ?? "http://127.0.0.1:1234"
+)
+  .trim()
+  .replace(/\/+$/, "")}/v1/chat/completions`;
 
 const resolveOverrideKey = (
   provider: AiProviderName,
@@ -111,13 +102,7 @@ const normaliseProvider = (value: string | undefined | null) => {
     return undefined;
   }
   const normalised = value.toLowerCase();
-  if (
-    normalised === "openai" ||
-    normalised === "gemini" ||
-    normalised === "groq" ||
-    normalised === "lovable" ||
-    normalised === "openrouter"
-  ) {
+  if (normalised === "openrouter") {
     return normalised as AiProviderName;
   }
   return undefined;
@@ -134,32 +119,13 @@ function providerFromEnv(overrides?: InvokeOverrides): AiProviderName {
     return p;
   }
 
-  const lovableKeyPresent = hasProviderKey("lovable", overrides);
-
-  if (p === "lovable" || !p) {
-    if (lovableKeyPresent) {
-      return "lovable";
-    }
-    const fallback = FALLBACK_PROVIDERS.find((provider) =>
-      hasProviderKey(provider, overrides),
-    );
-    if (fallback) {
-      return fallback;
-    }
-    throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
-  }
-
-  // défaut : lovable => routeur géré côté Lovable
-  if (lovableKeyPresent) {
-    return "lovable";
-  }
   const fallback = FALLBACK_PROVIDERS.find((provider) =>
     hasProviderKey(provider, overrides),
   );
   if (fallback) {
     return fallback;
   }
-  throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
+  throw new MissingApiKeyError("openrouter", PROVIDER_ENV_VARS.openrouter);
 }
 
 export async function invokeChatCompletion(
@@ -171,10 +137,6 @@ export async function invokeChatCompletion(
 
   const temperature = args.temperature ?? 0.6;
   const maxTokens = args.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
-
-  // Helpers
-  const join = (ms: Message[]) =>
-    ms.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
 
   // Per-provider calls (pseudo-implémentations — branche selon tes SDKs réels)
   if (provider === "openrouter") {
@@ -204,7 +166,7 @@ export async function invokeChatCompletion(
       headers["X-Title"] = OPENROUTER_APP_NAME;
     }
 
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const res = await fetch(OPENROUTER_BASE_URL, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -223,180 +185,5 @@ export async function invokeChatCompletion(
     } satisfies InvokeResult;
   }
 
-  if (provider === "openai") {
-    // JSON mode (responses as single JSON object)
-    const body = {
-      model: model ?? "gpt-4o",
-      messages: args.messages,
-      temperature,
-      max_tokens: maxTokens,
-      ...(forceJson
-        ? { response_format: { type: "json_object" as const } }
-        : {}),
-    };
-    const apiKey = resolveOverrideKey("openai", args.overrides);
-    if (!apiKey) {
-      throw new MissingApiKeyError("openai", PROVIDER_ENV_VARS.openai);
-    }
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new AiProviderHTTPError("openai", res.status, t);
-    }
-    const json = await res.json();
-    const resolvedModel =
-      typeof json?.model === "string" ? json.model : body.model;
-    return {
-      content: json.choices?.[0]?.message?.content ?? "",
-      provider,
-      model: resolvedModel ?? null,
-    };
-  }
-
-  if (provider === "gemini") {
-    // Gemini JSON: utiliser "responseMimeType"
-    const body = {
-      contents: [
-        ...args.messages.map((m) => ({
-          role: m.role,
-          parts: [{ text: m.content }],
-        })),
-      ],
-      generationConfig: {
-        temperature,
-        maxOutputTokens: maxTokens,
-        ...(forceJson ? { responseMimeType: "application/json" } : {}),
-      },
-      // Ajoute si utile: safetySettings…
-    };
-    const apiKey = resolveOverrideKey("gemini", args.overrides);
-    if (!apiKey) {
-      throw new MissingApiKeyError("gemini", PROVIDER_ENV_VARS.gemini);
-    }
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model ?? "gemini-1.5-pro")}:generateContent?key=${apiKey}`;
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new AiProviderHTTPError("gemini", res.status, t);
-    }
-    const json = await res.json();
-    const text = Array.isArray(json.candidates)
-      ? (json.candidates?.[0]?.content?.parts
-          ?.map((part: { text?: string }) => part?.text ?? "")
-          .join("") ?? "")
-      : "";
-    const resolvedModel =
-      typeof json?.modelVersion === "string"
-        ? json.modelVersion
-        : (model ?? "gemini-1.5-pro");
-    return { content: text, provider, model: resolvedModel ?? null };
-  }
-
-  if (provider === "groq") {
-    // Groq n'a pas de JSON-mode strict → prompt-guard
-    const guarded = forceJson
-      ? [
-          {
-            role: "system",
-            content: `Tu dois répondre EXCLUSIVEMENT avec un JSON valide, sans markdown, sans texte additionnel.`,
-          },
-          ...args.messages,
-        ]
-      : args.messages;
-
-    const body = {
-      model: model ?? "llama-3.1-8b-instant",
-      messages: guarded,
-      temperature,
-      max_tokens: maxTokens,
-      // stop: ["```"], // optionnel
-    };
-
-    const apiKey = resolveOverrideKey("groq", args.overrides);
-    if (!apiKey) {
-      throw new MissingApiKeyError("groq", PROVIDER_ENV_VARS.groq);
-    }
-
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new AiProviderHTTPError("groq", res.status, t);
-    }
-    const json = await res.json();
-    const resolvedModel =
-      typeof json?.model === "string" ? json.model : body.model;
-    return {
-      content: json.choices?.[0]?.message?.content ?? "",
-      provider,
-      model: resolvedModel ?? null,
-    };
-  }
-
-  // lovable (routeur)
-  {
-    const apiKey = resolveOverrideKey("lovable", args.overrides);
-    if (!apiKey) {
-      throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
-    }
-
-    const guarded = forceJson
-      ? [
-          {
-            role: "system",
-            content: `Réponds UNIQUEMENT en JSON valide. Aucune prose, aucun code fence.`,
-          },
-          ...args.messages,
-        ]
-      : args.messages;
-
-    const res = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: model ?? "google/gemini-2.5-flash",
-          messages: guarded,
-          temperature,
-          max_tokens: maxTokens,
-        }),
-      },
-    );
-    if (!res.ok) {
-      const t = await res.text();
-      console.error(`[lovable] API error ${res.status}:`, t.slice(0, 500));
-      throw new AiProviderHTTPError("lovable", res.status, t);
-    }
-    const json = await res.json();
-    const resolvedModel =
-      typeof json?.model === "string"
-        ? json.model
-        : (model ?? "google/gemini-2.5-flash");
-    return {
-      content: json.choices?.[0]?.message?.content ?? "",
-      provider,
-      model: resolvedModel ?? null,
-    };
-  }
+  throw new MissingApiKeyError("openrouter", PROVIDER_ENV_VARS.openrouter);
 }
