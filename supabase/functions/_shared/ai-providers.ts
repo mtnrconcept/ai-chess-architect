@@ -182,7 +182,7 @@ export async function invokeChatCompletion(
       : args.messages;
 
     const body = {
-      model: model ?? "llama-3.3-70b-versatile",
+      model: model ?? "llama-3.1-70b-versatile",
       messages: guarded,
       temperature,
       max_tokens: maxTokens,
