@@ -34,10 +34,6 @@ import {
 } from "../../../src/features/rules-pipeline/fallback/providerGenerator.ts";
 import type { CanonicalIntent } from "../../../src/features/rules-pipeline/schemas/canonicalIntent.ts";
 import type { RuleProgram } from "../../../src/features/rules-pipeline/rule-language/types.ts";
-import {
-  type InvokeOverrides,
-  type AiProviderName,
-} from "../_shared/ai-providers.ts";
 
 const textEncoder = new TextEncoder();
 
@@ -227,51 +223,9 @@ const buildAiMessages = (
   ];
 };
 
-const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
-  if (!raw || typeof raw !== "object") {
-    return undefined;
-  }
-
-  const record = raw as Record<string, unknown>;
-  const overrides: InvokeOverrides = {};
-
-  const providerValue = record.provider;
-  if (typeof providerValue === "string") {
-    const normalised = providerValue.toLowerCase();
-    if (normalised === "openrouter") {
-      overrides.provider = normalised as AiProviderName;
-    }
-  }
-
-  const apiKeysValue = record.apiKeys;
-  if (apiKeysValue && typeof apiKeysValue === "object") {
-    const entries = Object.entries(apiKeysValue as Record<string, unknown>);
-    const apiKeys: Partial<Record<AiProviderName, string>> = {};
-    for (const [key, value] of entries) {
-      if (typeof value !== "string") {
-        continue;
-      }
-      const trimmed = value.trim();
-      if (!trimmed) {
-        continue;
-      }
-      const normalisedKey = key.toLowerCase();
-      if (normalisedKey === "openrouter") {
-        apiKeys[normalisedKey as AiProviderName] = trimmed;
-      }
-    }
-    if (Object.keys(apiKeys).length > 0) {
-      overrides.apiKeys = apiKeys;
-    }
-  }
-
-  if (!overrides.provider && !overrides.apiKeys) {
-    return undefined;
-  }
-
-  return overrides;
-};
-
+// The rule generator must stick to the on-premise model even if Supabase hosts
+// API keys for third-party providers. These settings can be overridden via
+// secrets but default to the local inference server.
 const LOCAL_MODEL_ENDPOINT =
   Deno.env.get("LOCAL_RULE_MODEL_URL") ??
   "http://127.0.0.1:1234/v1/chat/completions";
@@ -281,7 +235,6 @@ const LOCAL_MODEL_NAME =
 const callRemoteCompiler = async (
   instruction: string,
   pipeline: HeuristicPipeline,
-  _overrides?: InvokeOverrides,
 ): Promise<AiSuccess | AiFailure> => {
   const messages = buildAiMessages(instruction, pipeline);
   const requestBody = {
@@ -495,14 +448,7 @@ Deno.serve(async (req) => {
 
   try {
     const pipeline = runHeuristicPipeline(instruction);
-    const rawOverrides = (payload as { clientOverrides?: unknown })
-      .clientOverrides;
-    const overrides = parseClientOverrides(rawOverrides);
-    const aiOutcome = await callRemoteCompiler(
-      instruction,
-      pipeline,
-      overrides,
-    );
+    const aiOutcome = await callRemoteCompiler(instruction, pipeline);
     const result = await buildReadyResult(instruction, pipeline, aiOutcome);
 
     return new Response(JSON.stringify({ ok: true, result }), {
