@@ -9,15 +9,26 @@ on:
       - 'supabase/functions/**'
       - '.github/workflows/deploy-edge-functions.yml'
 
+concurrency:
+  group: supabase-edge-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy edge functions
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      SUPABASE_CLI_VERSION: latest
+      FUNCTIONS_DIR: supabase/functions
+      IMPORT_MAP: supabase/functions/import_map.json
+      # Active un cache Deno pour accélérer les bundles
+      DENO_DIR: ${{ runner.temp }}/deno
+
     steps:
       - name: Check required secrets
         if: ${{ env.SUPABASE_ACCESS_TOKEN == '' || env.SUPABASE_PROJECT_ID == '' }}
@@ -29,35 +40,124 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup dependencies (jq, corepack)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+          corepack enable || true
+
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: ${{ env.SUPABASE_CLI_VERSION }}
 
-      - name: Deploy edge functions
+      - name: Ensure DENO cache directory
+        run: mkdir -p "$DENO_DIR"
+
+      - name: Fix and validate import_map.json (if present)
         shell: bash
         run: |
           set -euo pipefail
-          FUNCTIONS_DIR="supabase/functions"
-          IMPORT_MAP="$FUNCTIONS_DIR/import_map.json"
-
-          if [ ! -f "$IMPORT_MAP" ]; then
-            echo "Import map not found at $IMPORT_MAP" >&2
-            exit 1
+          if [ -f "$IMPORT_MAP" ]; then
+            echo "Import map detected at $IMPORT_MAP"
+            # Corrige les URLs mal formées `https:/esm.sh` → `https://esm.sh`
+            sed -i 's#https:/esm.sh#https://esm.sh#g' "$IMPORT_MAP"
+            # Valide la syntaxe JSON
+            jq empty "$IMPORT_MAP"
+            echo "Validated import_map.json:"
+            cat "$IMPORT_MAP"
+          else
+            echo "No import map found at $IMPORT_MAP — will proceed without --import-map."
           fi
 
+      - name: Discover edge functions
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$FUNCTIONS_DIR" ]; then
+            echo "No functions directory at $FUNCTIONS_DIR" >&2
+            exit 1
+          fi
+          # Trouve les sous-dossiers non préfixés par '_'
           mapfile -t functions < <(find "$FUNCTIONS_DIR" -mindepth 1 -maxdepth 1 -type d \
-            ! -name '_*' \
-            -printf '%f\n' | sort)
+            ! -name '_*' -printf '%f\n' | sort)
 
           if [ ${#functions[@]} -eq 0 ]; then
             echo "No edge function directories found under $FUNCTIONS_DIR" >&2
             exit 1
           fi
 
-          for fn in "${functions[@]}"; do
-            echo "Deploying $fn"
-            supabase functions deploy "$fn" \
-              --project-ref "$SUPABASE_PROJECT_ID" \
-              --import-map "$IMPORT_MAP"
+          printf '%s\n' "${functions[@]}" | jq -R . | jq -s . > "$RUNNER_TEMP/functions.json"
+          echo "functions=$(cat "$RUNNER_TEMP/functions.json")" >> "$GITHUB_OUTPUT"
+          echo "Found functions:"
+          cat "$RUNNER_TEMP/functions.json"
+
+      - name: Pre-bundle (fail-fast)
+        shell: bash
+        env:
+          FUNCTIONS_JSON: ${{ steps.discover.outputs.functions }}
+        run: |
+          set -euo pipefail
+          functions=$(echo "$FUNCTIONS_JSON" | jq -r '.[]')
+          for fn in $functions; do
+            echo "::group::Bundling $fn"
+            if [ -f "$IMPORT_MAP" ]; then
+              supabase functions bundle "$fn" \
+                --import-map "$IMPORT_MAP" \
+                --debug
+            else
+              supabase functions bundle "$fn" \
+                --debug
+            fi
+            echo "::endgroup::"
           done
+
+      - name: Deploy (with retries)
+        shell: bash
+        env:
+          FUNCTIONS_JSON: ${{ steps.discover.outputs.functions }}
+        run: |
+          set -euo pipefail
+          functions=$(echo "$FUNCTIONS_JSON" | jq -r '.[]')
+
+          deploy_fn () {
+            local fn="$1"
+            if [ -f "$IMPORT_MAP" ]; then
+              supabase functions deploy "$fn" \
+                --project-ref "$SUPABASE_PROJECT_ID" \
+                --import-map "$IMPORT_MAP" \
+                --debug
+            else
+              supabase functions deploy "$fn" \
+                --project-ref "$SUPABASE_PROJECT_ID" \
+                --debug
+            fi
+          }
+
+          for fn in $functions; do
+            echo "::group::Deploying $fn"
+            n=0
+            until [ $n -ge 3 ]; do
+              if deploy_fn "$fn"; then
+                echo "✅ Deployed $fn"
+                break
+              fi
+              n=$((n+1))
+              sleep $((5 * n))  # backoff
+              echo "Retry $n/3 for $fn ..."
+            done
+            if [ $n -ge 3 ]; then
+              echo "❌ Failed to deploy $fn after 3 attempts." >&2
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "### Supabase Edge Functions – Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Project: \`${SUPABASE_PROJECT_ID}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Import map: \`${IMPORT_MAP}\` ($( [ -f "$IMPORT_MAP" ] && echo present || echo absent ))" >> $GITHUB_STEP_SUMMARY
+          echo "- Functions directory: \`${FUNCTIONS_DIR}\`" >> $GITHUB_STEP_SUMMARY
