@@ -656,13 +656,35 @@ export async function invokeRuleGeneratorChat(
     throw new Error("ruleGeneratorChat: aucune instruction utilisateur");
   }
 
+  const payload: Record<string, unknown> = {
+    prompt: instruction,
+    conversation: sanitizedConversation,
+  };
+
+  if (body.board) {
+    payload.board = body.board;
+  }
+
+  if (body.options) {
+    payload.options = body.options;
+  }
+
   try {
-    return buildPipelineReadyResult(instruction, "heuristic-only");
+    const response = await invokeSupabaseRuleGenerator(payload, 0, 2, 250);
+    const result = ensureResultRecord(response);
+    return result;
   } catch (error) {
+    const fallback = buildLocalPipelineFallback(
+      prompt,
+      sanitizedConversation,
+      error,
+    );
+    if (fallback) {
+      return fallback;
+    }
+
     throw new Error(
-      `ruleGeneratorChat: le pipeline heuristique a échoué (${toErrorMessage(
-        error,
-      )})`,
+      `ruleGeneratorChat: l'appel distant a échoué (${toErrorMessage(error)})`,
     );
   }
 }
