@@ -61,6 +61,7 @@ describe("rules pipeline", () => {
   scenarios.forEach((scenario) => {
     it(`génère une règle pour ${scenario.templateId}`, () => {
       const result = generateRulePipeline(scenario.instruction);
+      expect(result.program.commands.length).toBeGreaterThan(0);
       expect(result.intent.templateId).toBe(scenario.templateId);
       expect(result.validation.isValid).toBe(true);
       expect(result.dryRun.passed).toBe(true);
@@ -78,6 +79,6 @@ describe("rules pipeline", () => {
       forceFallback: true,
     });
     expect(result.fallbackProvider).toBeDefined();
-    expect(result.intentWarnings[0]?.code).toBe("no_match");
+    expect(result.programWarnings[0]?.code).toBe("no_match");
   });
 });
