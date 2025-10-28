@@ -1,5 +1,5 @@
 // --- generate-chess-rule/index.ts ---
-// Compile custom chess rules with Groq, seeded by the heuristic engine pipeline.
+// Compile custom chess rules with a local OSS model, seeded by the heuristic engine pipeline.
 
 import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
 import type { RuleJSON } from "../../../src/engine/types.ts";
@@ -245,6 +245,27 @@ const normaliseChatCompletionUrl = (
   return `${withoutTrailing}/v1/chat/completions`;
 };
 
+const enforceLocalOnly = (url: string) => {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`invalid_endpoint_url: ${url}`);
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (host !== "127.0.0.1" && host !== "localhost") {
+    throw new Error(`remote_endpoint_forbidden: ${url}`);
+  }
+};
+
+const OSS_MODEL_ALLOWLIST = new Set([
+  "openai/gpt-oss-20b",
+  "ollama/llama3.1:8b",
+  "ollama/qwen2.5:7b",
+  "lmstudio/Meta-Llama-3.1-8B-Instruct",
+]);
+
 const firstNonEmpty = (
   ...values: (string | undefined | null)[]
 ): string | null => {
@@ -265,17 +286,26 @@ const LOCAL_MODEL_ENDPOINT = normaliseChatCompletionUrl(
   "http://127.0.0.1:1234/v1/chat/completions",
 );
 
+enforceLocalOnly(LOCAL_MODEL_ENDPOINT);
+
 const LOCAL_MODEL_NAME =
   firstNonEmpty(
     Deno.env.get("LOCAL_RULE_MODEL_NAME"),
     Deno.env.get("OPENAI_MODEL"),
   ) ?? "openai/gpt-oss-20b";
 
+if (!OSS_MODEL_ALLOWLIST.has(LOCAL_MODEL_NAME)) {
+  throw new Error(`model_not_allowlisted: ${LOCAL_MODEL_NAME}`);
+}
+
 const LOCAL_MODEL_API_KEY =
   firstNonEmpty(
     Deno.env.get("LOCAL_RULE_MODEL_API_KEY"),
     Deno.env.get("OPENAI_API_KEY"),
   ) ?? "";
+
+console.log("[LLM Endpoint]", LOCAL_MODEL_ENDPOINT);
+console.log("[LLM Model]", LOCAL_MODEL_NAME);
 
 const callRemoteCompiler = async (
   instruction: string,
