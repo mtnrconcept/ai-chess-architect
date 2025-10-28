@@ -123,10 +123,10 @@ if (!globalScope.__LOVABLE_CLOUD_SUPABASE_LOGGED__) {
   }
 
   if (messages.length > 0) {
-    console.warn(`[Youaregood] ${messages.join(" ")}`);
+    console.warn(`[${EXPECTED_PROJECT_NAME}] ${messages.join(" ")}`);
   } else {
     console.log(
-      `[Youaregood] Fonctions configurées pour ${resolvedProjectName} (${resolvedProjectId}).`,
+      `[${EXPECTED_PROJECT_NAME}] Fonctions configurées pour ${resolvedProjectName} (${resolvedProjectId}).`,
     );
   }
 
