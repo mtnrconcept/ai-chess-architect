@@ -23,14 +23,23 @@ import RuleGenerator, {
   type RuleGeneratorReadyPayload,
 } from "@/features/rules/Generator";
 import { ChessMorphingAnimation } from "@/components/ui/chess-morphing-animation";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useGroqApiKey } from "@/hooks/useGroqApiKey";
 
 type ChessRuleInsert = Database["public"]["Tables"]["chess_rules"]["Insert"];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const LOCAL_CHAT_COMPLETIONS_URL = "http://127.0.0.1:1234/v1/chat/completions";
+const LOCAL_MODEL_NAME = "openai/gpt-oss-20b";
+const LOCAL_CURL_EXAMPLE = `curl ${LOCAL_CHAT_COMPLETIONS_URL} \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${LOCAL_MODEL_NAME}",
+    "messages": [
+      {"role": "system", "content": "You are a chess variant assistant."},
+      {"role": "user", "content": "Propose une règle originale pour les cavaliers."}
+    ]
+  }'`;
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -42,8 +51,6 @@ const Generator = () => {
   const [latestCorrelationId, setLatestCorrelationId] = useState<string | null>(
     null,
   );
-  const { groqApiKey, setGroqApiKey, clearGroqApiKey } = useGroqApiKey();
-
   const handleRuleReady = useCallback(
     async ({ result, warnings: chatWarnings }: RuleGeneratorReadyPayload) => {
       if (!user) {
@@ -348,38 +355,34 @@ const Generator = () => {
               disabled={saving}
               standalone={false}
             />
-            <div className="mt-6 space-y-2 rounded-lg border border-primary/30 bg-muted/10 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <Label
-                  htmlFor="groq-api-key"
-                  className="text-sm font-semibold text-primary"
-                >
-                  Clé API Groq
-                </Label>
-                {groqApiKey && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => clearGroqApiKey()}
-                  >
-                    Effacer
-                  </Button>
-                )}
-              </div>
-              <Input
-                id="groq-api-key"
-                type="password"
-                value={groqApiKey ?? ""}
-                placeholder="gsk_..."
-                autoComplete="off"
-                onChange={(event) => setGroqApiKey(event.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Cette clé est conservée localement dans votre navigateur et
-                transmise aux fonctions Supabase pour compiler les règles avec
-                Groq.
+            <div className="mt-6 space-y-3 rounded-lg border border-primary/30 bg-muted/10 p-4">
+              <p className="text-sm font-semibold text-primary">
+                Configuration du service local
               </p>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  <span className="font-semibold text-foreground">URL :</span>{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+                    {LOCAL_CHAT_COMPLETIONS_URL}
+                  </code>
+                </p>
+                <p>
+                  <span className="font-semibold text-foreground">
+                    Modèle :
+                  </span>{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+                    {LOCAL_MODEL_NAME}
+                  </code>
+                </p>
+                <div className="space-y-1">
+                  <p className="font-semibold text-foreground">
+                    Exemple de requête :
+                  </p>
+                  <pre className="whitespace-pre-wrap rounded bg-background/60 p-3 text-xs font-mono text-foreground">
+                    {LOCAL_CURL_EXAMPLE}
+                  </pre>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
