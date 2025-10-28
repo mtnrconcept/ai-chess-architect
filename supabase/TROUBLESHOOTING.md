@@ -288,8 +288,8 @@ while Lovable still points to a freshly created project. Fix it with the followi
 If you are using a non-`public` schema, remember to either set the schema on the client (`supabase.schema('app')`) or create
 synonyms in `public` so the REST API can expose them.
 
-For a quick bootstrap environment, reuse the minimal DDL from `supabase/migrations/20251215100000_create_tournament_system.sql`
-and `20260301120000_create_user_games.sql`. After creation, rerun the `pg_notify` command above to expose them.
+For a quick bootstrap environment, reuse the baseline DDL from `supabase/migrations/20251018171540_4875904c-c2ba-4788-b18e-c280a990822b.sql`
+and `supabase/migrations/20251018171612_e61b4c0b-cbe1-40b2-a466-7b86af9be4cc.sql`. After creation, rerun the `pg_notify` command above to expose them.
 
 ---
 
@@ -458,7 +458,7 @@ The sync logic queries the `public.tournaments`, `public.tournament_matches`, `p
    supabase db reset
    ```
 
-   These commands replay the SQL in `supabase/migrations/20251215100000_create_tournament_system.sql` (and the later hardening migrations) which create the required tables, views and RLS policies.
+   These commands replay the SQL introduced on 18 October 2025 (`supabase/migrations/20251018171540_4875904c-c2ba-4788-b18e-c280a990822b.sql` et `supabase/migrations/20251018171612_e61b4c0b-cbe1-40b2-a466-7b86af9be4cc.sql`), créant les tables, vues et politiques RLS nécessaires.
 
 2. Notify PostgREST to reload the schema if the API had already started:
 
