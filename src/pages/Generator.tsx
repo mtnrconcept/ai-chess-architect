@@ -23,6 +23,9 @@ import RuleGenerator, {
   type RuleGeneratorReadyPayload,
 } from "@/features/rules/Generator";
 import { ChessMorphingAnimation } from "@/components/ui/chess-morphing-animation";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useGroqApiKey } from "@/hooks/useGroqApiKey";
 
 type ChessRuleInsert = Database["public"]["Tables"]["chess_rules"]["Insert"];
 
@@ -39,6 +42,7 @@ const Generator = () => {
   const [latestCorrelationId, setLatestCorrelationId] = useState<string | null>(
     null,
   );
+  const { groqApiKey, setGroqApiKey, clearGroqApiKey } = useGroqApiKey();
 
   const handleRuleReady = useCallback(
     async ({ result, warnings: chatWarnings }: RuleGeneratorReadyPayload) => {
@@ -344,6 +348,39 @@ const Generator = () => {
               disabled={saving}
               standalone={false}
             />
+            <div className="mt-6 space-y-2 rounded-lg border border-primary/30 bg-muted/10 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <Label
+                  htmlFor="groq-api-key"
+                  className="text-sm font-semibold text-primary"
+                >
+                  Clé API Groq
+                </Label>
+                {groqApiKey && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => clearGroqApiKey()}
+                  >
+                    Effacer
+                  </Button>
+                )}
+              </div>
+              <Input
+                id="groq-api-key"
+                type="password"
+                value={groqApiKey ?? ""}
+                placeholder="gsk_..."
+                autoComplete="off"
+                onChange={(event) => setGroqApiKey(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Cette clé est conservée localement dans votre navigateur et
+                transmise aux fonctions Supabase pour compiler les règles avec
+                Groq.
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>

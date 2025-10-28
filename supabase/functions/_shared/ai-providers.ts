@@ -46,6 +46,14 @@ type InvokeArgs = {
   maxOutputTokens?: number;
   preferredModels?: Partial<Record<AiProviderName, string>>;
   forceJson?: boolean; // << NEW
+  overrides?: InvokeOverrides;
+};
+
+type ApiKeyOverrides = Partial<Record<AiProviderName, string>>;
+
+export type InvokeOverrides = {
+  provider?: AiProviderName;
+  apiKeys?: ApiKeyOverrides;
 };
 
 type InvokeResult = {
@@ -58,24 +66,62 @@ const DEFAULT_MAX_TOKENS = 1200;
 
 const FALLBACK_PROVIDERS: AiProviderName[] = ["openai", "gemini", "groq"];
 
-function hasEnvVar(name: string): boolean {
-  return (Deno.env.get(name) ?? "").trim().length > 0;
-}
+const resolveOverrideKey = (
+  provider: AiProviderName,
+  overrides?: InvokeOverrides,
+): string | null => {
+  const candidate = overrides?.apiKeys?.[provider];
+  if (typeof candidate === "string") {
+    const trimmed = candidate.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
 
-function providerFromEnv(): AiProviderName {
-  const p = (Deno.env.get("AI_PROVIDER") || "").toLowerCase();
-  if (p === "openai" || p === "gemini" || p === "groq") {
+  const envValue = (Deno.env.get(PROVIDER_ENV_VARS[provider]) ?? "").trim();
+  return envValue.length > 0 ? envValue : null;
+};
+
+const hasProviderKey = (
+  provider: AiProviderName,
+  overrides?: InvokeOverrides,
+): boolean => resolveOverrideKey(provider, overrides) !== null;
+
+const normaliseProvider = (value: string | undefined | null) => {
+  if (!value) {
+    return undefined;
+  }
+  const normalised = value.toLowerCase();
+  if (
+    normalised === "openai" ||
+    normalised === "gemini" ||
+    normalised === "groq" ||
+    normalised === "lovable"
+  ) {
+    return normalised as AiProviderName;
+  }
+  return undefined;
+};
+
+function providerFromEnv(overrides?: InvokeOverrides): AiProviderName {
+  const forcedProvider = overrides?.provider;
+  if (forcedProvider && hasProviderKey(forcedProvider, overrides)) {
+    return forcedProvider;
+  }
+
+  const p = normaliseProvider(Deno.env.get("AI_PROVIDER") ?? undefined);
+  if (p && hasProviderKey(p, overrides)) {
     return p;
   }
 
-  const lovableKeyPresent = hasEnvVar(PROVIDER_ENV_VARS.lovable);
+  const lovableKeyPresent = hasProviderKey("lovable", overrides);
 
   if (p === "lovable" || !p) {
     if (lovableKeyPresent) {
       return "lovable";
     }
     const fallback = FALLBACK_PROVIDERS.find((provider) =>
-      hasEnvVar(PROVIDER_ENV_VARS[provider]),
+      hasProviderKey(provider, overrides),
     );
     if (fallback) {
       return fallback;
@@ -88,7 +134,7 @@ function providerFromEnv(): AiProviderName {
     return "lovable";
   }
   const fallback = FALLBACK_PROVIDERS.find((provider) =>
-    hasEnvVar(PROVIDER_ENV_VARS[provider]),
+    hasProviderKey(provider, overrides),
   );
   if (fallback) {
     return fallback;
@@ -99,7 +145,7 @@ function providerFromEnv(): AiProviderName {
 export async function invokeChatCompletion(
   args: InvokeArgs,
 ): Promise<InvokeResult> {
-  const provider = providerFromEnv();
+  const provider = providerFromEnv(args.overrides);
   const model = args.preferredModels?.[provider];
   const forceJson = !!args.forceJson;
 
@@ -122,10 +168,14 @@ export async function invokeChatCompletion(
         ? { response_format: { type: "json_object" as const } }
         : {}),
     };
+    const apiKey = resolveOverrideKey("openai", args.overrides);
+    if (!apiKey) {
+      throw new MissingApiKeyError("openai", PROVIDER_ENV_VARS.openai);
+    }
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY") ?? ""}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -160,7 +210,11 @@ export async function invokeChatCompletion(
       },
       // Ajoute si utile: safetySettings…
     };
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model ?? "gemini-1.5-pro")}:generateContent?key=${Deno.env.get("GEMINI_API_KEY") ?? ""}`;
+    const apiKey = resolveOverrideKey("gemini", args.overrides);
+    if (!apiKey) {
+      throw new MissingApiKeyError("gemini", PROVIDER_ENV_VARS.gemini);
+    }
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model ?? "gemini-1.5-pro")}:generateContent?key=${apiKey}`;
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -203,10 +257,15 @@ export async function invokeChatCompletion(
       // stop: ["```"], // optionnel
     };
 
+    const apiKey = resolveOverrideKey("groq", args.overrides);
+    if (!apiKey) {
+      throw new MissingApiKeyError("groq", PROVIDER_ENV_VARS.groq);
+    }
+
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${Deno.env.get("GROQ_API_KEY") ?? ""}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -227,7 +286,7 @@ export async function invokeChatCompletion(
 
   // lovable (routeur)
   {
-    const apiKey = (Deno.env.get("LOVABLE_API_KEY") ?? "").trim();
+    const apiKey = resolveOverrideKey("lovable", args.overrides);
     if (!apiKey) {
       throw new MissingApiKeyError("lovable", PROVIDER_ENV_VARS.lovable);
     }

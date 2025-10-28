@@ -5,6 +5,7 @@ const pipelineMock = vi.fn();
 const supabaseInvokeMock = vi.fn();
 const resolveFunctionUrlMock = vi.fn();
 const supabaseAuthMock = vi.fn();
+const getGroqApiKeyMock = vi.fn<[], string | null>(() => null);
 
 vi.mock("@/features/rules-pipeline", () => ({
   generateRulePipeline: pipelineMock,
@@ -23,6 +24,10 @@ vi.mock("@/integrations/supabase/client", () => ({
     resolvedProjectName: "Test",
   },
   supabaseFunctionsUrl: undefined,
+}));
+
+vi.mock("@/lib/groqApiKeyStore", () => ({
+  getGroqApiKey: getGroqApiKeyMock,
 }));
 
 const buildPipelineResult = () => ({
@@ -69,6 +74,8 @@ describe("invokeRuleGeneratorChat", () => {
     resolveFunctionUrlMock.mockReturnValue(null);
     supabaseAuthMock.mockReset();
     supabaseAuthMock.mockResolvedValue({ data: { session: null } });
+    getGroqApiKeyMock.mockReset();
+    getGroqApiKeyMock.mockReturnValue(null);
   });
 
   it("throws when the conversation array is missing", async () => {
@@ -156,6 +163,27 @@ describe("invokeRuleGeneratorChat", () => {
       expect(result.rule).toHaveProperty("meta.ruleId", "remote");
       expect(result.prompt).toBe("Ajoute un blink pour les fous");
     }
+  });
+
+  it("inclut la clé Groq locale dans la charge utile lorsqu'elle est définie", async () => {
+    const { invokeRuleGeneratorChat } = await import("./functions");
+
+    getGroqApiKeyMock.mockReturnValue("gsk_test_key");
+
+    await invokeRuleGeneratorChat({
+      conversation: [{ role: "user", content: "Utilise une clé custom" }],
+    });
+
+    expect(supabaseInvokeMock).toHaveBeenCalledTimes(1);
+    const call = supabaseInvokeMock.mock.calls[0];
+    expect(call?.[1]).toMatchObject({
+      body: {
+        clientOverrides: {
+          provider: "groq",
+          apiKeys: { groq: "gsk_test_key" },
+        },
+      },
+    });
   });
 
   it("falls back to the heuristic pipeline when the edge function fails", async () => {

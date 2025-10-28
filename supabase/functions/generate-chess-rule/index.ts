@@ -26,6 +26,8 @@ import {
   AiProviderHTTPError,
   MissingApiKeyError,
   invokeChatCompletion,
+  type InvokeOverrides,
+  type AiProviderName,
 } from "../_shared/ai-providers.ts";
 
 const textEncoder = new TextEncoder();
@@ -216,9 +218,65 @@ const buildAiMessages = (
   ];
 };
 
+const parseClientOverrides = (raw: unknown): InvokeOverrides | undefined => {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const record = raw as Record<string, unknown>;
+  const overrides: InvokeOverrides = {};
+
+  const providerValue = record.provider;
+  if (typeof providerValue === "string") {
+    const normalised = providerValue.toLowerCase();
+    if (
+      normalised === "openai" ||
+      normalised === "gemini" ||
+      normalised === "groq" ||
+      normalised === "lovable"
+    ) {
+      overrides.provider = normalised as AiProviderName;
+    }
+  }
+
+  const apiKeysValue = record.apiKeys;
+  if (apiKeysValue && typeof apiKeysValue === "object") {
+    const entries = Object.entries(apiKeysValue as Record<string, unknown>);
+    const apiKeys: Partial<Record<AiProviderName, string>> = {};
+    for (const [key, value] of entries) {
+      if (typeof value !== "string") {
+        continue;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const normalisedKey = key.toLowerCase();
+      if (
+        normalisedKey === "openai" ||
+        normalisedKey === "gemini" ||
+        normalisedKey === "groq" ||
+        normalisedKey === "lovable"
+      ) {
+        apiKeys[normalisedKey as AiProviderName] = trimmed;
+      }
+    }
+    if (Object.keys(apiKeys).length > 0) {
+      overrides.apiKeys = apiKeys;
+    }
+  }
+
+  if (!overrides.provider && !overrides.apiKeys) {
+    return undefined;
+  }
+
+  return overrides;
+};
+
 const callRemoteCompiler = async (
   instruction: string,
   pipeline: HeuristicPipeline,
+  overrides?: InvokeOverrides,
 ): Promise<AiSuccess | AiFailure> => {
   const groqModel =
     Deno.env.get("AI_MODEL") ??
@@ -232,6 +290,7 @@ const callRemoteCompiler = async (
       maxOutputTokens: 1800,
       preferredModels: { groq: groqModel },
       forceJson: true,
+      overrides,
     });
 
     const trimmed = content.trim();
@@ -424,7 +483,14 @@ Deno.serve(async (req) => {
 
   try {
     const pipeline = runHeuristicPipeline(instruction);
-    const aiOutcome = await callRemoteCompiler(instruction, pipeline);
+    const rawOverrides = (payload as { clientOverrides?: unknown })
+      .clientOverrides;
+    const overrides = parseClientOverrides(rawOverrides);
+    const aiOutcome = await callRemoteCompiler(
+      instruction,
+      pipeline,
+      overrides,
+    );
     const result = await buildReadyResult(instruction, pipeline, aiOutcome);
 
     return new Response(JSON.stringify({ ok: true, result }), {
