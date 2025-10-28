@@ -100,7 +100,27 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const test = url.searchParams.get("test") === "true";
     const body = await req.json().catch(() => ({}));
-    const userPrompt = body.prompt || body.message || "";
+    const conversation = Array.isArray(body.conversation)
+      ? body.conversation.filter(
+          (entry) =>
+            entry &&
+            typeof entry === "object" &&
+            typeof entry.role === "string" &&
+            typeof entry.content === "string",
+        )
+      : [];
+    const lastUserMessage = [...conversation]
+      .reverse()
+      .find((entry) => entry.role === "user");
+    const fallbackPrompt =
+      typeof body.prompt === "string"
+        ? body.prompt
+        : typeof body.message === "string"
+          ? body.message
+          : typeof lastUserMessage?.content === "string"
+            ? lastUserMessage.content
+            : "";
+    const userPrompt = fallbackPrompt;
     // Prompt enrichi + consigne "JSON only"
     const enrichedPrompt = [
       "Tu es un expert en création de variantes d'échecs.",
@@ -123,11 +143,12 @@ Deno.serve(async (req) => {
     // Mode mock si test=true ou clé absente
     if (test || !groqKey) {
       console.info("MOCK response used (GROQ disabled or test=true)");
-      const mock = buildMock(userPrompt);
+      const latestUserMessage = lastUserMessage?.content ?? userPrompt;
+      const mock = buildMock(latestUserMessage);
       const result = {
         status: "ready" as const,
         rule: mock,
-        prompt: userPrompt,
+        prompt: latestUserMessage,
         rawModelResponse: {
           model: "mock",
           text: JSON.stringify(mock),
@@ -139,6 +160,36 @@ Deno.serve(async (req) => {
     }
     // ---- GROQ call (OpenAI-compatible) ----
     const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
+    const conversationMessages = (() => {
+      if (!conversation.length) {
+        return userPrompt
+          ? [
+              {
+                role: "user",
+                content: enrichedPrompt,
+              },
+            ]
+          : [];
+      }
+      const normalized = conversation.map((entry) => ({
+        role: entry.role,
+        content: entry.content,
+      }));
+      const lastUserIndex = [...normalized]
+        .map((entry, index) => ({ entry, index }))
+        .reverse()
+        .find(({ entry }) => entry.role === "user")?.index;
+      if (typeof lastUserIndex === "number") {
+        normalized[lastUserIndex] = {
+          role: "user",
+          content: enrichedPrompt,
+        };
+      } else if (userPrompt) {
+        normalized.push({ role: "user", content: enrichedPrompt });
+      }
+      return normalized;
+    })();
+
     const reqBody = {
       model: "mixtral-8x7b-32768",
       messages: [
@@ -147,10 +198,7 @@ Deno.serve(async (req) => {
           content:
             "Réponds uniquement avec un JSON valide. Aucun texte hors JSON.",
         },
-        {
-          role: "user",
-          content: enrichedPrompt,
-        },
+        ...conversationMessages,
       ],
       temperature: 0.7,
       max_tokens: 1200,
