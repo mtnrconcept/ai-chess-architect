@@ -451,7 +451,10 @@ const bishopSwap: TemplateCompiler = (intent) => {
           },
           targeting: intent.targeting
             ? {
-                mode: "piece",
+                mode:
+                  intent.targeting.mode === "none"
+                    ? "none"
+                    : intent.targeting.mode,
                 validTilesProvider: intent.targeting.provider,
               }
             : undefined,
