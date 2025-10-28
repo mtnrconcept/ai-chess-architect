@@ -6,6 +6,7 @@ import {
   supabaseDiagnostics,
   supabaseFunctionsUrl,
 } from "@/integrations/supabase/client";
+import { generateRulePipeline } from "@/features/rules-pipeline";
 import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
 
 export type GeneratedRule = Record<string, unknown>;
@@ -327,6 +328,105 @@ function sanitizeConversation(
     .filter((entry): entry is RuleGeneratorChatMessage => entry !== null);
 }
 
+const cloneAsRecord = (value: unknown): Record<string, unknown> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value === "object") {
+    try {
+      return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+    } catch (_error) {
+      return value as Record<string, unknown>;
+    }
+  }
+
+  return undefined;
+};
+
+const collectUserInstructions = (
+  prompt: string | undefined,
+  conversation: RuleGeneratorChatMessage[],
+): string | undefined => {
+  const trimmedPrompt = typeof prompt === "string" ? prompt.trim() : "";
+  if (trimmedPrompt.length > 0) {
+    return trimmedPrompt;
+  }
+
+  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+    const message = conversation[index];
+    if (message.role === "user") {
+      const trimmed = message.content.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  const combined = conversation
+    .filter((entry) => entry.role === "user")
+    .map((entry) => entry.content.trim())
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+
+  return combined.length > 0 ? combined : undefined;
+};
+
+const buildLocalPipelineFallback = (
+  prompt: string | undefined,
+  conversation: RuleGeneratorChatMessage[],
+  cause: unknown,
+): RuleGeneratorReady | null => {
+  const instruction = collectUserInstructions(prompt, conversation);
+  if (!instruction) {
+    return null;
+  }
+
+  try {
+    const pipeline = generateRulePipeline(instruction, { forceFallback: true });
+    const validation = cloneAsRecord(pipeline.validation) ?? {
+      issues: pipeline.validation.issues,
+      isValid: pipeline.validation.isValid,
+    };
+    const dryRun = cloneAsRecord(pipeline.dryRun) ?? {
+      passed: pipeline.dryRun.passed,
+      issues: pipeline.dryRun.issues,
+    };
+
+    const rawModelResponse = {
+      source: "local-pipeline",
+      cause: toErrorMessage(cause),
+      programWarnings: pipeline.programWarnings,
+      factoryWarnings: pipeline.factoryWarnings,
+      compilationWarnings: pipeline.compilationWarnings,
+      fallbackProvider: pipeline.fallbackProvider ?? null,
+      plan: pipeline.plan,
+    } satisfies Record<string, unknown>;
+
+    console.warn(
+      "[ruleGenerator] Supabase indisponible, utilisation du pipeline local.",
+      rawModelResponse.cause,
+    );
+
+    return {
+      status: "ready",
+      rule: (cloneAsRecord(pipeline.rule) ?? pipeline.rule) as GeneratedRule,
+      validation,
+      dryRun,
+      prompt: instruction,
+      promptHash: undefined,
+      correlationId: undefined,
+      rawModelResponse,
+      provider: pipeline.fallbackProvider
+        ? "local-pipeline:fallback"
+        : "local-pipeline",
+    } satisfies RuleGeneratorReady;
+  } catch (pipelineError) {
+    console.error("[ruleGenerator] Le pipeline local a échoué", pipelineError);
+    return null;
+  }
+};
+
 async function invokeSupabaseRuleGenerator(
   payload: Record<string, unknown>,
   attempt: number,
@@ -559,8 +659,35 @@ export async function invokeRuleGeneratorChat(
     }),
   );
 
-  const response = await invokeSupabaseRuleGenerator(payload, 0, 2, 600);
-  const result = ensureResultRecord(response);
+  let response: SupabaseRuleGeneratorResponse;
+  try {
+    response = await invokeSupabaseRuleGenerator(payload, 0, 2, 600);
+  } catch (error) {
+    const fallback = buildLocalPipelineFallback(
+      prompt,
+      sanitizedConversation,
+      error,
+    );
+    if (fallback) {
+      return fallback;
+    }
+    throw error;
+  }
+
+  let result: SupabaseNeedInfoResult | SupabaseReadyResult;
+  try {
+    result = ensureResultRecord(response);
+  } catch (error) {
+    const fallback = buildLocalPipelineFallback(
+      prompt,
+      sanitizedConversation,
+      error,
+    );
+    if (fallback) {
+      return fallback;
+    }
+    throw error;
+  }
 
   if (result.status === "need_info") {
     const questions = normalizeNeedInfoQuestions(result.questions);
