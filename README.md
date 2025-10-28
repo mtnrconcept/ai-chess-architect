@@ -192,3 +192,11 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Deploying Supabase Edge Functions
+
+To publish the serverless functions located in `supabase/functions/`, configure
+GitHub repository secrets `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_ID` and
+run the "Deploy Supabase Edge Functions" workflow from the Actions tab. For
+step-by-step instructions and a local CLI alternative, see
+[docs/supabase-edge-deployment.md](docs/supabase-edge-deployment.md).
