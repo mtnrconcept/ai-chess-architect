@@ -22,33 +22,28 @@ import { buildFallbackProvider } from "@/features/rules-pipeline/fallback/provid
 import type { FallbackProvider } from "@/features/rules-pipeline/fallback/providerGenerator";
 import type { CanonicalIntent } from "@/features/rules-pipeline/schemas/canonicalIntent";
 import type { RuleProgram } from "@/features/rules-pipeline/rule-language/types";
-
-const DEFAULT_TIMEOUT = Number(Deno.env.get("AI_REQUEST_TIMEOUT") || "10000");
+import {
+  AiProviderHTTPError,
+  MissingApiKeyError,
+  invokeChatCompletion,
+} from "../_shared/ai-providers.ts";
 
 const textEncoder = new TextEncoder();
 
-const timeoutPromise = (ms: number, msg = "timeout") =>
-  new Promise<never>((_, rej) => {
-    const id = setTimeout(() => {
-      clearTimeout(id);
-      rej(new Error(msg));
-    }, ms);
-  });
-
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
-type GroqSuccess = {
+type AiSuccess = {
   rule: RuleJSON;
   rawContent: string;
-  model?: string;
-  usage?: Record<string, unknown>;
+  provider: string;
+  model: string | null;
 };
 
-type GroqFailure = {
+type AiFailure = {
   error: string;
   rawContent?: string;
-  model?: string;
-  usage?: Record<string, unknown>;
+  provider?: string;
+  model?: string | null;
 };
 
 type HeuristicPipeline = {
@@ -155,7 +150,7 @@ const runHeuristicPipeline = (instruction: string): HeuristicPipeline => {
   };
 };
 
-const parseGroqJson = (content: string): RuleJSON | null => {
+const parseRuleJson = (content: string): RuleJSON | null => {
   const trimmed = content.trim();
   if (!trimmed) {
     return null;
@@ -178,7 +173,7 @@ const parseGroqJson = (content: string): RuleJSON | null => {
   }
 };
 
-const buildGroqMessages = (
+const buildAiMessages = (
   instruction: string,
   pipeline: HeuristicPipeline,
 ): ChatMessage[] => {
@@ -221,88 +216,67 @@ const buildGroqMessages = (
   ];
 };
 
-const callGroq = async (
+const callRemoteCompiler = async (
   instruction: string,
   pipeline: HeuristicPipeline,
-): Promise<GroqSuccess | GroqFailure> => {
-  const apiKey = Deno.env.get("GROQ_API_KEY");
-  if (!apiKey) {
-    return { error: "missing_api_key" };
-  }
-
-  const body = {
-    model: Deno.env.get("GROQ_MODEL") ?? "llama-3.3-70b-versatile",
-    messages: buildGroqMessages(instruction, pipeline),
-    max_tokens: 1800,
-    temperature: 0.35,
-  };
+): Promise<AiSuccess | AiFailure> => {
+  const groqModel =
+    Deno.env.get("AI_MODEL") ??
+    Deno.env.get("GROQ_MODEL") ??
+    "llama-3.3-70b-versatile";
 
   try {
-    const response = await Promise.race([
-      fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-      }),
-      timeoutPromise(DEFAULT_TIMEOUT, "groq_timeout"),
-    ]);
+    const { content, provider, model } = await invokeChatCompletion({
+      messages: buildAiMessages(instruction, pipeline),
+      temperature: 0.35,
+      maxOutputTokens: 1800,
+      preferredModels: { groq: groqModel },
+      forceJson: true,
+    });
 
-    const text = await response.text();
-    if (!response.ok) {
-      return { error: `http_${response.status}`, rawContent: text };
+    const trimmed = content.trim();
+    if (!trimmed) {
+      return { error: "empty_message", rawContent: content, provider, model };
     }
 
-    let payload: Record<string, unknown> | null = null;
-    try {
-      payload = JSON.parse(text) as Record<string, unknown>;
-    } catch (_error) {
-      return { error: "invalid_response", rawContent: text };
-    }
-
-    const model =
-      typeof payload?.model === "string" ? payload.model : undefined;
-    const usage =
-      payload && typeof payload.usage === "object"
-        ? (payload.usage as Record<string, unknown>)
-        : undefined;
-
-    const choice = Array.isArray(payload?.choices)
-      ? payload.choices[0]
-      : undefined;
-    const content =
-      choice && typeof choice === "object"
-        ? ((choice as { message?: { content?: string } }).message?.content ??
-          "")
-        : "";
-
-    if (typeof content !== "string" || !content.trim()) {
-      return { error: "empty_message", rawContent: text, model, usage };
-    }
-
-    const parsedRule = parseGroqJson(content);
+    const parsedRule = parseRuleJson(trimmed);
     if (!parsedRule) {
       return {
         error: "invalid_json_payload",
         rawContent: content,
+        provider,
         model,
-        usage,
       };
     }
 
     return {
       rule: parsedRule,
       rawContent: content,
+      provider,
       model,
-      usage,
-    } satisfies GroqSuccess;
+    } satisfies AiSuccess;
   } catch (error) {
+    if (error instanceof MissingApiKeyError) {
+      return {
+        error: error.code,
+        provider: error.provider,
+        model: null,
+      } satisfies AiFailure;
+    }
+
+    if (error instanceof AiProviderHTTPError) {
+      return {
+        error: `http_${error.status}`,
+        rawContent: error.responseText,
+        provider: error.provider,
+        model: null,
+      } satisfies AiFailure;
+    }
+
     return {
       error:
         (error instanceof Error ? error.message : String(error)) ?? "unknown",
-    };
+    } satisfies AiFailure;
   }
 };
 
@@ -317,19 +291,19 @@ const computePromptHash = async (instruction: string): Promise<string> => {
 const buildReadyResult = async (
   instruction: string,
   pipeline: HeuristicPipeline,
-  groqOutcome: GroqSuccess | GroqFailure,
+  aiOutcome: AiSuccess | AiFailure,
 ) => {
   let rule = pipeline.heuristicRule;
   let validation = pipeline.validation;
   let dryRun = pipeline.dryRun;
   let plan = pipeline.plan;
   let provider = "heuristic-only";
-  const groqMeta: Record<string, unknown> = {
+  const llmMeta: Record<string, unknown> = {
     status: "skipped",
   };
 
-  if ("rule" in groqOutcome) {
-    const candidateRule = groqOutcome.rule;
+  if ("rule" in aiOutcome) {
+    const candidateRule = aiOutcome.rule;
     const candidateValidation = validateRule(pipeline.intent, candidateRule);
     const candidateDryRun = dryRunRule(
       pipeline.intent,
@@ -344,32 +318,44 @@ const buildReadyResult = async (
       validation = candidateValidation;
       dryRun = candidateDryRun;
       plan = candidatePlan;
-      provider = "groq+heuristic";
-      groqMeta.status = "success";
+      const providerLabel = aiOutcome.model
+        ? `${aiOutcome.provider}:${aiOutcome.model}`
+        : aiOutcome.provider;
+      provider = providerLabel;
+      llmMeta.status = "success";
+      llmMeta.provider = aiOutcome.provider;
+      llmMeta.model = aiOutcome.model;
+      llmMeta.rawContent = aiOutcome.rawContent;
     } else {
-      groqMeta.status = "invalid_output";
-      groqMeta.validation = candidateValidation;
-      groqMeta.dryRun = candidateDryRun;
-      groqMeta.rawContent = groqOutcome.rawContent;
-      groqMeta.model = groqOutcome.model;
-      groqMeta.usage = groqOutcome.usage;
+      llmMeta.status = "invalid_output";
+      llmMeta.validation = candidateValidation;
+      llmMeta.dryRun = candidateDryRun;
+      llmMeta.rawContent = aiOutcome.rawContent;
+      llmMeta.provider = aiOutcome.provider;
+      llmMeta.model = aiOutcome.model;
     }
   } else {
-    groqMeta.status = groqOutcome.error;
-    groqMeta.rawContent = groqOutcome.rawContent;
-    groqMeta.model = groqOutcome.model;
-    groqMeta.usage = groqOutcome.usage;
+    llmMeta.status = aiOutcome.error;
+    if (aiOutcome.provider) {
+      llmMeta.provider = aiOutcome.provider;
+    }
+    if (aiOutcome.model !== undefined) {
+      llmMeta.model = aiOutcome.model;
+    }
+    if (aiOutcome.rawContent) {
+      llmMeta.rawContent = aiOutcome.rawContent;
+    }
   }
 
   const rawModelResponse = {
-    source: "groq-rule-compiler",
+    source: "rule-compiler",
     heuristics: {
       programWarnings: pipeline.programWarnings,
       factoryWarnings: pipeline.factoryWarnings,
       compilationWarnings: pipeline.compilationWarnings,
       fallbackProvider: pipeline.fallbackProvider ?? null,
     },
-    groq: groqMeta,
+    llm: llmMeta,
   } satisfies Record<string, unknown>;
 
   return {
@@ -438,8 +424,8 @@ Deno.serve(async (req) => {
 
   try {
     const pipeline = runHeuristicPipeline(instruction);
-    const groqOutcome = await callGroq(instruction, pipeline);
-    const result = await buildReadyResult(instruction, pipeline, groqOutcome);
+    const aiOutcome = await callRemoteCompiler(instruction, pipeline);
+    const result = await buildReadyResult(instruction, pipeline, aiOutcome);
 
     return new Response(JSON.stringify({ ok: true, result }), {
       status: 200,
