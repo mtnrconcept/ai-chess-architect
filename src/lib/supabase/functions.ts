@@ -7,7 +7,6 @@ import {
   supabaseFunctionsUrl,
 } from "@/integrations/supabase/client";
 import { generateRulePipeline } from "@/features/rules-pipeline";
-import { getGroqApiKey } from "@/lib/groqApiKeyStore";
 
 export type GeneratedRule = Record<string, unknown>;
 
@@ -689,13 +688,8 @@ export async function invokeRuleGeneratorChat(
     payload.options = body.options;
   }
 
-  const groqApiKey = getGroqApiKey();
-  if (groqApiKey) {
-    payload.clientOverrides = {
-      provider: "groq",
-      apiKeys: { groq: groqApiKey },
-    } satisfies Record<string, unknown>;
-  }
+  // The backend is configured to proxy the local rule model via LOCAL_RULE_MODEL_URL,
+  // so no client overrides (API keys or provider hints) need to be injected here.
 
   try {
     const response = await invokeSupabaseRuleGenerator(payload, 0, 2, 250);
