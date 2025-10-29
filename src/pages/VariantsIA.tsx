@@ -5,11 +5,17 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { OssClient, ChatMessage } from "../lib/ai/ossClient";
 
-const DEFAULT_ENDPOINT =
-  import.meta.env.VITE_OSS_ENDPOINT ??
-  "http://192.168.0.33:1234/v1/chat/completions";
+const envVars =
+  (
+    import.meta as unknown as {
+      env?: { VITE_OSS_ENDPOINT?: string; VITE_OSS_MODEL?: string };
+    }
+  ).env ?? {};
 
-const DEFAULT_MODEL = import.meta.env.VITE_OSS_MODEL ?? "openai/gpt-oss-20b";
+const DEFAULT_ENDPOINT =
+  envVars.VITE_OSS_ENDPOINT ?? "http://192.168.0.33:1234/v1/chat/completions";
+
+const DEFAULT_MODEL = envVars.VITE_OSS_MODEL ?? "openai/gpt-oss-20b";
 
 // Prompt système strict-JSON
 const SYSTEM_PROMPT =
