@@ -27,7 +27,7 @@ const envVars =
 const DEFAULT_ENDPOINT =
   envVars.VITE_OSS_ENDPOINT ?? "http://192.168.0.33:1234/v1/chat/completions";
 
-const DEFAULT_MODEL = envVars.VITE_OSS_MODEL ?? "openai/gpt-oss-20b";
+const DEFAULT_MODEL = envVars.VITE_OSS_MODEL ?? "openai/gpt-oss-20b:2";
 
 export type OssClientOptions = {
   endpoint?: string;

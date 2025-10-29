@@ -1,4 +1,4 @@
-// --- generate-chess-rule/index.ts ---
+﻿// --- generate-chess-rule/index.ts ---
 // Compile custom chess rules with a local OSS model, seeded by the heuristic engine pipeline.
 
 import { RULE_GENERATOR_MIN_PROMPT_LENGTH } from "../../../shared/rule-generator.ts";
@@ -206,16 +206,16 @@ const buildAiMessages = (
   );
 
   const systemPrompt =
-    "Tu es un compilateur pour un moteur de règles d'échecs JSON. " +
-    "Respecte strictement le schéma des règles: meta, scope, ui, state, parameters, logic. " +
-    "Ne réponds qu'en JSON valide, sans texte additionnel.";
+    "Tu es un compilateur pour un moteur de rÃ¨gles d'Ã©checs JSON. " +
+    "Respecte strictement le schÃ©ma des rÃ¨gles: meta, scope, ui, state, parameters, logic. " +
+    "Ne rÃ©ponds qu'en JSON valide, sans texte additionnel.";
 
   const userPrompt =
     `Instruction utilisateur:\n${instruction}\n\n` +
-    `Données heuristiques (JSON):\n${heuristicsContext}\n\n` +
-    "Objectif: utilise les données heuristiques comme base, " +
-    "complète ou ajuste la règle pour respecter l'intention. " +
-    "Assure-toi que les clés et valeurs restent cohérentes avec le moteur.";
+    `DonnÃ©es heuristiques (JSON):\n${heuristicsContext}\n\n` +
+    "Objectif: utilise les donnÃ©es heuristiques comme base, " +
+    "complÃ¨te ou ajuste la rÃ¨gle pour respecter l'intention. " +
+    "Assure-toi que les clÃ©s et valeurs restent cohÃ©rentes avec le moteur.";
 
   return [
     { role: "system", content: systemPrompt },
@@ -247,6 +247,7 @@ const normaliseChatCompletionUrl = (
 
 const ALLOWED_MODEL_HOSTS = new Set(["127.0.0.1", "localhost", "192.168.0.33"]);
 
+const ALLOWED_MODEL_SUFFIXES = [".ngrok-free.app", ".ngrok.app", ".ngrok.io"];
 const enforceLocalOnly = (url: string) => {
   let parsed: URL;
   try {
@@ -260,7 +261,11 @@ const enforceLocalOnly = (url: string) => {
     return;
   }
 
-  // Block all remote suffixes – local only
+  // Block all remote suffixes â€“ local only
+  if (ALLOWED_MODEL_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
+    return;
+  }
+  // Otherwise block remote endpoints
 
   throw new Error(`remote_endpoint_forbidden: ${url}`);
 };
@@ -271,6 +276,14 @@ const OSS_MODEL_ALLOWLIST = new Set([
   "ollama/qwen2.5:7b",
   "lmstudio/Meta-Llama-3.1-8B-Instruct",
 ]);
+
+// Accept allowlisted names with optional version/tag suffix (e.g., ":2").
+const isModelAllowlisted = (name: string): boolean => {
+  const exact = OSS_MODEL_ALLOWLIST.has(name);
+  if (exact) return true;
+  const base = name.includes(":") ? name.split(":", 1)[0] : name;
+  return OSS_MODEL_ALLOWLIST.has(base);
+};
 
 const firstNonEmpty = (
   ...values: (string | undefined | null)[]
@@ -300,7 +313,7 @@ const LOCAL_MODEL_NAME =
     Deno.env.get("OPENAI_MODEL"),
   ) ?? "openai/gpt-oss-20b";
 
-if (!OSS_MODEL_ALLOWLIST.has(LOCAL_MODEL_NAME)) {
+if (!isModelAllowlisted(LOCAL_MODEL_NAME)) {
   throw new Error(`model_not_allowlisted: ${LOCAL_MODEL_NAME}`);
 }
 
