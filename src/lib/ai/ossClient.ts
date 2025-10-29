@@ -18,8 +18,12 @@ type OpenAICompatResponse = {
 };
 
 // ➜ ENDPOINT LAN par défaut
-const DEFAULT_ENDPOINT = "http://192.168.0.33:1234/v1/chat/completions";
-const DEFAULT_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_ENDPOINT =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_OSS_ENDPOINT) ??
+  "http://192.168.0.33:1234/v1/chat/completions";
+const DEFAULT_MODEL =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_OSS_MODEL) ??
+  "openai/gpt-oss-20b";
 
 export type OssClientOptions = {
   endpoint?: string;

@@ -30,8 +30,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const LOCAL_CHAT_COMPLETIONS_URL =
-  "https://1e3436cf808a.ngrok-free.app/v1/chat/completions";
-const LOCAL_MODEL_NAME = "openai/gpt-oss-20b";
+  import.meta.env.VITE_OSS_ENDPOINT ??
+  "http://192.168.0.33:1234/v1/chat/completions";
+const LOCAL_MODEL_NAME = import.meta.env.VITE_OSS_MODEL ?? "openai/gpt-oss-20b";
 const LOCAL_CURL_EXAMPLE = `curl ${LOCAL_CHAT_COMPLETIONS_URL} \\
   -H "Content-Type: application/json" \\
   -d '{

@@ -88,7 +88,7 @@ const normaliseCompletionsUrl = (raw: string | undefined, fallback: string) => {
 
 const OPENROUTER_BASE_URL = normaliseCompletionsUrl(
   Deno.env.get("OPENROUTER_BASE_URL"),
-  "http://127.0.0.1:1234/v1/chat/completions",
+  "http://192.168.0.33:1234/v1/chat/completions",
 );
 
 const resolveOverrideKey = (
