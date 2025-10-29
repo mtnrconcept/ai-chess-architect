@@ -208,7 +208,7 @@ class InMemoryCoachService implements CoachService {
   public constructor() {
     let llmProvider: LLMProvider | undefined;
     try {
-      llmProvider = new LLMProvider({ order: ["lovable", "groq", "gemini"] });
+      llmProvider = new LLMProvider({ order: ["local"] });
     } catch (error) {
       console.warn("LLM provider disabled for in-memory coach service:", error);
     }

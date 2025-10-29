@@ -2,6 +2,7 @@ import { z } from "zod";
 import { GroqDriver } from "./providers/groq";
 import { LovableDriver } from "./providers/lovable";
 import { GeminiDriver } from "./providers/gemini";
+import { LocalOpenAIDriver } from "./providers/local-openai";
 
 export interface LLMRequest {
   readonly prompt: string;
@@ -35,7 +36,12 @@ export class LLMProvider {
 
   public constructor(options: LLMProviderOptions = {}) {
     const availableDrivers = this.createDrivers(options.drivers);
-    const orderedNames = options.order ?? ["lovable", "groq", "gemini"];
+    const orderedNames = options.order ?? [
+      "local",
+      "lovable",
+      "groq",
+      "gemini",
+    ];
     this.drivers = orderedNames
       .map((name) => availableDrivers.get(name))
       .filter((driver): driver is LLMDriver => Boolean(driver))
@@ -74,10 +80,12 @@ export class LLMProvider {
   ): Map<string, LLMDriver> {
     const drivers = new Map<string, LLMDriver>();
 
+    const local = overrides?.local ?? new LocalOpenAIDriver();
     const lovable = overrides?.lovable ?? new LovableDriver();
     const groq = overrides?.groq ?? new GroqDriver();
     const gemini = overrides?.gemini ?? new GeminiDriver();
 
+    drivers.set(local.name, local);
     drivers.set(lovable.name, lovable);
     drivers.set(groq.name, groq);
     drivers.set(gemini.name, gemini);
@@ -89,6 +97,7 @@ export class LLMProvider {
 export { LovableDriver } from "./providers/lovable";
 export { GroqDriver } from "./providers/groq";
 export { GeminiDriver } from "./providers/gemini";
+export { LocalOpenAIDriver } from "./providers/local-openai";
 
 export const CoachSchema = z.object({
   headline: z.string(),

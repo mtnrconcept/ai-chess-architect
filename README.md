@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+﻿# Welcome to your Lovable project
 
 ## Project info
 
@@ -65,9 +65,9 @@ This project is built with:
 The repository follows a lightweight monorepo layout so that the API, worker, SDK, and UI can iterate at their own pace. The two
 top-level folders you will interact with are:
 
-- `apps/` – runtime entry points. `coach-api` exposes the REST facade while `coach-worker` hosts the Stockfish + LLM analysis
+- `apps/` â€“ runtime entry points. `coach-api` exposes the REST facade while `coach-worker` hosts the Stockfish + LLM analysis
   pipeline.
-- `packages/` – shared libraries. `engine` ships the WASM and UCI bridges to Stockfish, `llm` orchestrates providers, `sdk`
+- `packages/` â€“ shared libraries. `engine` ships the WASM and UCI bridges to Stockfish, `llm` orchestrates providers, `sdk`
   wraps the REST endpoints, and `ui-coach` exposes composable React widgets.
 
 Each package can be built and tested independently with `pnpm -r run build` / `pnpm -r run test` from the repository root.
@@ -81,7 +81,7 @@ The repository includes a modular FX system located under `src/fx`. It exposes:
 - a small NLP lexicon `FxLexicon` capable of mapping textual rule descriptions to normalised FX intents,
 - `runFxIntents()` helper used by the rules engine to connect generated rule metadata with visual effects.
 
-Effects are defined declaratively via JSON `fxIntents` descriptors (generated together with your chess rules). The resolver automatically picks the proper GSAP / Pixi routines: mines spawning, area hazards, holograms, warps, trails, explosions… All the heavy lifting (glow filters, particle pools, easing & clean-up) lives inside `fx/registry.ts`, which you can extend with additional shaders, spritesheets or Rive/Lottie assets.
+Effects are defined declaratively via JSON `fxIntents` descriptors (generated together with your chess rules). The resolver automatically picks the proper GSAP / Pixi routines: mines spawning, area hazards, holograms, warps, trails, explosionsâ€¦ All the heavy lifting (glow filters, particle pools, easing & clean-up) lives inside `fx/registry.ts`, which you can extend with additional shaders, spritesheets or Rive/Lottie assets.
 
 To wire it to the board, wrap your board container inside `<FxProvider>` and call `triggerFx(intents, payload)` whenever an engine event fires (piece move, capture, trap activation, etc.). The provider takes care of mounting a transparent Pixi canvas above the board, resizing it, and orchestrating the timelines.
 
@@ -89,48 +89,50 @@ To wire it to the board, wrap your board container inside `<FxProvider>` and cal
 
 Some serverless features depend on an external AI provider. The edge functions under `supabase/functions` will automatically use the first configured secret among `LOVABLE_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`. At least one of these secrets must be present in the Supabase project so that the rule generator and the coach can authenticate against the selected API.
 
-> ℹ️ **Provider selection & fallbacks** – By default the functions try to route traffic through Lovable. If `LOVABLE_API_KEY` is not defined, they fall back to any other provider that has a key set; otherwise they return a `503` with a descriptive error. When running locally, either set `LOVABLE_API_KEY` or point `AI_PROVIDER` to `openai`, `groq`, or `gemini` and provide the corresponding key.
+> â„¹ï¸ **Provider selection & fallbacks** â€“ By default the functions try to route traffic through Lovable. If `LOVABLE_API_KEY` is not defined, they fall back to any other provider that has a key set; otherwise they return a `503` with a descriptive error. When running locally, either set `LOVABLE_API_KEY` or point `AI_PROVIDER` to `openai`, `groq`, or `gemini` and provide the corresponding key.
 
-> ℹ️ **Modèle local** – Le compilateur de règles (`supabase/functions/generate-chess-rule`) cible d'abord l'instance d'inférence locale (`LOCAL_RULE_MODEL_URL`). Il n'exige pas de clé `OPENAI_API_KEY` ou `OPENROUTER_API_KEY` : si aucune n'est fournie, la fonction envoie simplement la requête sans en-tête `Authorization`.
+> â„¹ï¸ **ModÃ¨le local** â€“ Le compilateur de rÃ¨gles (`supabase/functions/generate-chess-rule`) cible d'abord l'instance d'infÃ©rence locale (`LOCAL_RULE_MODEL_URL`). Il n'exige pas de clÃ© `OPENAI_API_KEY` ou `OPENROUTER_API_KEY`Â : si aucune n'est fournie, la fonction envoie simplement la requÃªte sans en-tÃªte `Authorization`.
 
-### Tunnel ngrok vers un modèle local
+### Modèle local (LAN)
 
-Si votre modèle OSS tourne sur votre machine et que vous souhaitez l'exposer à
-l'application sans ouvrir de port, suivez le guide
-[`docs/local-model-ngrok.md`](docs/local-model-ngrok.md) pour créer un tunnel
-HTTPS avec ngrok et renseigner `LOCAL_RULE_MODEL_URL`.
+Utilisez un endpoint OpenAI‑compatible sur votre réseau local et configurez:
 
+- `LOCAL_RULE_MODEL_URL` ou `OPENAI_BASE_URL` → `http://192.168.0.33:1234`
+- `OPENAI_MODEL` → `openai/gpt-oss-20b`
+
+Toutes les fonctionnalités IA (Coach, Insights, Générateur) ciblent désormais
+prioritairement cet endpoint local, sans clé API requise.
 ### Supabase & Lovable AI integration
 
 This repository already ships with the Supabase configuration generated by Lovable AI. All database tables, types, and edge
 functions live under the `supabase/` directory and are wired to the same Lovable AI gateway that powers the in-app chatbot.
 
-- **Projet Supabase verrouillé** – Toutes les configurations (clients web, scripts Node et edge functions) ciblent le projet Supabase
-  **Youaregood** (`ucaqbhmyutlnitnedowk`). Si tu modifies les variables d'environnement, vérifie qu'elles continuent de pointer
+- **Projet Supabase verrouillÃ©** â€“ Toutes les configurations (clients web, scripts Node et edge functions) ciblent le projet Supabase
+  **Youaregood** (`ucaqbhmyutlnitnedowk`). Si tu modifies les variables d'environnement, vÃ©rifie qu'elles continuent de pointer
   vers cet identifiant et ce jeu de tables.
-- **Reuse the provided project** – keep using the Supabase project ID and anon key from the existing `.env` file so the web
+- **Reuse the provided project** â€“ keep using the Supabase project ID and anon key from the existing `.env` file so the web
   client and serverless functions continue to point to the Lovable-managed instance.
-- **Deploy edge functions from this folder** – when you push updates to `supabase/functions/*`, redeploy them with the
+- **Deploy edge functions from this folder** â€“ when you push updates to `supabase/functions/*`, redeploy them with the
   Supabase CLI to ensure the Lovable AI gateway secret is picked up.
-- **Migrations are tracked here** – any schema change should be captured with `npx supabase migration new` so the Lovable AI
+- **Migrations are tracked here** â€“ any schema change should be captured with `npx supabase migration new` so the Lovable AI
   workspace and this repo stay in sync.
 
 By keeping the same Supabase folder and Lovable API configuration, the chatbot and tournament features stay connected to the
 shared Lovable AI services without additional setup.
 
-#### Base de données & migrations
+#### Base de donnÃ©es & migrations
 
-Le fichier `.env` (ainsi que ses variantes `preview` et `production`) inclut maintenant la variable `SUPABASE_DB_URL` qui pointe vers la base de données Supabase fournie (`postgresql://postgres:[YOUR_PASSWORD]@db.ucaqbhmyutlnitnedowk.supabase.co:5432/postgres`).
+Le fichier `.env` (ainsi que ses variantes `preview` et `production`) inclut maintenant la variable `SUPABASE_DB_URL` qui pointe vers la base de donnÃ©es Supabase fournie (`postgresql://postgres:[YOUR_PASSWORD]@db.ucaqbhmyutlnitnedowk.supabase.co:5432/postgres`).
 
-Pour créer les tables manquantes et appliquer les migrations SQL présentes dans `supabase/migrations`, tu peux maintenant t'appuyer sur la commande officielle Supabase (ce qui garantit le bon fonctionnement du coach IA, du générateur de règles et des tournois connectés au projet Lovable) :
+Pour crÃ©er les tables manquantes et appliquer les migrations SQL prÃ©sentes dans `supabase/migrations`, tu peux maintenant t'appuyer sur la commande officielle Supabase (ce qui garantit le bon fonctionnement du coach IA, du gÃ©nÃ©rateur de rÃ¨gles et des tournois connectÃ©s au projet Lovable)Â :
 
 ```bash
 pnpm run db:push
 ```
 
-La commande encapsule `npx supabase db push` en ciblant automatiquement la base Lovable (`SUPABASE_DB_URL`) et le projet `ucaqbhmyutlnitnedowk`. Elle peut être utilisée telle quelle dans GitHub Actions ou sur ta machine locale.
+La commande encapsule `npx supabase db push` en ciblant automatiquement la base Lovable (`SUPABASE_DB_URL`) et le projet `ucaqbhmyutlnitnedowk`. Elle peut Ãªtre utilisÃ©e telle quelle dans GitHub Actions ou sur ta machine locale.
 
-Si tu travailles dans un environnement dépourvu du CLI Supabase, l'ancien script reste disponible :
+Si tu travailles dans un environnement dÃ©pourvu du CLI Supabase, l'ancien script reste disponibleÂ :
 
 ```bash
 pnpm run db:migrate
@@ -138,15 +140,15 @@ pnpm run db:migrate
 
 Ce dernier constitue une alternative directe qui n'a besoin que de Node.js.
 
-Le script `scripts/run-supabase-migrations.mjs` applique chaque fichier `.sql` dans l'ordre en veillant à activer TLS (`sslmode=require`). Assure-toi simplement que la machine qui exécute ce script peut établir une connexion réseau vers l'hôte Supabase (IPv4 ou IPv6).
+Le script `scripts/run-supabase-migrations.mjs` applique chaque fichier `.sql` dans l'ordre en veillant Ã  activer TLS (`sslmode=require`). Assure-toi simplement que la machine qui exÃ©cute ce script peut Ã©tablir une connexion rÃ©seau vers l'hÃ´te Supabase (IPv4 ou IPv6).
 
-Une fois les nouvelles tables et vues créées, force un rafraîchissement du cache PostgREST afin que `/rest/v1/tournaments` et les vues associées soient visibles immédiatement :
+Une fois les nouvelles tables et vues crÃ©Ã©es, force un rafraÃ®chissement du cache PostgREST afin que `/rest/v1/tournaments` et les vues associÃ©es soient visibles immÃ©diatementÂ :
 
 ```bash
 pnpm run postgrest:reload
 ```
 
-La commande exécute `select pg_notify('pgrst','reload schema');` via la même connexion SSL, ce qui évite d'avoir à redémarrer manuellement l'API depuis le tableau de bord Supabase.
+La commande exÃ©cute `select pg_notify('pgrst','reload schema');` via la mÃªme connexion SSL, ce qui Ã©vite d'avoir Ã  redÃ©marrer manuellement l'API depuis le tableau de bord Supabase.
 
 Set one of the supported secrets with the Supabase CLI from the root of the repository (replace the placeholder with your real key). Examples:
 
@@ -159,7 +161,7 @@ npx supabase secrets set GEMINI_API_KEY=ya29.xxx
 
 You can optionally define `AI_PROVIDER` to force a specific provider when multiple keys are present (`lovable`, `groq`, `openai`, or `gemini`). Each provider also accepts an optional model override via `LOVABLE_MODEL`, `GROQ_MODEL`, `OPENAI_MODEL`, or `GEMINI_MODEL`.
 
-If you do not use the CLI, the secrets can also be configured from the Supabase dashboard by navigating to **Project Settings → API → Secrets** and adding new entries with the appropriate names.
+If you do not use the CLI, the secrets can also be configured from the Supabase dashboard by navigating to **Project Settings â†’ API â†’ Secrets** and adding new entries with the appropriate names.
 
 Whenever the secret is updated, redeploy the edge functions so they pick up the latest value:
 
@@ -178,19 +180,19 @@ Simply open [Lovable](https://lovable.dev/projects/1e794698-feca-4fca-ab3b-11990
 
 ### Synchroniser le build Lovable depuis la CLI
 
-Le script `pnpm run build` déclenche désormais automatiquement un webhook Lovable si l'une des variables suivantes est définie :
+Le script `pnpm run build` dÃ©clenche dÃ©sormais automatiquement un webhook Lovable si l'une des variables suivantes est dÃ©finieÂ :
 
 - `LOVABLE_DEPLOY_HOOK`
 - `LOVABLE_DEPLOY_URL`
 - `LOVABLE_DEPLOY_ENDPOINT`
 
-Configure ce hook (généralement disponible dans l'onglet **Settings → Deploy hooks** de Lovable) dans ton environnement CI/CD afin qu'un `pnpm run build` local ou sur GitHub Actions rafraîchisse instantanément le build Lovable. Des options supplémentaires sont disponibles :
+Configure ce hook (gÃ©nÃ©ralement disponible dans l'onglet **Settings â†’ Deploy hooks** de Lovable) dans ton environnement CI/CD afin qu'un `pnpm run build` local ou sur GitHub Actions rafraÃ®chisse instantanÃ©ment le build Lovable. Des options supplÃ©mentaires sont disponiblesÂ :
 
-- `LOVABLE_DEPLOY_METHOD` (par défaut `POST`)
-- `LOVABLE_DEPLOY_HEADERS` (objet JSON sérialisé pour ajouter des en-têtes personnalisés)
+- `LOVABLE_DEPLOY_METHOD` (par dÃ©faut `POST`)
+- `LOVABLE_DEPLOY_HEADERS` (objet JSON sÃ©rialisÃ© pour ajouter des en-tÃªtes personnalisÃ©s)
 - `LOVABLE_DEPLOY_SECRET` (ajout automatique d'un header `Authorization: Bearer ...`)
-- `LOVABLE_DEPLOY_BODY` (payload envoyé pour les méthodes autres que `GET/HEAD`)
-- `LOVABLE_DEPLOY_TIMEOUT_MS` (délai avant expiration, par défaut `15000`)
+- `LOVABLE_DEPLOY_BODY` (payload envoyÃ© pour les mÃ©thodes autres que `GET/HEAD`)
+- `LOVABLE_DEPLOY_TIMEOUT_MS` (dÃ©lai avant expiration, par dÃ©faut `15000`)
 
 En cas d'absence de configuration, le build local se poursuit normalement sans provoquer d'erreur.
 

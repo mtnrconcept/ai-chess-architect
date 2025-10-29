@@ -1,7 +1,7 @@
 // supabase/functions/_shared/ai-providers.ts
 // Unifier l'appel LLM avec options "forceJson"
 
-export type AiProviderName = "openrouter";
+export type AiProviderName = "local" | "openrouter";
 
 export class AiProviderHTTPError extends Error {
   readonly code = "ai_provider_http_error" as const;
@@ -61,7 +61,7 @@ type InvokeResult = {
 
 const DEFAULT_MAX_TOKENS = 1200;
 
-const FALLBACK_PROVIDERS: AiProviderName[] = ["openrouter"];
+const FALLBACK_PROVIDERS: AiProviderName[] = ["local", "openrouter"];
 
 const OPENROUTER_SITE_URL = (Deno.env.get("OPENROUTER_SITE_URL") ?? "").trim();
 const OPENROUTER_APP_NAME = (Deno.env.get("OPENROUTER_APP_NAME") ?? "").trim();
@@ -91,6 +91,21 @@ const OPENROUTER_BASE_URL = normaliseCompletionsUrl(
   "http://192.168.0.33:1234/v1/chat/completions",
 );
 
+const LOCAL_BASE_URL = normaliseCompletionsUrl(
+  Deno.env.get("LOCAL_RULE_MODEL_URL") ??
+    Deno.env.get("OPENAI_BASE_URL") ??
+    undefined,
+  "http://192.168.0.33:1234/v1/chat/completions",
+);
+const LOCAL_MODEL =
+  Deno.env.get("LOCAL_RULE_MODEL_NAME") ??
+  Deno.env.get("OPENAI_MODEL") ??
+  "openai/gpt-oss-20b";
+const LOCAL_API_KEY =
+  Deno.env.get("LOCAL_RULE_MODEL_API_KEY") ??
+  Deno.env.get("OPENAI_API_KEY") ??
+  "";
+
 const resolveOverrideKey = (
   provider: AiProviderName,
   overrides?: InvokeOverrides,
@@ -117,7 +132,7 @@ const normaliseProvider = (value: string | undefined | null) => {
     return undefined;
   }
   const normalised = value.toLowerCase();
-  if (normalised === "openrouter") {
+  if (normalised === "openrouter" || normalised === "local") {
     return normalised as AiProviderName;
   }
   return undefined;
@@ -134,9 +149,15 @@ function providerFromEnv(overrides?: InvokeOverrides): AiProviderName {
     return p;
   }
 
-  const fallback = FALLBACK_PROVIDERS.find((provider) =>
-    hasProviderKey(provider, overrides),
-  );
+  // Prefer local when no explicit provider is set or no keys present
+  if (p === "local" || (!p && LOCAL_BASE_URL)) {
+    return "local";
+  }
+
+  const fallback = FALLBACK_PROVIDERS.find((provider) => {
+    if (provider === "local") return true; // always allowed without key
+    return hasProviderKey(provider, overrides);
+  });
   if (fallback) {
     return fallback;
   }
@@ -153,7 +174,42 @@ export async function invokeChatCompletion(
   const temperature = args.temperature ?? 0.6;
   const maxTokens = args.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
 
-  // Per-provider calls (pseudo-implémentations — branche selon tes SDKs réels)
+  // Per-provider calls (local first)
+  if (provider === "local") {
+    const body = {
+      model: model ?? LOCAL_MODEL,
+      messages: args.messages,
+      temperature,
+      max_tokens: maxTokens,
+      ...(forceJson
+        ? { response_format: { type: "json_object" as const } }
+        : {}),
+    } satisfies Record<string, unknown>;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (LOCAL_API_KEY) headers.Authorization = `Bearer ${LOCAL_API_KEY}`;
+
+    const res = await fetch(LOCAL_BASE_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new AiProviderHTTPError("local", res.status, t);
+    }
+    const json = await res.json();
+    const resolvedModel =
+      typeof json?.model === "string" ? json.model : body.model;
+    return {
+      content: json.choices?.[0]?.message?.content ?? "",
+      provider: "local",
+      model: resolvedModel ?? null,
+    } satisfies InvokeResult;
+  }
+
   if (provider === "openrouter") {
     const body = {
       model: model ?? DEFAULT_OPENROUTER_MODEL,

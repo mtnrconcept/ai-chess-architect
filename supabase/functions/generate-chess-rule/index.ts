@@ -247,8 +247,6 @@ const normaliseChatCompletionUrl = (
 
 const ALLOWED_MODEL_HOSTS = new Set(["127.0.0.1", "localhost", "192.168.0.33"]);
 
-const ALLOWED_MODEL_SUFFIXES = [".ngrok-free.app", ".ngrok.app", ".ngrok.io"];
-
 const enforceLocalOnly = (url: string) => {
   let parsed: URL;
   try {
@@ -262,9 +260,7 @@ const enforceLocalOnly = (url: string) => {
     return;
   }
 
-  if (ALLOWED_MODEL_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
-    return;
-  }
+  // Block all remote suffixes – local only
 
   throw new Error(`remote_endpoint_forbidden: ${url}`);
 };
