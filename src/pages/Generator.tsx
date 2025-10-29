@@ -43,6 +43,8 @@ const LOCAL_CURL_EXAMPLE = `curl ${LOCAL_CHAT_COMPLETIONS_URL} \\
     ]
   }'`;
 
+const MORPHING_ANIMATION_DURATION_MS = 3000;
+
 const Generator = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -79,6 +81,8 @@ const Generator = () => {
       setSaving(true);
       setGeneratedRule(null);
       setGeneratedIssues(chatWarnings);
+
+      let succeeded = false;
 
       try {
         const sanitizedRuleJSON = JSON.parse(
@@ -271,14 +275,22 @@ const Generator = () => {
         setTimeout(() => {
           navigate(`/play?ruleId=${persistedRuleId}`);
         }, 1500);
+
+        succeeded = true;
       } catch (error) {
         const description = getSupabaseFunctionErrorMessage(
           error,
           "Erreur lors de la génération de la règle",
         );
-        toast({ title: "Erreur", description, variant: "destructive" });
+        setTimeout(() => {
+          toast({ title: "Erreur", description, variant: "destructive" });
+          setSaving(false);
+        }, MORPHING_ANIMATION_DURATION_MS);
+        return;
       } finally {
-        setSaving(false);
+        if (succeeded) {
+          setSaving(false);
+        }
       }
     },
     [latestCorrelationId, navigate, toast, user],
@@ -393,7 +405,7 @@ const Generator = () => {
       {/* Animation pendant la génération */}
       {saving && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-xl">
-          <ChessMorphingAnimation duration={3000} />
+          <ChessMorphingAnimation duration={MORPHING_ANIMATION_DURATION_MS} />
         </div>
       )}
     </NeonBackground>
