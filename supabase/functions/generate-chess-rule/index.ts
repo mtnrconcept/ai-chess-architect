@@ -245,7 +245,7 @@ const normaliseChatCompletionUrl = (
   return `${withoutTrailing}/v1/chat/completions`;
 };
 
-const ALLOWED_MODEL_HOSTS = new Set(["127.0.0.1", "localhost"]);
+const ALLOWED_MODEL_HOSTS = new Set(["127.0.0.1", "localhost", "192.168.0.33"]);
 
 const ALLOWED_MODEL_SUFFIXES = [".ngrok-free.app", ".ngrok.app", ".ngrok.io"];
 
@@ -293,7 +293,7 @@ const LOCAL_MODEL_ENDPOINT = normaliseChatCompletionUrl(
     Deno.env.get("LOCAL_RULE_MODEL_URL"),
     Deno.env.get("OPENAI_BASE_URL"),
   ),
-  "http://127.0.0.1:1234/v1/chat/completions",
+  "http://192.168.0.33:1234/v1/chat/completions",
 );
 
 enforceLocalOnly(LOCAL_MODEL_ENDPOINT);
