@@ -29,7 +29,8 @@ type ChessRuleInsert = Database["public"]["Tables"]["chess_rules"]["Insert"];
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const LOCAL_CHAT_COMPLETIONS_URL = "http://127.0.0.1:1234/v1/chat/completions";
+const LOCAL_CHAT_COMPLETIONS_URL =
+  "https://1e3436cf808a.ngrok-free.app/v1/chat/completions";
 const LOCAL_MODEL_NAME = "openai/gpt-oss-20b";
 const LOCAL_CURL_EXAMPLE = `curl ${LOCAL_CHAT_COMPLETIONS_URL} \\
   -H "Content-Type: application/json" \\
