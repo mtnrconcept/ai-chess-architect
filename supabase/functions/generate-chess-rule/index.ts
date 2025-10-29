@@ -245,6 +245,10 @@ const normaliseChatCompletionUrl = (
   return `${withoutTrailing}/v1/chat/completions`;
 };
 
+const ALLOWED_MODEL_HOSTS = new Set(["127.0.0.1", "localhost"]);
+
+const ALLOWED_MODEL_SUFFIXES = [".ngrok-free.app", ".ngrok.app", ".ngrok.io"];
+
 const enforceLocalOnly = (url: string) => {
   let parsed: URL;
   try {
@@ -254,9 +258,15 @@ const enforceLocalOnly = (url: string) => {
   }
 
   const host = parsed.hostname.toLowerCase();
-  if (host !== "127.0.0.1" && host !== "localhost") {
-    throw new Error(`remote_endpoint_forbidden: ${url}`);
+  if (ALLOWED_MODEL_HOSTS.has(host)) {
+    return;
   }
+
+  if (ALLOWED_MODEL_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
+    return;
+  }
+
+  throw new Error(`remote_endpoint_forbidden: ${url}`);
 };
 
 const OSS_MODEL_ALLOWLIST = new Set([
