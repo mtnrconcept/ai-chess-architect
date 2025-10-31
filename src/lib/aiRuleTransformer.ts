@@ -23,6 +23,97 @@ const toRecord = (value: unknown): Record<string, unknown> =>
 const toArray = <T>(value: unknown): T[] =>
   Array.isArray(value) ? (value as T[]) : [];
 
+const toOptionalRecord = (
+  value: unknown,
+): Record<string, unknown> | undefined => (isRecord(value) ? value : undefined);
+
+type NormalizedAction = {
+  action: string;
+  params?: Record<string, unknown>;
+};
+
+const normalizeAction = (
+  entry: unknown,
+  fallbackParams: Record<string, unknown> | undefined,
+): NormalizedAction | null => {
+  if (typeof entry === "string") {
+    const action = entry.trim();
+    if (!action) {
+      return null;
+    }
+
+    if (fallbackParams && Object.keys(fallbackParams).length > 0) {
+      return { action, params: fallbackParams };
+    }
+
+    return { action };
+  }
+
+  if (isRecord(entry)) {
+    const action =
+      toString(entry.action) ??
+      toString(entry.type) ??
+      toString(entry.id) ??
+      toString(entry.name);
+
+    if (!action) {
+      return null;
+    }
+
+    const paramsCandidate =
+      toOptionalRecord(entry.params) ??
+      toOptionalRecord(entry.arguments) ??
+      toOptionalRecord(entry.args) ??
+      toOptionalRecord(entry.payload) ??
+      fallbackParams;
+
+    const params =
+      paramsCandidate && Object.keys(paramsCandidate).length > 0
+        ? paramsCandidate
+        : undefined;
+
+    return params ? { action, params } : { action };
+  }
+
+  return null;
+};
+
+const normalizeActions = (
+  effect: Record<string, unknown>,
+): NormalizedAction[] => {
+  const fallbackParams = toOptionalRecord(effect.params);
+  const collected: NormalizedAction[] = [];
+
+  const pushEntry = (entry: unknown) => {
+    const normalized = normalizeAction(entry, fallbackParams);
+    if (normalized) {
+      collected.push(normalized);
+    }
+  };
+
+  if (Array.isArray(effect.do)) {
+    effect.do.forEach(pushEntry);
+  } else if (effect.do !== undefined) {
+    pushEntry(effect.do);
+  }
+
+  if (Array.isArray(effect.actions)) {
+    effect.actions.forEach(pushEntry);
+  } else if (effect.actions !== undefined) {
+    pushEntry(effect.actions);
+  }
+
+  if (collected.length === 0 && effect.action !== undefined) {
+    pushEntry(effect.action);
+  }
+
+  if (collected.length === 0 && effect.then !== undefined) {
+    pushEntry(effect.then);
+  }
+
+  return collected;
+};
+
 const isRuleJSONLike = (value: Record<string, unknown>): value is RuleJSON =>
   isRecord(value.meta) && isRecord(value.logic);
 
@@ -43,31 +134,90 @@ export function transformAiRuleToEngineRule(input: unknown): RuleJSON {
   }
 
   // Fallback minimal si format ancien
-  const fallbackRuleId = toString(aiRule.ruleId) ?? `rule_${Date.now()}`;
-  const fallbackRuleName = toString(aiRule.ruleName) ?? "Règle sans nom";
-  const fallbackDescription = toString(aiRule.description) ?? "";
-  const fallbackTags = toStringArray(aiRule.tags);
-  const affectedPieces = toStringArray(aiRule.affectedPieces);
-  const rawEffects = toArray<Record<string, unknown>>(aiRule.effects);
-  const parameters = toRecord(aiRule.parameters);
-  const assets = aiRule.visuals ?? aiRule.assets;
+  const metaRecord = toRecord(aiRule.meta);
+  const scopeRecord = toRecord(aiRule.scope);
+  const legacyRuleId = toString(metaRecord.ruleId) ?? toString(aiRule.ruleId);
+  const legacyRuleName =
+    toString(metaRecord.ruleName) ?? toString(aiRule.ruleName);
+  const legacyDescription =
+    toString(metaRecord.description) ?? toString(aiRule.description);
+  const legacyCategory =
+    toString(metaRecord.category) ?? toString(aiRule.category);
+  const legacyPriority =
+    typeof metaRecord.priority === "number"
+      ? metaRecord.priority
+      : typeof aiRule.priority === "number"
+        ? aiRule.priority
+        : undefined;
+  const legacyTags = toStringArray(metaRecord.tags ?? aiRule.tags);
 
-  // Transform effects to LogicStep format
-  const effects = rawEffects.map((effect: any, index: number) => ({
-    id: effect.id || `effect_${index}`,
-    when: effect.when || "onAction",
-    do: effect.do || effect.action ? { action: effect.action || effect.do, params: effect.params } : []
-  }));
+  const fallbackRuleId = legacyRuleId ?? `rule_${Date.now()}`;
+  const fallbackRuleName = legacyRuleName ?? "Règle sans nom";
+  const fallbackDescription = legacyDescription ?? "";
+
+  const affectedPieces = toStringArray(
+    scopeRecord.affectedPieces ?? aiRule.affectedPieces,
+  );
+
+  const rawLogic = toRecord(aiRule.logic);
+  const rawEffects = toArray<Record<string, unknown>>(
+    rawLogic.effects ?? aiRule.effects,
+  );
+  const parameters = toRecord(aiRule.parameters ?? aiRule.settings);
+  const assets = aiRule.assets ?? aiRule.visuals;
+  const stateRecord = toOptionalRecord(aiRule.state);
+  const stateInitial = toOptionalRecord(stateRecord?.initial);
+
+  const effects = rawEffects.map((rawEffect: unknown, index: number) => {
+    const effectRecord = toRecord(rawEffect);
+    const actions = normalizeActions(effectRecord);
+
+    const whenValue =
+      toString(effectRecord.when) ??
+      toString(effectRecord.trigger) ??
+      toString(effectRecord.phase) ??
+      "onAction";
+
+    const idValue =
+      toString(effectRecord.id) ??
+      toString(effectRecord.name) ??
+      `${fallbackRuleId}-effect-${index}`;
+
+    const conditionValue =
+      effectRecord.if ?? effectRecord.condition ?? effectRecord.conditions;
+
+    const normalized: Record<string, unknown> = {
+      id: idValue,
+      when: whenValue,
+      do: actions.length === 1 ? actions[0] : actions.length > 1 ? actions : [],
+    };
+
+    if (typeof conditionValue === "string" || Array.isArray(conditionValue)) {
+      normalized.if = conditionValue;
+    }
+
+    if (typeof effectRecord.message === "string") {
+      normalized.message = effectRecord.message;
+    }
+
+    const onFail = toString(effectRecord.onFail);
+    if (onFail === "skip" || onFail === "blockAction") {
+      normalized.onFail = onFail;
+    }
+
+    return normalized;
+  });
 
   return {
     meta: {
       ruleId: fallbackRuleId,
       ruleName: fallbackRuleName,
       description: fallbackDescription,
-      category: "ai-generated",
+      category: legacyCategory ?? "ai-generated",
       version: "1.0.0",
       isActive: true,
-      tags: fallbackTags,
+      tags: legacyTags,
+      ...(legacyPriority !== undefined ? { priority: legacyPriority } : {}),
     },
     scope: {
       affectedPieces,
@@ -78,10 +228,10 @@ export function transformAiRuleToEngineRule(input: unknown): RuleJSON {
     },
     state: {
       namespace: `rules.${fallbackRuleId}`,
-      initial: {},
+      initial: stateInitial ?? {},
     },
     parameters,
-    assets,
+    assets: toOptionalRecord(assets) ?? assets,
   };
 }
 
