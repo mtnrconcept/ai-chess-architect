@@ -15,3 +15,7 @@ Les deux fichiers couvrent :
 - Les assets audiovisuels attendus (sprites, animations, SFX).
 
 Un squelette TypeScript (`pawnMines.ts`) est fourni pour accélérer l'intégration côté moteur. Adaptez-le en fonction de votre bus d'événements et de vos contrats d'API internes.
+
+## Ressources complémentaires
+
+- [`idea-catalogue.md`](./idea-catalogue.md) — une liste de mécaniques validées (mines, pièges, statuts héroïques, sorts, etc.) n'utilisant que des actions reconnues par `knownActions`. Servez-vous-en pour guider la génération de nouvelles règles JSON sans craindre les hallucinations.
