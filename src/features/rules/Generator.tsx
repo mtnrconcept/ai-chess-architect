@@ -43,6 +43,351 @@ const toErrorMessage = (value: unknown): string => {
   }
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const toOptionalString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const toStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => toOptionalString(entry))
+    .filter((entry): entry is string => typeof entry === "string");
+};
+
+const stringifyStructuredValue = (value: unknown): string | undefined => {
+  if (value == null) {
+    return undefined;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => stringifyStructuredValue(entry))
+      .filter((entry): entry is string => typeof entry === "string");
+    return parts.length > 0 ? parts.join(", ") : undefined;
+  }
+
+  if (isRecord(value)) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+};
+
+const formatInlineList = (values: string[]): string => {
+  if (values.length === 0) {
+    return "";
+  }
+
+  if (values.length === 1) {
+    return values[0];
+  }
+
+  return values.join(", ");
+};
+
+const formatBulletList = (values: string[]): string =>
+  values.map((value) => `• ${value}`).join("\n");
+
+const collectActionLabels = (value: unknown): string[] => {
+  const labels: string[] = [];
+
+  const register = (entry: unknown) => {
+    if (typeof entry === "string") {
+      const trimmed = entry.trim();
+      if (trimmed.length > 0) {
+        labels.push(trimmed);
+      }
+      return;
+    }
+
+    if (isRecord(entry)) {
+      const label =
+        toOptionalString(entry["action"]) ??
+        toOptionalString(entry["type"]) ??
+        toOptionalString(entry["id"]) ??
+        toOptionalString(entry["name"]);
+
+      if (label) {
+        labels.push(label);
+      }
+    }
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(register);
+  } else if (value !== undefined) {
+    register(value);
+  }
+
+  return labels;
+};
+
+const buildRuleDetailsMessage = (rule: GeneratedRule): string | null => {
+  if (!isRecord(rule)) {
+    return null;
+  }
+
+  const meta = isRecord(rule.meta) ? rule.meta : {};
+  const scope = isRecord(rule.scope) ? rule.scope : {};
+  const ui = isRecord(rule.ui) ? rule.ui : {};
+  const logic = isRecord(rule.logic) ? rule.logic : {};
+
+  const description =
+    toOptionalString(meta.description) ?? toOptionalString(rule.description);
+  const category =
+    toOptionalString(meta.category) ?? toOptionalString(rule.category);
+  const affectedPieces = toStringArray(
+    scope.affectedPieces ?? rule.affected_pieces ?? rule.affectedPieces,
+  );
+  const tags = toStringArray(meta.tags ?? rule.tags);
+
+  const uiActions = Array.isArray(ui.actions)
+    ? ui.actions
+        .map((entry) => {
+          if (!isRecord(entry)) {
+            return null;
+          }
+
+          const label =
+            toOptionalString(entry["label"]) ??
+            toOptionalString(entry["name"]) ??
+            toOptionalString(entry["id"]) ??
+            toOptionalString(entry["action"]);
+
+          if (!label) {
+            return null;
+          }
+
+          const detailParts: string[] = [];
+          const hint = toOptionalString(entry["hint"]);
+          if (hint) {
+            detailParts.push(hint);
+          }
+
+          const availabilityValue = entry["availability"];
+          const availability = isRecord(availabilityValue)
+            ? availabilityValue
+            : undefined;
+
+          if (availability) {
+            const pieceTypes = toStringArray(availability["pieceTypes"]);
+            if (pieceTypes.length > 0) {
+              detailParts.push(`Pour ${formatInlineList(pieceTypes)}`);
+            }
+
+            const phase = toOptionalString(availability["phase"]);
+            if (phase) {
+              detailParts.push(`Phase : ${phase}`);
+            }
+          }
+
+          if (entry["consumesTurn"] === true) {
+            detailParts.push("Consomme le tour");
+          }
+
+          const cooldownValue = entry["cooldown"];
+          const cooldown = isRecord(cooldownValue) ? cooldownValue : undefined;
+          if (cooldown) {
+            const cooldownParts: string[] = [];
+            if (typeof cooldown["perPiece"] === "number") {
+              cooldownParts.push(`${cooldown["perPiece"]} tour(s) par pièce`);
+            }
+            if (typeof cooldown["global"] === "number") {
+              cooldownParts.push(`${cooldown["global"]} tour(s) globaux`);
+            }
+            if (cooldownParts.length > 0) {
+              detailParts.push(`Recharge : ${cooldownParts.join(" / ")}`);
+            }
+          }
+
+          if (typeof entry["maxPerPiece"] === "number") {
+            detailParts.push(
+              `Limité à ${entry["maxPerPiece"]} utilisation(s) par pièce`,
+            );
+          }
+
+          const targetingValue = entry["targeting"];
+          const targeting = isRecord(targetingValue)
+            ? targetingValue
+            : undefined;
+          if (targeting) {
+            const mode = toOptionalString(targeting["mode"]);
+            if (mode) {
+              detailParts.push(`Ciblage : ${mode}`);
+            }
+          }
+
+          return detailParts.length > 0
+            ? `${label} — ${detailParts.join(" · ")}`
+            : label;
+        })
+        .filter(
+          (entry): entry is string =>
+            typeof entry === "string" && entry.length > 0,
+        )
+    : [];
+
+  const logicGuards = Array.isArray(logic.guards)
+    ? logic.guards
+        .map((entry) => {
+          if (!isRecord(entry)) {
+            return null;
+          }
+
+          const label =
+            toOptionalString(entry["id"]) ??
+            toOptionalString(entry["name"]) ??
+            toOptionalString(entry["run"]);
+
+          const parts: string[] = [];
+          const message = toOptionalString(entry["message"]);
+          if (message) {
+            parts.push(message);
+          }
+
+          const condition = stringifyStructuredValue(
+            entry["if"] ?? entry["condition"] ?? entry["conditions"],
+          );
+          if (condition) {
+            parts.push(`Condition : ${condition}`);
+          }
+
+          const onFail = toOptionalString(entry["onFail"]);
+          if (onFail) {
+            parts.push(`En cas d'échec : ${onFail}`);
+          }
+
+          if (!label && parts.length === 0) {
+            return null;
+          }
+
+          return parts.length > 0
+            ? `${label ?? "Garde"} — ${parts.join(" · ")}`
+            : label;
+        })
+        .filter(
+          (entry): entry is string =>
+            typeof entry === "string" && entry.length > 0,
+        )
+    : [];
+
+  const effectsValue = logic.effects;
+  const logicEffects = Array.isArray(effectsValue)
+    ? effectsValue
+        .map((entry) => {
+          if (!isRecord(entry)) {
+            return null;
+          }
+
+          const label =
+            toOptionalString(entry["id"]) ?? toOptionalString(entry["name"]);
+
+          const when =
+            toOptionalString(entry["when"]) ??
+            toOptionalString(entry["trigger"]) ??
+            toOptionalString(entry["phase"]) ??
+            "Déclencheur inconnu";
+
+          const condition = stringifyStructuredValue(
+            entry["if"] ?? entry["condition"] ?? entry["conditions"],
+          );
+
+          const actionLabels = [
+            ...collectActionLabels(entry["do"]),
+            ...collectActionLabels(entry["actions"]),
+            ...collectActionLabels(entry["action"]),
+            ...collectActionLabels(entry["then"]),
+          ];
+
+          const uniqueActions = Array.from(new Set(actionLabels));
+          const parts: string[] = [`Déclencheur : ${when}`];
+
+          if (uniqueActions.length > 0) {
+            parts.push(`Actions : ${formatInlineList(uniqueActions)}`);
+          }
+
+          if (condition) {
+            parts.push(`Condition : ${condition}`);
+          }
+
+          const message = toOptionalString(entry["message"]);
+          if (message) {
+            parts.push(`Message : ${message}`);
+          }
+
+          if (parts.length === 0) {
+            return null;
+          }
+
+          return label ? `${label} — ${parts.join(" · ")}` : parts.join(" · ");
+        })
+        .filter(
+          (entry): entry is string =>
+            typeof entry === "string" && entry.length > 0,
+        )
+    : [];
+
+  const sections: string[] = [];
+
+  if (description) {
+    sections.push(`Description : ${description}`);
+  }
+
+  if (category) {
+    sections.push(`Catégorie : ${category}`);
+  }
+
+  if (affectedPieces.length > 0) {
+    sections.push(`Pièces concernées : ${formatInlineList(affectedPieces)}`);
+  }
+
+  if (tags.length > 0) {
+    sections.push(`Tags : ${formatInlineList(tags)}`);
+  }
+
+  if (uiActions.length > 0) {
+    sections.push(`Actions spéciales :\n${formatBulletList(uiActions)}`);
+  }
+
+  if (logicGuards.length > 0) {
+    sections.push(`Gardes :\n${formatBulletList(logicGuards)}`);
+  }
+
+  if (logicEffects.length > 0) {
+    sections.push(`Effets principaux :\n${formatBulletList(logicEffects)}`);
+  }
+
+  if (sections.length === 0) {
+    return null;
+  }
+
+  return sections.join("\n\n");
+};
+
 type UiMessage =
   | { id: string; role: "assistant" | "user"; content: string }
   | {
@@ -235,12 +580,27 @@ export default function RuleGenerator({
           role: "assistant",
           content: summary,
         };
-        const finalConversation = [...nextConversation, assistantMessage];
+        const details = buildRuleDetailsMessage(result.rule as GeneratedRule);
+        const detailMessage: RuleGeneratorChatMessage | null = details
+          ? { role: "assistant", content: details }
+          : null;
+        const finalConversation = detailMessage
+          ? [...nextConversation, assistantMessage, detailMessage]
+          : [...nextConversation, assistantMessage];
 
         setConversation(finalConversation);
         setMessages((prev) => [
           ...prev,
           { id: createMessageId(), role: "assistant", content: summary },
+          ...(details
+            ? [
+                {
+                  id: createMessageId(),
+                  role: "assistant",
+                  content: details,
+                },
+              ]
+            : []),
         ]);
 
         try {
