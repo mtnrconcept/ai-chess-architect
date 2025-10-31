@@ -694,6 +694,24 @@ export async function invokeRuleGeneratorChat(
   try {
     const response = await invokeSupabaseRuleGenerator(payload, 0, 2, 250);
     const result = ensureResultRecord(response);
+
+    if (result.status === "need_info") {
+      const sanitizedQuestions = normalizeNeedInfoQuestions(
+        (result as { questions?: unknown }).questions,
+      );
+
+      if (sanitizedQuestions.length === 0) {
+        throw new Error(
+          "ruleGeneratorChat: réponse 'need_info' invalide: aucune question exploitable.",
+        );
+      }
+
+      return {
+        ...result,
+        questions: sanitizedQuestions,
+      } satisfies RuleGeneratorNeedInfo;
+    }
+
     return result;
   } catch (error) {
     const fallback = buildLocalPipelineFallback(
@@ -717,6 +735,8 @@ function normalizeNeedInfoQuestions(
   if (!Array.isArray(raw)) {
     return [];
   }
+
+  const normalized: RuleGeneratorNeedInfoQuestion[] = [];
 
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") {
@@ -783,20 +803,25 @@ function normalizeNeedInfoQuestions(
       continue;
     }
 
-    return [
-      {
-        question: trimmedQuestion,
-        options: [
-          collectedOptions[0],
-          collectedOptions[1],
-          collectedOptions[2],
-        ],
-        allowMultiple: false,
-      },
-    ];
+    const allowMultipleRaw =
+      record["allowMultiple"] ?? record["allow_multiple"] ?? record["multiple"];
+    const allowMultiple =
+      typeof allowMultipleRaw === "boolean"
+        ? allowMultipleRaw
+        : typeof allowMultipleRaw === "string"
+          ? ["true", "yes", "1", "multiple", "multi"].includes(
+              allowMultipleRaw.trim().toLowerCase(),
+            )
+          : false;
+
+    normalized.push({
+      question: trimmedQuestion,
+      options: [collectedOptions[0], collectedOptions[1], collectedOptions[2]],
+      allowMultiple,
+    });
   }
 
-  return [];
+  return normalized;
 }
 
 // Compatibilité avec l'ancien flux monolithique
