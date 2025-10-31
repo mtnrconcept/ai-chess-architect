@@ -68,29 +68,164 @@ type TemplateCompiler = (intent: CanonicalIntent) => RuleJSON;
 
 const pawnMines: TemplateCompiler = (intent) => {
   const meta = buildMeta(intent);
+  const namespace = "rules.pawnMines";
+  const actionId = "special_place_mine";
+  const targeting = intent.targeting
+    ? {
+        mode: intent.targeting.mode === "none" ? "none" : "tile",
+        validTilesProvider: intent.targeting.provider,
+      }
+    : {
+        mode: "tile" as const,
+        validTilesProvider: `${namespace}.getValidTiles`,
+      };
+
+  const cooldown = buildCooldown(intent) ?? { perPiece: 1 };
+  const maxPerPiece = intent.limits?.chargesPerMatch;
+
+  const handlers: Record<string, string> = {
+    [`ui.${actionId}`]: `${namespace}.handlePlaceMineAction`,
+    "lifecycle.onEnterTile": `${namespace}.handleEnterTile`,
+    "lifecycle.onMoveCommitted": `${namespace}.handleMoveCommitted`,
+    "lifecycle.onUndo": `${namespace}.handleUndo`,
+    "lifecycle.onPromote": `${namespace}.handlePromote`,
+    "persistence.onSerialize": `${namespace}.serialize`,
+    "persistence.onDeserialize": `${namespace}.deserialize`,
+  };
+
   const rule: RuleJSON = {
     meta,
     scope: buildScope(intent),
+    ui: {
+      actions: [
+        {
+          id: actionId,
+          label: intent.ruleName,
+          icon: "💣",
+          hint: "Utilise ton tour pour miner une case adjacente.",
+          availability: {
+            requiresSelection: true,
+            pieceTypes: intent.affectedPieces,
+            phase: "main",
+            cooldownOk: true,
+            hasMovesRemaining: true,
+          },
+          targeting,
+          consumesTurn: true,
+          cooldown,
+          ...(maxPerPiece ? { maxPerPiece } : {}),
+        },
+      ],
+    },
+    assets: {
+      sprites: {
+        mine_idle: { src: "vfx/mine_idle.webp", anchor: "center", zIndex: 3 },
+        mine_warning: {
+          src: "vfx/mine_warning.webp",
+          anchor: "center",
+          zIndex: 4,
+        },
+        explosion: {
+          src: "vfx/explosion_sheet.webp",
+          fps: 24,
+          frames: 16,
+          zIndex: 6,
+        },
+      },
+      audio: {
+        place: { src: "sfx/mine_place.wav", volume: 0.7 },
+        arm: { src: "sfx/mine_arm.wav", volume: 0.6 },
+        boom: { src: "sfx/mine_explode.wav", volume: 0.9 },
+      },
+    },
+    state: {
+      namespace,
+      initial: { mines: [] },
+      serialize: true,
+    },
+    parameters: {
+      visibility: "all",
+      friendlyFire: true,
+      armDelayPly: 0,
+      detonation: {
+        trigger: "onEnterTile",
+        radius: 0,
+        capturePriority: "mineFirst",
+      },
+      placement: {
+        onlyEmptyTile: true,
+        forbidCurrentTile: false,
+        forbidOccupiedByAlly: true,
+        forbidOccupiedByEnemy: true,
+        forbidKingZone: false,
+        forbidLastRank: false,
+        allowedOffsets: "boardAny",
+      },
+      limits: {
+        maxMinesPerPawn: maxPerPiece ?? 3,
+        globalMaxMines: 16,
+      },
+      undo: { restoreMines: true },
+      promotion: { minesPersistAfterPromotion: true },
+      stacking: { allowMultipleOnSameTile: false },
+    },
+    events: [
+      {
+        id: "placeMine",
+        emit: `${namespace}.placeMine`,
+        payload: { pieceId: "string", from: "tile", to: "tile" },
+      },
+      {
+        id: "explodeMine",
+        emit: `${namespace}.explodeMine`,
+        payload: { mineId: "string", tile: "tile", victimId: "string|null" },
+      },
+    ],
+    handlers,
     logic: {
       effects: [
         {
-          id: `${meta.ruleId}_after_move`,
-          when: "lifecycle.afterMove",
-          if: [["piece.isType", "$pieceId", "pawn"]],
+          id: `${actionId}_effect`,
+          when: `ui.${actionId}`,
+          if: defaultGuards(intent, "pawn", actionId, [
+            "ctx.hasTargetTile",
+            "tile.isEmpty",
+          ]),
           do: [
             {
               action: "hazard.spawn",
               params: {
                 type: "mine",
-                tile: "$toTile",
-                payload: { armedBy: "$pieceId" },
+                tile: "$ctx.targetTile",
+                payload: { owner: "$ctx.piece.side", armed: true },
               },
             },
             {
               action: "vfx.play",
-              params: { tile: "$toTile", sprite: "mine_arm" },
+              params: { tile: "$ctx.targetTile", sprite: "mine_idle" },
             },
-            { action: "audio.play", params: { id: "arm_click" } },
+            { action: "audio.play", params: { id: "place" } },
+            {
+              action: "cooldown.set",
+              params: {
+                pieceId: "$ctx.piece.id",
+                actionId,
+                turns: intent.limits?.cooldownPerPiece ?? 1,
+              },
+            },
+            { action: "turn.end" },
+          ],
+          onFail: "blockAction",
+          message: "Impossible de poser une mine ici.",
+        },
+        {
+          id: "pawn_mines_trigger_on_enter",
+          when: "lifecycle.onEnterTile",
+          do: [
+            {
+              action: "hazard.resolve",
+              params: { type: "mine", tile: "$ctx.to", cause: "enter" },
+            },
           ],
         },
       ],
