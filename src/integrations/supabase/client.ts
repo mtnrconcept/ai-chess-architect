@@ -42,7 +42,7 @@ const readEnvValue = (...keys: string[]) => {
   return undefined;
 };
 
-const EXPECTED_PROJECT_ID = "ucaqbhmyutlnitnedowk";
+const EXPECTED_PROJECT_ID = "pfcaolibtgvynnwaxvol";
 const EXPECTED_PROJECT_NAME = "Youaregood";
 
 const RAW_SUPABASE_PROJECT_ID = readEnvValue(
