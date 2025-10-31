@@ -1,5 +1,5 @@
 // /src/features/rules/Generator.tsx
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   invokeRuleGeneratorChat,
   type GeneratedRule,
@@ -18,10 +18,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
-import { RotateCcw, CheckCircle2, Zap, Target, Sparkles } from "lucide-react";
+import {
+  RotateCcw,
+  CheckCircle2,
+  Zap,
+  Target,
+  Sparkles,
+  Loader2,
+} from "lucide-react";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const toErrorMessage = (value: unknown): string => {
   if (value instanceof Error && value.message) {
@@ -388,14 +398,33 @@ const buildRuleDetailsMessage = (rule: GeneratedRule): string | null => {
   return sections.join("\n\n");
 };
 
+type AssistantUiMessage = {
+  id: string;
+  role: "assistant";
+  content: string;
+  rule?: GeneratedRule;
+};
+
+type UserUiMessage = { id: string; role: "user"; content: string };
+
+type QuestionUiMessage = {
+  id: string;
+  role: "assistant";
+  question: RuleGeneratorNeedInfoQuestion;
+};
+
+type SystemUiMessage = {
+  id: string;
+  role: "system";
+  content: string;
+  variant?: "error" | "info";
+};
+
 type UiMessage =
-  | { id: string; role: "assistant" | "user"; content: string }
-  | {
-      id: string;
-      role: "assistant";
-      question: RuleGeneratorNeedInfoQuestion;
-    }
-  | { id: string; role: "system"; content: string; variant?: "error" | "info" };
+  | AssistantUiMessage
+  | UserUiMessage
+  | QuestionUiMessage
+  | SystemUiMessage;
 
 const isQuestionMessage = (
   message: UiMessage,
@@ -440,6 +469,46 @@ const createMessageId = (() => {
   };
 })();
 
+type PublishState = "idle" | "loading" | "success";
+
+const resolvePublishRuleName = (rule: GeneratedRule): string => {
+  const ruleRecord = rule as Record<string, unknown>;
+  const meta = isRecord(ruleRecord.meta)
+    ? (ruleRecord.meta as Record<string, unknown>)
+    : undefined;
+
+  return (
+    toOptionalString(meta?.ruleName) ??
+    toOptionalString(meta?.name) ??
+    toOptionalString(ruleRecord.ruleName) ??
+    toOptionalString(ruleRecord.name) ??
+    "Variante IA"
+  );
+};
+
+const resolvePublishRuleDescription = (
+  rule: GeneratedRule,
+): string | undefined => {
+  const ruleRecord = rule as Record<string, unknown>;
+  const meta = isRecord(ruleRecord.meta)
+    ? (ruleRecord.meta as Record<string, unknown>)
+    : undefined;
+
+  return (
+    toOptionalString(meta?.description) ??
+    toOptionalString(ruleRecord.description) ??
+    undefined
+  );
+};
+
+const sanitiseRuleMetadata = (rule: GeneratedRule): Record<string, unknown> => {
+  try {
+    return JSON.parse(JSON.stringify(rule)) as Record<string, unknown>;
+  } catch (_error) {
+    return { ...(rule as Record<string, unknown>) };
+  }
+};
+
 export type RuleGeneratorReadyPayload = {
   result: RuleGeneratorReady;
   engineRule: RuleJSON;
@@ -460,6 +529,8 @@ export default function RuleGenerator({
   className,
   standalone = true,
 }: RuleGeneratorProps) {
+  const { toast } = useToast();
+  const { user } = useAuth();
   const [conversation, setConversation] = useState<RuleGeneratorChatMessage[]>(
     [],
   );
@@ -471,6 +542,9 @@ export default function RuleGenerator({
         "Décrivez votre idée de règle d'échecs. Je poserai des questions complémentaires avant de proposer la règle finale.",
     },
   ]);
+  const [publishStatus, setPublishStatus] = useState<
+    Record<string, PublishState>
+  >({});
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -485,6 +559,78 @@ export default function RuleGenerator({
   const isSendingAnswersRef = useRef(false);
 
   const hasFinished = readyResult !== null;
+
+  const handlePublishRule = useCallback(
+    async (messageId: string, rule: GeneratedRule) => {
+      if (!user) {
+        toast({
+          title: "Connexion requise",
+          description: "Connectez-vous pour publier cette règle dans le lobby.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!supabase) {
+        toast({
+          title: "Supabase non configuré",
+          description:
+            "Impossible de publier la règle car la connexion Supabase est indisponible.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const ruleName = resolvePublishRuleName(rule);
+      const description = resolvePublishRuleDescription(rule);
+
+      let shouldAbort = false;
+      setPublishStatus((prev) => {
+        const current = prev[messageId];
+        if (current === "loading" || current === "success") {
+          shouldAbort = true;
+          return prev;
+        }
+        return { ...prev, [messageId]: "loading" };
+      });
+
+      if (shouldAbort) {
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke<{
+          id: number;
+          name: string;
+        }>("publish-custom-rule", {
+          body: {
+            name: ruleName,
+            description: description ?? null,
+            rule_metadata: sanitiseRuleMetadata(rule),
+          },
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        setPublishStatus((prev) => ({ ...prev, [messageId]: "success" }));
+
+        toast({
+          title: "Règle publiée",
+          description: `« ${data?.name ?? ruleName} » est désormais disponible dans le lobby.`,
+        });
+      } catch (error) {
+        setPublishStatus((prev) => ({ ...prev, [messageId]: "idle" }));
+        toast({
+          title: "Publication impossible",
+          description: toErrorMessage(error),
+          variant: "destructive",
+        });
+      }
+    },
+    [toast, user],
+  );
 
   const latestQuestionMessage = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -580,7 +726,8 @@ export default function RuleGenerator({
           role: "assistant",
           content: summary,
         };
-        const details = buildRuleDetailsMessage(result.rule as GeneratedRule);
+        const generatedRule = result.rule as GeneratedRule;
+        const details = buildRuleDetailsMessage(generatedRule);
         const detailMessage: RuleGeneratorChatMessage | null = details
           ? { role: "assistant", content: details }
           : null;
@@ -589,19 +736,32 @@ export default function RuleGenerator({
           : [...nextConversation, assistantMessage];
 
         setConversation(finalConversation);
+        const summaryMessageId = createMessageId();
+        const summaryUiMessage: AssistantUiMessage = {
+          id: summaryMessageId,
+          role: "assistant",
+          content: summary,
+          rule: generatedRule,
+        };
+        const detailUiMessage = details
+          ? {
+              id: createMessageId(),
+              role: "assistant",
+              content: details,
+            }
+          : null;
+
         setMessages((prev) => [
           ...prev,
-          { id: createMessageId(), role: "assistant", content: summary },
-          ...(details
-            ? [
-                {
-                  id: createMessageId(),
-                  role: "assistant",
-                  content: details,
-                },
-              ]
-            : []),
+          summaryUiMessage,
+          ...(detailUiMessage ? [detailUiMessage] : []),
         ]);
+        setPublishStatus((prev) => {
+          if (prev[summaryMessageId]) {
+            return prev;
+          }
+          return { ...prev, [summaryMessageId]: "idle" };
+        });
 
         try {
           const engineRule = transformAiRuleToEngineRule(
@@ -737,6 +897,7 @@ export default function RuleGenerator({
     setReadyResult(null);
     setEngineResult(null);
     setWarnings([]);
+    setPublishStatus({});
   };
 
   const toggleAnswer = (
@@ -952,6 +1113,10 @@ export default function RuleGenerator({
             }
 
             const isUser = message.role === "user";
+            const rule = "rule" in message ? message.rule : undefined;
+            const status = publishStatus[message.id] ?? "idle";
+            const isPublishing = status === "loading";
+            const isPublished = status === "success";
             return (
               <div
                 key={message.id}
@@ -967,6 +1132,33 @@ export default function RuleGenerator({
                 <span className="whitespace-pre-wrap leading-relaxed">
                   {message.content}
                 </span>
+                {!isUser && rule && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handlePublishRule(message.id, rule)}
+                      disabled={isPublishing || isPublished}
+                    >
+                      {isPublishing && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      {isPublished
+                        ? "Règle publiée"
+                        : "Sauvegarder et Publier la Règle"}
+                    </Button>
+                    {isPublished ? (
+                      <span className="text-xs text-muted-foreground">
+                        Disponible dans le lobby.
+                      </span>
+                    ) : (
+                      !user && (
+                        <span className="text-xs text-muted-foreground">
+                          Connectez-vous pour publier cette règle.
+                        </span>
+                      )
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
