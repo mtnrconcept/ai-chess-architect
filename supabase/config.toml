@@ -1,11 +1,12 @@
-# Supabase project name used across environments
-# project = "Youaregood"
-project_id = "ucaqbhmyutlnitnedowk"
+project_id = "pfcaolibtgvynnwaxvol"
 
 [functions.chess-insights]
 verify_jwt = true
 
 [functions.generate-chess-rule]
+verify_jwt = true
+
+[functions.coach-analysis]
 verify_jwt = true
 
 [functions.tournament-matchmaking]
@@ -16,3 +17,12 @@ verify_jwt = true
 
 [functions.sync-tournaments]
 verify_jwt = true
+
+[functions.create-checkout-session]
+verify_jwt = true
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.integration-health]
+verify_jwt = false

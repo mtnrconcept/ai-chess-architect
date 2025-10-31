@@ -29,20 +29,6 @@ type ChessRuleInsert = Database["public"]["Tables"]["chess_rules"]["Insert"];
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const LOCAL_CHAT_COMPLETIONS_URL =
-  import.meta.env.VITE_OSS_ENDPOINT ??
-  "http://192.168.0.33:1234/v1/chat/completions";
-const LOCAL_MODEL_NAME =
-  import.meta.env.VITE_OSS_MODEL ?? "openai/gpt-oss-20b:2";
-const LOCAL_CURL_EXAMPLE = `curl ${LOCAL_CHAT_COMPLETIONS_URL} \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "${LOCAL_MODEL_NAME}",
-    "messages": [
-      {"role": "system", "content": "You are a chess variant assistant."},
-      {"role": "user", "content": "Propose une règle originale pour les cavaliers."}
-    ]
-  }'`;
 
 const MORPHING_ANIMATION_DURATION_MS = 3000;
 
@@ -370,34 +356,10 @@ const Generator = () => {
               disabled={saving}
               standalone={false}
             />
-            <div className="mt-6 space-y-3 rounded-lg border border-primary/30 bg-muted/10 p-4">
-              <p className="text-sm font-semibold text-primary">
-                Configuration du service local
+            <div className="mt-6 rounded-lg border border-primary/30 bg-muted/10 p-4">
+              <p className="text-sm text-muted-foreground">
+                ✨ Utilise <span className="font-semibold text-primary">Lovable AI</span> (google/gemini-2.5-flash) pour générer des règles créatives
               </p>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p>
-                  <span className="font-semibold text-foreground">URL :</span>{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
-                    {LOCAL_CHAT_COMPLETIONS_URL}
-                  </code>
-                </p>
-                <p>
-                  <span className="font-semibold text-foreground">
-                    Modèle :
-                  </span>{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
-                    {LOCAL_MODEL_NAME}
-                  </code>
-                </p>
-                <div className="space-y-1">
-                  <p className="font-semibold text-foreground">
-                    Exemple de requête :
-                  </p>
-                  <pre className="whitespace-pre-wrap rounded bg-background/60 p-3 text-xs font-mono text-foreground">
-                    {LOCAL_CURL_EXAMPLE}
-                  </pre>
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>

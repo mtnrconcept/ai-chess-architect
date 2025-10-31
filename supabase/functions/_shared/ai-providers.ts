@@ -17,6 +17,7 @@ export class AiProviderHTTPError extends Error {
 }
 
 const PROVIDER_ENV_VARS: Record<AiProviderName, string> = {
+  local: "LOCAL_RULE_MODEL_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
 };
 

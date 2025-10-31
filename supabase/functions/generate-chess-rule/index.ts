@@ -1,54 +1,62 @@
 // --- generate-chess-rule/index.ts ---
-// Version locale optimisée pour environnement de développement
-// Compatible Deno + Supabase local CLI
-// Point d’entrée : http://localhost:54321/functions/v1/generate-chess-rule
+// Générateur de règles d'échecs via Lovable AI
+// Point d'entrée : https://{project}.supabase.co/functions/v1/generate-chess-rule
 
-import { handleOptions, withCors } from "../_shared/cors.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// ======================================================
-// 🧩 Paramètres de modèle local
-// ======================================================
-const LOCAL_MODEL_URL =
-  Deno.env.get("LOCAL_RULE_MODEL_URL") ??
-  "http://127.0.0.1:1234/v1/chat/completions";
-const LOCAL_MODEL_NAME =
-  Deno.env.get("LOCAL_RULE_MODEL_NAME") ?? "openai/gpt-oss-20b";
-const LOCAL_MODEL_KEY = Deno.env.get("LOCAL_RULE_MODEL_API_KEY") ?? "";
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
-// ======================================================
-// ⚙️ Fonctions utilitaires simples
-// ======================================================
-const json = (data: unknown, status = 200): Response =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-  });
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+const LOVABLE_ENDPOINT = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const MODEL = "google/gemini-2.5-flash";
 
-function timeoutPromise(ms: number, msg = "timeout") {
-  return new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms));
-}
+const SYSTEM_PROMPT = `Tu es un compilateur de règles d'échecs en JSON.
+Respecte strictement le schéma: meta, scope, ui, state, parameters, logic.
+Réponds uniquement en JSON valide, sans texte additionnel.`;
 
-// ======================================================
-// 🧠 Pipeline minimaliste : stub local
-// ======================================================
-async function callLocalModel(prompt: string) {
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify({ error: "method_not_allowed" }),
+      { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  if (!LOVABLE_API_KEY) {
+    return new Response(
+      JSON.stringify({ error: "LOVABLE_API_KEY not configured" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
   try {
-    const res = await fetch(LOCAL_MODEL_URL, {
+    const body = await req.json();
+    const prompt = body.prompt ?? "";
+    
+    if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
+      return new Response(
+        JSON.stringify({ error: "invalid_prompt" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const response = await fetch(LOVABLE_ENDPOINT, {
       method: "POST",
       headers: {
+        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
-        ...(LOCAL_MODEL_KEY
-          ? { Authorization: `Bearer ${LOCAL_MODEL_KEY}` }
-          : {}),
       },
       body: JSON.stringify({
-        model: LOCAL_MODEL_NAME,
+        model: MODEL,
         messages: [
-          {
-            role: "system",
-            content:
-              "Tu es un compilateur de règles d’échecs en JSON. Réponds uniquement en JSON valide.",
-          },
+          { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt },
         ],
         temperature: 0.4,
@@ -57,46 +65,47 @@ async function callLocalModel(prompt: string) {
       }),
     });
 
-    const body = await res.json();
-    return body;
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-// ======================================================
-// 🚀 Serveur principal
-// ======================================================
-Deno.serve(async (req) => {
-  // ✅ Gérer le préflight CORS
-  if (req.method === "OPTIONS") {
-    return handleOptions(req, {
-      origins: ["http://localhost:5173", "http://127.0.0.1:5173"],
-      methods: ["POST", "OPTIONS"],
-      allowCredentials: false,
-    });
-  }
-
-  // ✅ Accepter uniquement POST
-  if (req.method !== "POST") {
-    return withCors(req, json({ error: "method_not_allowed" }, 405));
-  }
-
-  try {
-    const body = await req.json().catch(() => ({}));
-    const prompt = body.prompt ?? "";
-    if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
-      return withCors(req, json({ error: "invalid_prompt" }, 400));
+    if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Rate limits exceeded, please try again later." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "Payment required, please add funds to your Lovable AI workspace." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
+      const errorText = await response.text();
+      console.error("Lovable AI error:", response.status, errorText);
+      return new Response(
+        JSON.stringify({ error: "AI gateway error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // Appel du modèle local
-    const result = await Promise.race([
-      callLocalModel(prompt),
-      timeoutPromise(15000, "model_timeout"),
-    ]);
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content ?? "";
 
-    return withCors(req, json({ ok: true, model: LOCAL_MODEL_NAME, result }));
-  } catch (err) {
-    return withCors(req, json({ ok: false, error: String(err) }, 500));
+    return new Response(
+      JSON.stringify({ 
+        ok: true, 
+        model: MODEL,
+        result: {
+          model: MODEL,
+          choices: [{ message: { content } }]
+        }
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (error) {
+    console.error("generate-chess-rule error:", error);
+    return new Response(
+      JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   }
 });

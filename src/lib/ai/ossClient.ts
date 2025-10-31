@@ -1,6 +1,8 @@
 // src/lib/ai/ossClient.ts
-// Client OpenAI-compatible minimal pour serveur local (LM Studio / Ollama / llama.cpp).
-// Strict JSON-only, avec parse robuste + erreurs lisibles UI.
+// Client pour appeler l'edge function generate-chess-rule via Supabase
+// Remplace les appels directs au modèle local
+
+import { supabase } from "@/integrations/supabase/client";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -8,95 +10,55 @@ export type ChatMessage = {
 };
 
 export type OssCompileResponse = {
-  rule: unknown; // JSON strict renvoyé par le modèle
-  rawContent: string; // Trace brute (diagnostic UI)
+  rule: unknown;
+  rawContent: string;
 };
 
-type OpenAICompatResponse = {
-  model?: string;
-  choices?: Array<{ message?: { content?: string } }>;
-};
-
-const envVars =
-  (
-    import.meta as unknown as {
-      env?: { VITE_OSS_ENDPOINT?: string; VITE_OSS_MODEL?: string };
-    }
-  ).env ?? {};
-
-const DEFAULT_ENDPOINT =
-  envVars.VITE_OSS_ENDPOINT ?? "http://192.168.0.33:1234/v1/chat/completions";
-
-const DEFAULT_MODEL = envVars.VITE_OSS_MODEL ?? "openai/gpt-oss-20b:2";
-
-export type OssClientOptions = {
-  endpoint?: string;
-  model?: string;
-  temperature?: number;
-  max_tokens?: number;
+type EdgeFunctionResponse = {
+  ok?: boolean;
+  result?: {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  error?: string;
 };
 
 export class OssClient {
-  private endpoint: string;
-  private model: string;
-  private temperature: number;
-  private maxTokens: number;
-
-  constructor(opts?: OssClientOptions) {
-    this.endpoint = (opts?.endpoint ?? DEFAULT_ENDPOINT).replace(/\/+$/, "");
-    this.model = opts?.model ?? DEFAULT_MODEL;
-    this.temperature = opts?.temperature ?? 0.35;
-    this.maxTokens = opts?.max_tokens ?? 1800;
-  }
-
-  setEndpoint(endpoint: string) {
-    this.endpoint = endpoint.replace(/\/+$/, "");
-  }
-  setModel(model: string) {
-    this.model = model;
-  }
-
   async chat(messages: ChatMessage[]): Promise<OssCompileResponse> {
-    const body = {
-      model: this.model,
-      messages,
-      temperature: this.temperature,
-      max_tokens: this.maxTokens,
-      stream: false,
-    };
-
-    const res = await fetch(`${this.endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    const raw = await res.text();
-    if (!res.ok) {
-      throw new Error(`OSS_HTTP_${res.status}: ${raw.slice(0, 500)}`);
+    const userMessage = messages.find((m) => m.role === "user");
+    if (!userMessage) {
+      throw new Error("No user message provided");
     }
 
-    let json: OpenAICompatResponse;
-    try {
-      json = JSON.parse(raw) as OpenAICompatResponse;
-    } catch {
-      throw new Error(`OSS_INVALID_JSON: ${raw.slice(0, 500)}`);
+    const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>(
+      "generate-chess-rule",
+      {
+        body: { prompt: userMessage.content },
+      }
+    );
+
+    if (error) {
+      throw new Error(`Edge function error: ${error.message}`);
     }
 
-    const content = json.choices?.[0]?.message?.content ?? "";
+    if (!data || !data.ok) {
+      throw new Error(`Edge function failed: ${data?.error ?? "unknown error"}`);
+    }
+
+    const content = data.result?.choices?.[0]?.message?.content ?? "";
     const trimmed = content.trim();
+    
     if (!trimmed) {
-      throw new Error("OSS_EMPTY_MESSAGE");
+      throw new Error("Empty response from AI");
     }
 
-    // Extraction d’un objet JSON même si le modèle ajoute des fences ```
     const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
     const candidate = fenced ? (fenced[1] ?? "") : trimmed;
 
     const firstBrace = candidate.indexOf("{");
     const lastBrace = candidate.lastIndexOf("}");
+    
     if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      throw new Error(`OSS_NO_JSON_OBJECT: ${trimmed.slice(0, 500)}`);
+      throw new Error(`No JSON object found: ${trimmed.slice(0, 500)}`);
     }
 
     const jsonSlice = candidate.slice(firstBrace, lastBrace + 1);
@@ -105,7 +67,7 @@ export class OssClient {
       const parsed = JSON.parse(jsonSlice);
       return { rule: parsed, rawContent: trimmed };
     } catch {
-      throw new Error(`OSS_JSON_PARSE_ERROR: ${jsonSlice.slice(0, 500)}`);
+      throw new Error(`JSON parse error: ${jsonSlice.slice(0, 500)}`);
     }
   }
 }

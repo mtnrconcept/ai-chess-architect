@@ -1,23 +1,9 @@
 // src/pages/VariantsIA.tsx
-// UI complète : saisie, config endpoint/modèle, rendu résultat.
-// Appelle directement le serveur OSS local via OssClient (Mode A).
+// UI complète : saisie et génération via edge function Supabase
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { OssClient, ChatMessage } from "../lib/ai/ossClient";
 
-const envVars =
-  (
-    import.meta as unknown as {
-      env?: { VITE_OSS_ENDPOINT?: string; VITE_OSS_MODEL?: string };
-    }
-  ).env ?? {};
-
-const DEFAULT_ENDPOINT =
-  envVars.VITE_OSS_ENDPOINT ?? "http://192.168.0.33:1234/v1/chat/completions";
-
-const DEFAULT_MODEL = envVars.VITE_OSS_MODEL ?? "openai/gpt-oss-20b:2";
-
-// Prompt système strict-JSON
 const SYSTEM_PROMPT =
   "Tu es un compilateur pour un moteur de règles d'échecs JSON. " +
   "Respecte strictement le schéma des règles: meta, scope, ui, state, parameters, logic. " +
@@ -50,68 +36,6 @@ const AssistantBubble: React.FC<{ children: React.ReactNode }> = ({
   </div>
 );
 
-const ConfigBlock: React.FC<{
-  endpoint: string;
-  setEndpoint: (s: string) => void;
-  model: string;
-  setModel: (s: string) => void;
-}> = ({ endpoint, setEndpoint, model, setModel }) => (
-  <div
-    style={{
-      marginTop: 24,
-      padding: 16,
-      borderRadius: 12,
-      border: "1px solid rgba(255,255,255,0.08)",
-      background: "rgba(0,0,0,0.3)",
-    }}
-  >
-    <h3 style={{ marginTop: 0 }}>Configuration modèle local / LAN</h3>
-
-    <div style={{ display: "grid", gap: 12 }}>
-      <label>
-        URL (OpenAI-compatible) :
-        <input
-          style={{ width: "100%", marginTop: 6 }}
-          value={endpoint}
-          onChange={(e) => setEndpoint(e.currentTarget.value)}
-          placeholder="http://192.168.0.33:1234/v1/chat/completions"
-        />
-      </label>
-      <label>
-        Modèle :
-        <input
-          style={{ width: "100%", marginTop: 6 }}
-          value={model}
-          onChange={(e) => setModel(e.currentTarget.value)}
-          placeholder="openai/gpt-oss-20b:2"
-        />
-      </label>
-    </div>
-
-    <div
-      style={{
-        marginTop: 16,
-        fontFamily: "monospace",
-        whiteSpace: "pre-wrap",
-        fontSize: 12,
-        opacity: 0.9,
-      }}
-    >
-      {`Test rapide (depuis une machine du LAN) :
-
-curl -X POST '${endpoint}' \\
-  -H 'content-type: application/json' \\
-  -d '{
-    "model": "${model}",
-    "messages": [
-      { "role": "system", "content": "You are a chess rules compiler. Output JSON only."},
-      { "role": "user", "content": "Propose une règle originale pour les cavaliers."}
-    ]
-  }'
-`}
-    </div>
-  </div>
-);
 
 const JsonBlock: React.FC<{ title: string; data: unknown }> = ({
   title,
@@ -136,14 +60,8 @@ const JsonBlock: React.FC<{ title: string; data: unknown }> = ({
 
 const VariantsIA: React.FC = () => {
   const [instruction, setInstruction] = useState("");
-  const [endpoint, setEndpoint] = useState(DEFAULT_ENDPOINT);
-  const [model, setModel] = useState(DEFAULT_MODEL);
-
-  const client = useMemo(
-    () => new OssClient({ endpoint, model }),
-    [endpoint, model],
-  );
-
+  const client = new OssClient();
+  
   const [loading, setLoading] = useState(false);
   const [rawContent, setRawContent] = useState<string | null>(null);
   const [rule, setRule] = useState<unknown | null>(null);
@@ -212,12 +130,19 @@ const VariantsIA: React.FC = () => {
         </button>
       </div>
 
-      <ConfigBlock
-        endpoint={endpoint}
-        setEndpoint={setEndpoint}
-        model={model}
-        setModel={setModel}
-      />
+      <div
+        style={{
+          marginTop: 24,
+          padding: 16,
+          borderRadius: 12,
+          border: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(0,0,0,0.3)",
+        }}
+      >
+        <p style={{ fontSize: 14, opacity: 0.9 }}>
+          ✨ Utilise Lovable AI (google/gemini-2.5-flash) via edge function Supabase
+        </p>
+      </div>
 
       {error && <JsonBlock title="Erreur" data={{ error }} />}
       {rawContent && (
