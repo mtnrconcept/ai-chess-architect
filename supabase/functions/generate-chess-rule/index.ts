@@ -63,6 +63,7 @@ serve(async (req) => {
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt },
         ],
+        response_format: { type: "json_object" },
         temperature: 0.4,
         max_tokens: 1500,
         stream: false,
