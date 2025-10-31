@@ -6,6 +6,7 @@ import {
   Crown,
   Flame,
   Gamepad2,
+  MapPin,
   Radar,
   Sparkles,
   Trophy,
@@ -32,6 +33,12 @@ const navItems = [
     to: "/generator",
     icon: Sparkles,
     accent: "from-fuchsia-500 via-pink-400 to-rose-300",
+  },
+  {
+    label: "Carte des spots",
+    to: "/map",
+    icon: MapPin,
+    accent: "from-emerald-400 via-teal-300 to-lime-200",
   },
   {
     label: "Tournois",
@@ -115,7 +122,7 @@ const Index = () => {
             </div>
           </header>
 
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isProfile = item.to === "/profile";
