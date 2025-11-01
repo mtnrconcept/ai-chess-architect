@@ -600,13 +600,14 @@ export default function RuleGenerator({
 
       try {
         const { data, error } = await supabase.functions.invoke<{
-          id: number;
-          name: string;
+          id: string;
+          rule_id: string;
+          rule_name: string;
         }>("publish-custom-rule", {
           body: {
-            name: ruleName,
+            rule_name: ruleName,
             description: description ?? null,
-            rule_metadata: sanitiseRuleMetadata(rule),
+            rule_json: sanitiseRuleMetadata(rule),
           },
         });
 
@@ -618,7 +619,7 @@ export default function RuleGenerator({
 
         toast({
           title: "Règle publiée",
-          description: `« ${data?.name ?? ruleName} » est désormais disponible dans le lobby.`,
+          description: `« ${data?.rule_name ?? ruleName} » est désormais disponible dans le lobby.`,
         });
       } catch (error) {
         setPublishStatus((prev) => ({ ...prev, [messageId]: "idle" }));
