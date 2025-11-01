@@ -14,38 +14,61 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 const LOVABLE_ENDPOINT = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-2.5-flash";
 
-const SYSTEM_PROMPT = `You are a JSON compiler for chess rules.
+const SYSTEM_PROMPT = `You are a chess rule generator. Generate COMPLETE, PLAYABLE chess rules in JSON format.
 
 CRITICAL RULES:
 1. You MUST respond ONLY with valid JSON
-2. NO explanatory text before or after the JSON
-3. NO markdown code blocks
-4. NO questions or clarifications - if unclear, generate a simple default rule
+2. NO explanatory text, NO markdown code blocks
+3. Generate COMPLETE rules with UI actions AND logic effects - NEVER return empty arrays
+4. If the request is vague, create a reasonable interpretation that is PLAYABLE
+5. ALWAYS include at least ONE ui.actions entry and ONE logic.effects entry
 
-Required JSON schema:
+Required structure (ALL fields are mandatory):
 {
   "meta": {
-    "name": "string (descriptive name)",
-    "key": "string (lowercase-with-dashes)",
-    "description": "string (clear explanation)",
-    "version": "1.0.0"
+    "ruleId": "unique-id",
+    "ruleName": "Display Name",
+    "category": "movement|attack|defense|special|terrain|stealth|spawn",
+    "description": "What the rule does",
+    "tags": ["tag1", "tag2"],
+    "version": "1.0.0",
+    "isActive": true
   },
-  "scope": "game" | "turn" | "move",
-  "ui": {},
-  "state": {},
-  "parameters": {},
-  "logic": {}
+  "scope": {
+    "affectedPieces": ["pawn", "rook", "bishop", "knight", "queen", "king"],
+    "sides": ["white", "black"]
+  },
+  "ui": {
+    "actions": [{ MUST have at least ONE action with id, label, icon, availability, targeting }]
+  },
+  "logic": {
+    "effects": [{ MUST have at least ONE effect with id, when, if conditions, do actions }]
+  },
+  "assets": {
+    "icon": "🎯",
+    "color": "#FFD700"
+  },
+  "state": {
+    "namespace": "rules.uniqueName",
+    "initial": {}
+  },
+  "parameters": {}
 }
 
-EXAMPLES:
+VAGUE REQUEST HANDLING:
+- "invisible pawns" → Create a button action to toggle pawn invisibility with cooldown
+- "flying knights" → Create an action for knights to fly over pieces
+- "explosive queens" → Create an attack action that deals area damage
 
-Input: "Pawns can move 3 squares on first move"
-Output: {"meta":{"name":"Extended Pawn Rush","key":"extended-pawn-rush","description":"Pawns can move up to 3 squares on their first move","version":"1.0.0"},"scope":"move","ui":{},"state":{},"parameters":{},"logic":{}}
+COMPLETE EXAMPLES (note: BOTH ui.actions AND logic.effects arrays have content):
 
-Input: "Kings cannot be captured"
-Output: {"meta":{"name":"Immortal Kings","key":"immortal-kings","description":"Kings cannot be captured or removed","version":"1.0.0"},"scope":"game","ui":{},"state":{},"parameters":{},"logic":{}}
+Input: "Rooks can fire missiles"
+Output: {"meta":{"ruleId":"rook-missiles","ruleName":"Rook Missiles","category":"attack","description":"Rooks can fire missiles at enemy pieces","tags":["attack","ranged"],"version":"1.0.0","isActive":true},"scope":{"affectedPieces":["rook"],"sides":["white","black"]},"ui":{"actions":[{"id":"special_fire_missile","label":"Fire Missile","hint":"Launch a missile at an enemy piece","icon":"🚀","availability":{"requiresSelection":true,"pieceTypes":["rook"],"phase":"main","cooldownOk":true},"targeting":{"mode":"piece","validTilesProvider":"provider.enemiesInLineOfSight"},"consumesTurn":true,"cooldown":{"perPiece":2}}]},"logic":{"effects":[{"id":"fire-missile","when":"ui.special_fire_missile","if":["cooldown.ready","ctx.hasTargetPiece","target.isEnemy"],"do":[{"action":"vfx.play","params":{"sprite":"missile_trail","tile":"$targetTile"}},{"action":"audio.play","params":{"id":"explosion"}},{"action":"piece.capture","params":{"pieceId":"$targetPieceId"}},{"action":"cooldown.set","params":{"pieceId":"$pieceId","actionId":"special_fire_missile","turns":2}},{"action":"turn.end"}]}]},"assets":{"icon":"🚀","color":"#FF4444"},"state":{"namespace":"rules.rookMissiles","initial":{}},"parameters":{}}
 
-Now generate a rule for the user's request. Respond ONLY with valid JSON, nothing else.`;
+Input: "Pawns invisible"
+Output: {"meta":{"ruleId":"invisible-pawns","ruleName":"Invisible Pawns","category":"stealth","description":"Pawns can become invisible to the opponent","tags":["stealth","pawn"],"version":"1.0.0","isActive":true},"scope":{"affectedPieces":["pawn"],"sides":["white","black"]},"ui":{"actions":[{"id":"special_toggle_invisibility","label":"Toggle Invisibility","hint":"Make this pawn invisible for 2 turns","icon":"👻","availability":{"requiresSelection":true,"pieceTypes":["pawn"],"phase":"main","cooldownOk":true},"targeting":{"mode":"none"},"consumesTurn":false,"cooldown":{"perPiece":3}}]},"logic":{"effects":[{"id":"toggle-invisible","when":"ui.special_toggle_invisibility","if":["cooldown.ready","piece.isTypeInScope"],"do":[{"action":"piece.setInvisible","params":{"pieceId":"$pieceId","value":true}},{"action":"audio.play","params":{"id":"stealth"}},{"action":"status.add","params":{"pieceId":"$pieceId","key":"invisible","duration":2}},{"action":"cooldown.set","params":{"pieceId":"$pieceId","actionId":"special_toggle_invisibility","turns":3}},{"action":"ui.toast","params":{"message":"Pawn invisible!"}}]}]},"assets":{"icon":"👻","color":"#9E9E9E"},"state":{"namespace":"rules.invisiblePawns","initial":{}},"parameters":{"invisibilityDuration":2}}
+
+Now generate a COMPLETE, PLAYABLE rule with BOTH ui.actions and logic.effects populated.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {

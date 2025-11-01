@@ -115,7 +115,9 @@ const normalizeActions = (
 };
 
 const isRuleJSONLike = (value: Record<string, unknown>): value is RuleJSON =>
-  isRecord(value.meta) && isRecord(value.logic);
+  isRecord(value.meta) && 
+  isRecord(value.logic) && 
+  Array.isArray((value.logic as Record<string, unknown>).effects);
 
 /**
  * Transforme une règle générée par l'IA vers le format attendu par le moteur.
@@ -281,10 +283,16 @@ export function validateRuleJSONActions(ruleJSON: RuleJSON): string[] {
 
   const unknownActions: string[] = [];
 
-  ruleJSON.logic.effects.forEach((effect) => {
+  // Safely handle missing or empty effects array
+  const effects = ruleJSON?.logic?.effects;
+  if (!Array.isArray(effects)) {
+    return unknownActions;
+  }
+
+  effects.forEach((effect) => {
     const actions = Array.isArray(effect.do) ? effect.do : [effect.do];
     actions.forEach((action) => {
-      if (!knownActions.includes(action.action)) {
+      if (action && typeof action.action === 'string' && !knownActions.includes(action.action)) {
         unknownActions.push(action.action);
       }
     });
