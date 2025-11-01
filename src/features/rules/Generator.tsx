@@ -743,10 +743,10 @@ export default function RuleGenerator({
           content: summary,
           rule: generatedRule,
         };
-        const detailUiMessage = details
+        const detailUiMessage: AssistantUiMessage | null = details
           ? {
               id: createMessageId(),
-              role: "assistant",
+              role: "assistant" as const,
               content: details,
             }
           : null;

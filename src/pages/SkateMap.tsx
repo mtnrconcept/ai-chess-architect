@@ -117,14 +117,18 @@ const SkateMap = () => {
         <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
           <div className="overflow-hidden rounded-3xl border border-white/10 shadow-[0_0_45px_rgba(14,165,233,0.25)]">
             <MapContainer
-              center={centerOfSwitzerland}
-              zoom={8}
-              scrollWheelZoom
-              className="h-[540px] w-full"
+              {...({
+                center: centerOfSwitzerland,
+                zoom: 8,
+                scrollWheelZoom: true,
+                className: "h-[540px] w-full"
+              } as any)}
             >
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                {...({
+                  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                } as any)}
               />
               {visibleSpots.map((spot) => (
                 <Marker

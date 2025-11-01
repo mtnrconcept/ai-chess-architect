@@ -224,7 +224,7 @@ export function transformAiRuleToEngineRule(input: unknown): RuleJSON {
       sides: ["white", "black"],
     },
     logic: {
-      effects,
+      effects: effects as any, // Type assertion needed for dynamic effects
     },
     state: {
       namespace: `rules.${fallbackRuleId}`,

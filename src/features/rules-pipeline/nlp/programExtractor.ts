@@ -478,8 +478,8 @@ const mechanicBricks: MechanicBrick[] = [
       { type: "ADD_MECHANIC", mechanic: "attack:execute" },
       {
         type: "SET_REQUIREMENT",
-        requirement: "targetHasStatus",
-        value: "poisoned",
+        requirement: "targetHasStatus" as any, // Type extension needed for custom requirement
+        value: "poisoned" as any,
       },
       {
         type: "ADD_TEXT_HINT",

@@ -110,7 +110,7 @@ const pawnMines: TemplateCompiler = (intent) => {
             cooldownOk: true,
             hasMovesRemaining: true,
           },
-          targeting,
+          targeting: targeting as { mode: "area" | "none" | "piece" | "tile"; validTilesProvider?: string },
           consumesTurn: true,
           cooldown,
           ...(maxPerPiece ? { maxPerPiece } : {}),
@@ -585,13 +585,13 @@ const bishopSwap: TemplateCompiler = (intent) => {
             cooldownOk: true,
           },
           targeting: intent.targeting
-            ? {
+            ? ({
                 mode:
                   intent.targeting.mode === "none"
                     ? "none"
-                    : intent.targeting.mode,
+                    : (intent.targeting.mode as "area" | "piece" | "tile"),
                 validTilesProvider: intent.targeting.provider,
-              }
+              } as { mode: "area" | "none" | "piece" | "tile"; validTilesProvider?: string })
             : undefined,
           consumesTurn: true,
           cooldown: buildCooldown(intent),
