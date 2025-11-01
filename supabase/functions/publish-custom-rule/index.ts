@@ -3,9 +3,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.2?target
 import { jsonResponse, preflightIfOptions } from "../_shared/cors.ts";
 
 interface RulePayload {
-  name: string;
+  rule_name: string;
   description?: string | null;
-  rule_metadata: unknown;
+  rule_json: unknown;
+  category?: string;
+  rule_id?: string;
 }
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -51,18 +53,27 @@ serve(async (req) => {
 
     const payload = (await req.json()) as RulePayload;
 
-    if (!payload?.name || !payload.rule_metadata) {
-      return jsonResponse({ error: "missing_required_fields" }, 400, req);
+    if (!payload?.rule_name || !payload.rule_json) {
+      return jsonResponse({ error: "missing_required_fields (rule_name, rule_json)" }, 400, req);
     }
 
+    // Extract rule_id from rule_json if available
+    const ruleJson = payload.rule_json as Record<string, unknown>;
+    const metaData = ruleJson?.meta as Record<string, unknown> | undefined;
+    const ruleId = payload.rule_id || (metaData?.key as string) || `custom-${Date.now()}`;
+    const category = payload.category || (metaData?.category as string) || "custom";
+
     const { data, error } = await supabaseClient
-      .from("custom_rules")
+      .from("chess_rules")
       .insert({
-        user_id: user.id,
-        name: payload.name,
-        description: payload.description ?? null,
-        rule_metadata: payload.rule_metadata,
-        status: "published",
+        created_by: user.id,
+        rule_id: ruleId,
+        rule_name: payload.rule_name,
+        description: payload.description || metaData?.description as string || "",
+        category: category,
+        rule_json: payload.rule_json,
+        source: "custom",
+        status: "active",
       })
       .select()
       .single();
