@@ -12,12 +12,18 @@ const SYSTEM_PROMPT =
 type HeuristicsPayload = { instruction: string };
 
 const buildUserPrompt = (instruction: string): string => {
-  const heuristics: HeuristicsPayload = { instruction };
-  return [
-    `Instruction utilisateur:\n${instruction}\n`,
-    `Données heuristiques (JSON):\n${JSON.stringify(heuristics, null, 2)}\n`,
-    "Objectif: génère la règle JSON STRICTE (aucun texte hors JSON).",
-  ].join("\n");
+  return `Generate a chess rule based on this instruction:
+
+"${instruction}"
+
+Important guidelines:
+- Create a clear, descriptive name for meta.name
+- Generate a unique key in meta.key (lowercase-with-dashes)
+- Set appropriate scope: "game" (entire game), "turn" (per turn), or "move" (per move)
+- Provide a concise description explaining what the rule does
+- Use version "1.0.0"
+
+Do NOT ask questions. Generate the best rule you can based on the instruction provided.`;
 };
 
 const AssistantBubble: React.FC<{ children: React.ReactNode }> = ({
@@ -87,9 +93,20 @@ const VariantsIA: React.FC = () => {
       setRawContent(res.rawContent);
       setRule(res.rule);
 
-      // Optionnel : validation locale + save en base si OK
+      // Success - could add validation + save to database here
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      let errorMsg = e instanceof Error ? e.message : String(e);
+      
+      // Translate technical errors to user-friendly messages
+      if (errorMsg.includes("need_info") || errorMsg.includes("need more information")) {
+        errorMsg = "❓ Le modèle IA a besoin de plus d'informations. Essayez de décrire votre règle de manière plus détaillée et spécifique.";
+      } else if (errorMsg.includes("unable_to_parse") || errorMsg.includes("parse")) {
+        errorMsg = "⚠️ Le modèle n'a pas généré un JSON valide. Essayez de reformuler votre demande de manière plus simple.";
+      } else if (errorMsg.includes("empty_model_response")) {
+        errorMsg = "🔇 Le modèle n'a pas généré de réponse. Veuillez réessayer.";
+      }
+      
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

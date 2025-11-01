@@ -16,8 +16,14 @@ export type OssCompileResponse = {
 
 type EdgeFunctionResponse = {
   ok?: boolean;
+  status?: string;
+  message?: string;
   result?: {
+    rule?: unknown;
     choices?: Array<{ message?: { content?: string } }>;
+    rawModelResponse?: {
+      content?: string;
+    };
   };
   error?: string;
 };
@@ -37,16 +43,40 @@ export class OssClient {
     );
 
     if (error) {
-      throw new Error(`Edge function error: ${error.message}`);
+      throw new Error(`Edge function network error: ${error.message}`);
     }
 
     if (!data || !data.ok) {
-      throw new Error(`Edge function failed: ${data?.error ?? "unknown error"}`);
+      const errorMsg = data?.error ?? "unknown error";
+      
+      // Special case: model asking for clarification
+      if (data?.status === "need_info") {
+        throw new Error(
+          `Le modèle IA a besoin de plus d'informations. Essayez de décrire votre règle plus précisément.\n\n` +
+          `Détails: ${data.message ?? "Aucun détail disponible"}`
+        );
+      }
+      
+      throw new Error(`Edge function failed: ${errorMsg}`);
     }
 
-    const content = data.result?.choices?.[0]?.message?.content ?? "";
-    const trimmed = content.trim();
+    // Try to get content from new format first
+    let content = data.result?.rawModelResponse?.content;
     
+    // Fallback to choices format if available
+    if (!content) {
+      content = data.result?.choices?.[0]?.message?.content ?? "";
+    }
+    
+    // If still no content but we have a rule directly, use it
+    if (!content && data.result?.rule) {
+      return {
+        rule: data.result.rule,
+        rawContent: JSON.stringify(data.result.rule, null, 2)
+      };
+    }
+    
+    const trimmed = content.trim();
     if (!trimmed) {
       throw new Error("Empty response from AI");
     }
