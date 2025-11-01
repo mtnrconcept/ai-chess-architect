@@ -287,8 +287,6 @@ serve(async (req) => {
         last_active_at: nowIso,
       }, { onConflict: "tournament_id,user_id" })
       .select("id, tournament_id, user_id, current_match_id, is_waiting, wins, losses, draws, points")
-      .eq("tournament_id", tournamentId)
-      .eq("user_id", user.id)
       .single();
 
     if (registrationError || !registration) {

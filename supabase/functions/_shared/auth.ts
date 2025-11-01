@@ -1,4 +1,4 @@
-import { createClient, type User } from "@supabase/supabase-js";
+import { createClient, type User } from "https://esm.sh/@supabase/supabase-js@2.45.2?target=deno";
 
 const normalizeEnv = (value: string | undefined | null) => {
   if (typeof value !== "string") return undefined;

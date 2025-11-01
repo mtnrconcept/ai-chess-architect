@@ -113,8 +113,10 @@ Deno.test(
       const result = await auth.authenticateRequest(request);
 
       assertEquals(result.success, false);
-      assertEquals(result.status, 500);
-      assertEquals(result.error, "Supabase client misconfigured");
+      if (!result.success) {
+        assertEquals(result.status, 500);
+        assertEquals(result.error, "Supabase client misconfigured");
+      }
     });
   },
 );
