@@ -959,7 +959,27 @@ const Play = () => {
     return jsons;
   }, [combinedActiveRules]);
 
-  const { runUIAction } = useRuleEngine(gameState, activeRuleJsons);
+  const { onEnterTile, onMoveCommitted, onTurnStart, runUIAction } = useRuleEngine(gameState, activeRuleJsons);
+
+  // Déclenche l'événement de début de tour au montage
+  useEffect(() => {
+    onTurnStart(gameState.currentPlayer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // À chaque nouveau coup, informer le moteur de règles et démarrer le tour suivant
+  useEffect(() => {
+    const len = gameState.moveHistory.length;
+    if (len === 0) return;
+    const last = gameState.moveHistory[len - 1];
+    const fromTile = `${FILES[last.from.col]}${8 - last.from.row}`;
+    const toTile = `${FILES[last.to.col]}${8 - last.to.row}`;
+    const movedPieceId = `p_${last.to.row}_${last.to.col}`;
+
+    onMoveCommitted({ pieceId: movedPieceId, from: fromTile, to: toTile });
+    onEnterTile(movedPieceId, toTile);
+    onTurnStart(gameState.currentPlayer);
+  }, [gameState.moveHistory.length, gameState.currentPlayer, onEnterTile, onMoveCommitted, onTurnStart]);
 
   const specialAbilities = useMemo<SpecialAbilityOption[]>(() => {
     const options: SpecialAbilityOption[] = [];

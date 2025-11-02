@@ -54,6 +54,26 @@ export function registerBuiltinEffects(reg: Registry) {
     }
   });
 
+  // Promotion générique: remplace la pièce par une nouvelle du type demandé, au même emplacement
+  // Fallback compatible avec l'API BoardAPI: remove + spawn pour éviter les mutations internes
+  reg.registerEffect("piece.promote", (ctx, p) => {
+    const pieceId = p?.pieceId || ctx.pieceId;
+    const toType = p?.toType || p?.type || p?.newType;
+    if (!pieceId || !toType) {
+      console.warn("[effect] piece.promote: pieceId ou toType manquant", p);
+      return;
+    }
+    try {
+      const current = ctx.engine.board.getPiece(pieceId);
+      // Retirer l'ancienne pièce puis en créer une nouvelle du type voulu à la même case et même camp
+      ctx.engine.board.removePiece(pieceId);
+      ctx.engine.board.spawnPiece(toType, current.side, current.tile);
+    } catch (error) {
+      console.warn("[effect] piece.promote a échoué:", error);
+    }
+  });
+
+
   reg.registerEffect("piece.duplicate", (ctx, p) => {
     if (p?.sourceId && p?.tile) {
       try {
