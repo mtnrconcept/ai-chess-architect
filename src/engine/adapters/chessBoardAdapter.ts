@@ -1,6 +1,10 @@
 import { BoardAPI, Tile, PieceID, Piece, Side, SpriteId } from "../types";
 import { ChessPiece, Position } from "@/types/chess";
 
+type ChessPieceWithId = ChessPiece & { __engineId?: PieceID };
+
+const PIECE_ID_PREFIX = "piece_";
+
 type ChessBoard = (ChessPiece | null)[][];
 
 interface PieceEntry {
@@ -11,36 +15,55 @@ interface PieceEntry {
 export class ChessBoardAdapter implements BoardAPI {
   private board: ChessBoard;
   private pieceMap: Map<PieceID, PieceEntry>;
+  private positionMap: Map<string, PieceID>;
+  private nextId = 1;
   private decals: Map<string, SpriteId | null>;
 
   constructor(board: ChessBoard) {
     this.board = board;
     this.pieceMap = new Map();
+    this.positionMap = new Map();
     this.decals = new Map();
     this.rebuildPieceMap();
   }
 
   private rebuildPieceMap() {
     this.pieceMap.clear();
+    this.positionMap.clear();
     this.board.forEach((row, rowIndex) => {
       row.forEach((piece, colIndex) => {
         if (piece) {
           const position = { row: rowIndex, col: colIndex };
-          const id = this.createPieceId(position);
+          const id = this.getOrCreatePieceId(piece as ChessPieceWithId);
+          const tile = this.positionToTile(position);
           this.pieceMap.set(id, { piece, position });
+          this.positionMap.set(this.getTileKey(tile), id);
         }
       });
     });
   }
 
-  private createPieceId(pos: Position): PieceID {
-    return `p_${pos.row}_${pos.col}` as PieceID;
+  private generatePieceId(): PieceID {
+    const id = `${PIECE_ID_PREFIX}${this.nextId++}` as PieceID;
+    return id;
   }
 
-  private parsePieceId(id: PieceID): Position | null {
-    const match = id.match(/^p_(\d+)_(\d+)$/);
-    if (!match) return null;
-    return { row: parseInt(match[1]), col: parseInt(match[2]) };
+  private getOrCreatePieceId(piece: ChessPieceWithId): PieceID {
+    if (!piece.__engineId) {
+      piece.__engineId = this.generatePieceId();
+    } else {
+      this.syncNextId(piece.__engineId);
+    }
+    return piece.__engineId;
+  }
+
+  private syncNextId(id: PieceID) {
+    const match = typeof id === "string" ? id.match(/^piece_(\d+)$/) : null;
+    if (!match) return;
+    const numericId = parseInt(match[1], 10);
+    if (!Number.isNaN(numericId) && numericId >= this.nextId) {
+      this.nextId = numericId + 1;
+    }
   }
 
   private positionToTile(pos: Position): Tile {
@@ -66,9 +89,10 @@ export class ChessBoardAdapter implements BoardAPI {
         );
 
         if (distance <= radius) {
-          const piece = this.board[row]?.[col];
-          if (piece) {
-            result.push(this.createPieceId({ row, col }));
+          const tile = this.positionToTile({ row, col });
+          const pieceId = this.positionMap.get(this.getTileKey(tile));
+          if (pieceId) {
+            result.push(pieceId);
           }
         }
       }
@@ -97,10 +121,7 @@ export class ChessBoardAdapter implements BoardAPI {
   }
 
   getPieceAt(tile: Tile): PieceID | null {
-    const pos = this.tileToPosition(tile);
-    const piece = this.board[pos.row]?.[pos.col];
-    if (!piece) return null;
-    return this.createPieceId(pos);
+    return this.positionMap.get(this.getTileKey(tile)) ?? null;
   }
 
   getPiece(id: PieceID): Piece {
@@ -123,7 +144,7 @@ export class ChessBoardAdapter implements BoardAPI {
     if (!entry) {
       throw new Error(`Piece not found: ${id}`);
     }
-    const chessPiece = entry.piece;
+    const chessPiece = entry.piece as ChessPieceWithId;
     const oldPos = entry.position;
     const newPos = this.tileToPosition(tile);
 
@@ -131,9 +152,13 @@ export class ChessBoardAdapter implements BoardAPI {
     chessPiece.position = newPos;
     this.board[newPos.row][newPos.col] = chessPiece;
 
-    this.pieceMap.delete(id);
-    const newId = this.createPieceId(newPos);
-    this.pieceMap.set(newId, { piece: chessPiece, position: newPos });
+    const oldTileKey = this.getTileKey(this.positionToTile(oldPos));
+    this.positionMap.delete(oldTileKey);
+
+    entry.position = newPos;
+    this.pieceMap.set(id, entry);
+    const newTileKey = this.getTileKey(tile);
+    this.positionMap.set(newTileKey, id);
   }
 
   removePiece(id: PieceID): void {
@@ -145,11 +170,12 @@ export class ChessBoardAdapter implements BoardAPI {
     const pos = entry.position;
     this.board[pos.row][pos.col] = null;
     this.pieceMap.delete(id);
+    this.positionMap.delete(this.getTileKey(this.positionToTile(pos)));
   }
 
   spawnPiece(type: string, side: Side, tile: Tile): PieceID {
     const pos = this.tileToPosition(tile);
-    const newPiece: ChessPiece = {
+    const newPiece: ChessPieceWithId = {
       type: type as ChessPiece["type"],
       color: side as ChessPiece["color"],
       position: pos,
@@ -158,8 +184,9 @@ export class ChessBoardAdapter implements BoardAPI {
     };
 
     this.board[pos.row][pos.col] = newPiece;
-    const id = this.createPieceId(pos);
+    const id = this.getOrCreatePieceId(newPiece);
     this.pieceMap.set(id, { piece: newPiece, position: pos });
+    this.positionMap.set(this.getTileKey(tile), id);
 
     return id;
   }
@@ -222,24 +249,10 @@ export class ChessBoardAdapter implements BoardAPI {
       return cached;
     }
 
-    const pos = this.parsePieceId(id);
-    if (!pos) {
-      if (throwIfMissing) {
-        throw new Error(`Piece not found: ${id}`);
-      }
-      return null;
+    if (throwIfMissing) {
+      throw new Error(`Piece not found: ${id}`);
     }
 
-    const piece = this.board[pos.row]?.[pos.col] ?? null;
-    if (!piece) {
-      if (throwIfMissing) {
-        throw new Error(`Piece not found: ${id}`);
-      }
-      return null;
-    }
-
-    const entry: PieceEntry = { piece, position: pos };
-    this.pieceMap.set(id, entry);
-    return entry;
+    return null;
   }
 }
