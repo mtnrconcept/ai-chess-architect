@@ -14,6 +14,15 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
 ];
 
+// Broad allow-list patterns to support dynamic preview URLs
+// e.g. id-preview--<id>.lovable.app or preview--<slug>.lovable.app
+const DEFAULT_ALLOWED_ORIGIN_PATTERNS: RegExp[] = [
+  /^https:\/\/([a-z0-9-]+--)?[a-z0-9-]+\.lovable\.app$/i,
+  /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/i,
+  /^http:\/\/localhost(?::\d+)?$/i,
+];
+
+
 const envOrigins = Deno.env
   .get("CORS_ORIGIN")
   ?.split(",")
@@ -42,8 +51,12 @@ const resolveAllowedOrigin = (
 ) => {
   if (override) return override;
   if (ALLOWED_ORIGINS.includes("*")) return "*";
-  if (requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)) {
-    return requestOrigin;
+  if (requestOrigin) {
+    if (ALLOWED_ORIGINS.includes(requestOrigin)) return requestOrigin;
+    // If the origin matches one of our broad patterns, echo it back
+    if (DEFAULT_ALLOWED_ORIGIN_PATTERNS.some((re) => re.test(requestOrigin))) {
+      return requestOrigin;
+    }
   }
   return ALLOWED_ORIGINS[0] ?? "*";
 };
