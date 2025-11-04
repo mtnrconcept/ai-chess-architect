@@ -2,7 +2,7 @@
 // src/pages/Play.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -463,6 +463,7 @@ const samePos = (
 const Play = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const safeToast = useSafeToast();
   const { playSound: playSfx } = useSoundEffects();
@@ -485,6 +486,9 @@ const Play = () => {
         tournamentId?: string;
       }
     | undefined;
+  
+  // Récupérer le ruleId depuis l'URL (ex: /play?ruleId=xxx)
+  const urlRuleId = searchParams.get("ruleId");
 
   const params = useParams<{ matchId?: string }>();
 
@@ -723,6 +727,7 @@ const Play = () => {
 
   const [dbLoadedRules, setDbLoadedRules] = useState<ChessRule[]>([]);
   const [dbRulesLoaded, setDbRulesLoaded] = useState(false);
+  const [urlLoadedRule, setUrlLoadedRule] = useState<ChessRule | null>(null);
 
   useEffect(() => {
     const loadDbRules = async () => {
@@ -730,10 +735,12 @@ const Play = () => {
         const presetRules = await loadPresetRulesFromDatabase();
 
         const aiRules: ChessRule[] = [];
+        let urlRule: ChessRule | null = null;
+
         if (user?.id) {
           const { data: rulesData, error } = await supabase
             .from("chess_rules")
-            .select("rule_json")
+            .select("rule_json, rule_id")
             .eq("created_by", user.id)
             .in("source", ["custom", "ai_generated"]);
 
@@ -743,6 +750,11 @@ const Play = () => {
                 try {
                   const converted = convertRuleJsonToChessRule(row.rule_json);
                   aiRules.push(converted);
+                  
+                  // Si cette règle correspond au ruleId de l'URL, la mémoriser
+                  if (urlRuleId && row.rule_id === urlRuleId) {
+                    urlRule = converted;
+                  }
                 } catch (err) {
                   console.warn("[Play] Failed to convert AI rule", err);
                 }
@@ -752,6 +764,7 @@ const Play = () => {
         }
 
         setDbLoadedRules([...presetRules, ...aiRules]);
+        setUrlLoadedRule(urlRule);
         setDbRulesLoaded(true);
       } catch (error) {
         console.error("[Play] Failed to load DB rules", error);
@@ -761,10 +774,24 @@ const Play = () => {
     };
 
     loadDbRules();
-  }, [user?.id]);
+  }, [user?.id, urlRuleId]);
 
   const [customRules, setCustomRules] =
     useState<ChessRule[]>(analyzedCustomRules);
+  
+  // Activer automatiquement la règle depuis l'URL si présente
+  useEffect(() => {
+    if (urlLoadedRule && dbRulesLoaded) {
+      setCustomRules((prev) => {
+        // Vérifier si elle n'est pas déjà là
+        if (prev.some((r) => r.ruleId === urlLoadedRule.ruleId)) {
+          return prev;
+        }
+        return [...prev, urlLoadedRule];
+      });
+    }
+  }, [urlLoadedRule, dbRulesLoaded]);
+  
   const activePresetRule = useMemo(() => {
     if (initialPresetRuleIds.length === 0 || !dbRulesLoaded) return null;
     const [firstRuleId] = initialPresetRuleIds;
