@@ -40,6 +40,7 @@ import { convertRuleJsonToChessRule } from "@/lib/ruleJsonToChessRule";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   mapCustomRuleRowsToChessRules,
+  mapCustomRuleRowToChessRule,
   type CustomRuleRow,
 } from "@/lib/customRuleMapper";
 import {
@@ -81,79 +82,6 @@ type CombinedRuleEntry = {
   issues: string[];
 };
 
-type PublishedCustomRuleRow = {
-  id: number | string | null;
-  name: string;
-  description: string | null;
-  rule_metadata: unknown;
-  status: string;
-};
-
-const toNonEmptyString = (value: unknown): string | undefined => {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-};
-
-const mapPublishedRuleRowToChessRule = (
-  row: PublishedCustomRuleRow,
-): ChessRule | null => {
-  if (!row || row.rule_metadata == null) {
-    return null;
-  }
-
-  try {
-    const chessRule = convertRuleJsonToChessRule(row.rule_metadata, {
-      attachOriginal: true,
-    });
-
-    const idSource =
-      typeof row.id === "number" || typeof row.id === "bigint"
-        ? row.id.toString()
-        : typeof row.id === "string"
-          ? row.id
-          : undefined;
-
-    const fallbackId =
-      idSource ??
-      (typeof globalThis.crypto !== "undefined" &&
-      typeof globalThis.crypto.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random()
-            .toString(36)
-            .slice(2, 8)}`);
-
-    const resolvedRuleId =
-      chessRule.ruleId && chessRule.ruleId !== "generated-rule"
-        ? chessRule.ruleId
-        : `published-${fallbackId}`;
-
-    const resolvedName =
-      toNonEmptyString(row.name) ??
-      toNonEmptyString(chessRule.ruleName) ??
-      "Variante IA";
-
-    const resolvedDescription =
-      toNonEmptyString(row.description) ??
-      toNonEmptyString(chessRule.description) ??
-      "";
-
-    return {
-      ...chessRule,
-      ruleId: resolvedRuleId,
-      ruleName: resolvedName,
-      description: resolvedDescription,
-      isActive: true,
-    };
-  } catch (error) {
-    console.error(
-      "[Lobby] Échec de conversion d'une règle publiée",
-      error,
-      row,
-    );
-    return null;
-  }
-};
 
 const Lobby = () => {
   const navigate = useNavigate();
@@ -246,9 +174,10 @@ const Lobby = () => {
       if (supabaseClient) {
         const { data: publishedData, error: publishedError } =
           await supabaseClient
-            .from("custom_rules")
-            .select("id, name, description, rule_metadata, status")
-            .eq("status", "published")
+            .from("chess_rules")
+            .select("id, rule_name, description, rule_json, category, status, created_at, rule_id, affected_pieces, tags, priority, assets, created_by, updated_at")
+            .eq("source", "custom")
+            .eq("status", "active")
             .order("created_at", { ascending: false });
 
         if (publishedError) {
@@ -258,9 +187,9 @@ const Lobby = () => {
           );
         } else {
           publishedPresetRules = (
-            (publishedData as PublishedCustomRuleRow[] | null | undefined) ?? []
+            (publishedData as CustomRuleRow[] | null | undefined) ?? []
           )
-            .map(mapPublishedRuleRowToChessRule)
+            .map(mapCustomRuleRowToChessRule)
             .filter((rule): rule is ChessRule => rule !== null);
         }
       }
