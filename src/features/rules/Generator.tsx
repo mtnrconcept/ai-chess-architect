@@ -25,6 +25,7 @@ import {
   Target,
   Sparkles,
   Loader2,
+  HelpCircle,
 } from "lucide-react";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { motion } from "framer-motion";
@@ -32,6 +33,37 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+
+// Questions guidées pour orienter la génération
+const GUIDED_QUESTIONS = [
+  {
+    id: "piece_type",
+    question: "Quelle pièce voulez-vous modifier ?",
+    choices: [
+      { label: "Pions", value: "pawn", icon: "♟️" },
+      { label: "Tours", value: "rook", icon: "♜" },
+      { label: "Cavaliers", value: "knight", icon: "♞" },
+    ],
+  },
+  {
+    id: "rule_category",
+    question: "Quel type de modification ?",
+    choices: [
+      { label: "Déplacement spécial", value: "movement", icon: "🏃" },
+      { label: "Attaque à distance", value: "attack", icon: "🎯" },
+      { label: "Défense/Protection", value: "defense", icon: "🛡️" },
+    ],
+  },
+  {
+    id: "power_level",
+    question: "Quelle puissance pour cette règle ?",
+    choices: [
+      { label: "Légère (usage fréquent)", value: "light", icon: "⚡" },
+      { label: "Moyenne (équilibrée)", value: "medium", icon: "💫" },
+      { label: "Forte (cooldown long)", value: "strong", icon: "🔥" },
+    ],
+  },
+];
 
 const toErrorMessage = (value: unknown): string => {
   if (value instanceof Error && value.message) {
@@ -539,7 +571,7 @@ export default function RuleGenerator({
       id: createMessageId(),
       role: "assistant",
       content:
-        "Décrivez votre idée de règle d'échecs. Je poserai des questions complémentaires avant de proposer la règle finale.",
+        "Répondez aux questions ci-dessous pour créer votre règle personnalisée.",
     },
   ]);
   const [publishStatus, setPublishStatus] = useState<
@@ -556,6 +588,9 @@ export default function RuleGenerator({
   const [selectedOptions, setSelectedOptions] = useState<
     Record<string, string[]>
   >({});
+  const [guidedAnswers, setGuidedAnswers] = useState<Record<string, string>>({});
+  const [currentGuidedStep, setCurrentGuidedStep] = useState(0);
+  const [guidedMode, setGuidedMode] = useState(true);
   const isSendingAnswersRef = useRef(false);
 
   const hasFinished = readyResult !== null;
@@ -949,8 +984,58 @@ export default function RuleGenerator({
     }
   };
 
+  const handleGuidedChoice = useCallback((questionId: string, value: string) => {
+    setGuidedAnswers(prev => ({ ...prev, [questionId]: value }));
+    
+    if (currentGuidedStep < GUIDED_QUESTIONS.length - 1) {
+      setCurrentGuidedStep(prev => prev + 1);
+    } else {
+      // Toutes les questions guidées sont répondues, construire le prompt
+      const allAnswers = { ...guidedAnswers, [questionId]: value };
+      
+      const pieceMap: Record<string, string> = {
+        pawn: "pions",
+        rook: "tours",
+        knight: "cavaliers",
+      };
+      
+      const categoryMap: Record<string, string> = {
+        movement: "déplacement spécial",
+        attack: "attaque à distance",
+        defense: "défense et protection",
+      };
+      
+      const powerMap: Record<string, string> = {
+        light: "léger (usage fréquent, cooldown de 1 tour)",
+        medium: "équilibré (usage modéré, cooldown de 2-3 tours)",
+        strong: "puissant (usage rare, cooldown de 4-5 tours)",
+      };
+      
+      const piece = pieceMap[allAnswers.piece_type] || "pions";
+      const category = categoryMap[allAnswers.rule_category] || "spécial";
+      const power = powerMap[allAnswers.power_level] || "équilibré";
+      
+      const prompt = `Crée une règle personnalisée pour les ${piece} avec une capacité de type "${category}" et un niveau de puissance ${power}. La règle doit être complète, équilibrée et amusante à jouer.`;
+      
+      setGuidedMode(false);
+      setInputValue(prompt);
+      
+      // Auto-submit après un court délai pour que l'utilisateur voie le prompt
+      setTimeout(() => {
+        processConversation(prompt, true);
+      }, 500);
+    }
+  }, [currentGuidedStep, guidedAnswers, processConversation]);
+
+  const resetGuided = useCallback(() => {
+    setGuidedAnswers({});
+    setCurrentGuidedStep(0);
+    setGuidedMode(true);
+    resetConversation();
+  }, []);
+
   const canSend = useMemo(() => {
-    if (loading || disabled || hasFinished) {
+    if (loading || disabled || hasFinished || guidedMode) {
       return false;
     }
 
@@ -963,6 +1048,7 @@ export default function RuleGenerator({
     loading,
     disabled,
     hasFinished,
+    guidedMode,
     hasPendingQuestions,
     canSubmitQuestionAnswers,
     inputValue,
@@ -985,7 +1071,98 @@ export default function RuleGenerator({
     <div className="space-y-4">
       <div className="space-y-3">
         <div className="space-y-3 max-h-96 overflow-y-auto rounded-lg border p-4 bg-muted/30">
-          {messages.map((message) => {
+          {guidedMode && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <HelpCircle className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-bold text-primary">
+                  Configuration guidée ({currentGuidedStep + 1}/{GUIDED_QUESTIONS.length})
+                </h3>
+              </div>
+
+              {GUIDED_QUESTIONS.map((q, index) => {
+                if (index > currentGuidedStep) return null;
+                const isActive = index === currentGuidedStep;
+                const isAnswered = guidedAnswers[q.id] !== undefined;
+
+                return (
+                  <motion.div
+                    key={q.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className={cn(
+                      "space-y-4 rounded-2xl border-2 p-6 transition-all",
+                      isActive
+                        ? "border-primary/50 bg-gradient-to-br from-primary/5 to-background"
+                        : "border-border/30 bg-muted/20 opacity-75",
+                    )}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="text-base font-semibold mb-1 flex items-center gap-2">
+                          {isAnswered && (
+                            <CheckCircle2 className="w-4 h-4 text-primary" />
+                          )}
+                          {q.question}
+                        </h4>
+                        {isAnswered && (
+                          <p className="text-sm text-muted-foreground">
+                            Réponse: {q.choices.find(c => c.value === guidedAnswers[q.id])?.label}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {isActive && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {q.choices.map((choice, choiceIndex) => (
+                          <motion.button
+                            key={choice.value}
+                            whileHover={{ scale: 1.03, y: -2 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => handleGuidedChoice(q.id, choice.value)}
+                            className={cn(
+                              "relative p-4 rounded-xl border-2 transition-all",
+                              "hover:border-primary/50 hover:shadow-lg",
+                              "bg-gradient-to-br from-background to-muted/30",
+                              "border-border",
+                            )}
+                            disabled={loading}
+                          >
+                            <div className="flex flex-col items-center gap-3">
+                              <span className="text-2xl">{choice.icon}</span>
+                              <span className="text-sm font-medium text-center">
+                                {choice.label}
+                              </span>
+                            </div>
+                          </motion.button>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
+
+              {!loading && currentGuidedStep > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetGuided}
+                  className="w-full"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Recommencer
+                </Button>
+              )}
+            </motion.div>
+          )}
+
+          {!guidedMode && messages.map((message) => {
             if ("question" in message) {
               const isLatestQuestion = latestQuestionMessage?.id === message.id;
               const canInteract = isLatestQuestion && !loading && !hasFinished;
