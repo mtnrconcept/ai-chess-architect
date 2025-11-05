@@ -6,6 +6,9 @@ verify_jwt = true
 [functions.generate-chess-rule]
 verify_jwt = true
 
+[functions.generate-rule-questions]
+verify_jwt = true
+
 [functions.coach-analysis]
 verify_jwt = true
 

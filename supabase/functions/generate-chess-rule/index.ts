@@ -141,11 +141,21 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const prompt = body.prompt ?? "";
+    const guidedAnswers = body.guidedAnswers ?? [];
 
     if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
       return new Response(JSON.stringify({ error: "invalid_prompt" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Construire un prompt enrichi avec les réponses guidées
+    let enrichedPrompt = prompt;
+    if (guidedAnswers.length > 0) {
+      enrichedPrompt += "\n\nDétails précisés:\n";
+      guidedAnswers.forEach((answer: { question: string; choice: string }) => {
+        enrichedPrompt += `- ${answer.question} → ${answer.choice}\n`;
       });
     }
 
@@ -159,7 +169,7 @@ serve(async (req) => {
         model: MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `Generate a chess rule JSON for: "${prompt}"\n\nRemember: Respond ONLY with valid JSON, no other text.` },
+          { role: "user", content: `Generate a chess rule JSON for: "${enrichedPrompt}"\n\nRemember: Respond ONLY with valid JSON, no other text.` },
         ],
         response_format: { type: "json_object" },
         temperature: 0.3,

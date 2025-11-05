@@ -19,9 +19,7 @@ import NeonBackground from "@/components/layout/NeonBackground";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Database } from "@/integrations/supabase/types";
 import { convertRuleJsonToChessRule } from "@/lib/ruleJsonToChessRule";
-import RuleGenerator, {
-  type RuleGeneratorReadyPayload,
-} from "@/features/rules/Generator";
+import RuleGenerator, { type RuleGeneratorReadyPayload } from "@/features/rules/Generator";
 import { ChessMorphingAnimation } from "@/components/ui/chess-morphing-animation";
 
 type ChessRuleInsert = Database["public"]["Tables"]["chess_rules"]["Insert"];
