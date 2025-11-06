@@ -15,7 +15,6 @@ const navigationLinks = [
   { label: "Tournois", to: "/tournaments" },
   { label: "Classement", to: "/leaderboard" },
   { label: "Analyse", to: "/analysis" },
-  { label: "Carte des spots", to: "/map" },
   { label: "Paramètres", to: "/settings" },
   { label: "Diagnostics", to: "/diagnostics" },
 ];

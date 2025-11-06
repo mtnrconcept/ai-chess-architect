@@ -18,7 +18,6 @@ import Tournaments from "./pages/Tournaments";
 import Pricing from "./pages/Pricing";
 import Diagnostics from "./pages/Diagnostics";
 import Legal from "./pages/Legal";
-import SkateMap from "./pages/SkateMap";
 import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
@@ -41,7 +40,6 @@ const router = createBrowserRouter(
         { path: "/tournaments", element: <Tournaments /> },
         { path: "/pricing", element: <Pricing /> },
         { path: "/diagnostics", element: <Diagnostics /> },
-        { path: "/map", element: <SkateMap /> },
         { path: "/legal", element: <Legal /> },
         { path: "*", element: <NotFound /> },
       ],
