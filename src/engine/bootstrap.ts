@@ -16,8 +16,7 @@ export function createRuleEngine(engineContracts: EngineContracts, rules: RuleJS
   let validRules = rules;
   if (import.meta.env.VITE_ENABLE_LEGACY_RULES !== 'true') {
     validRules = rules.filter(r => r.logic?.effects && r.logic.effects.length > 0);
-    console.log(`[engine] Legacy mode disabled, ${validRules.length}/${rules.length} rules loaded`);
-  }
+console.log(`[engine] Legacy mode disabled, ${validRules.length}/${rules.length} rules loaded`);  
 
   const ruleEngine = new RuleEngine(engineContracts, registry);
   ruleEngine.loadRules(validRules);
