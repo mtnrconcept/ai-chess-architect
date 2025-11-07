@@ -71,7 +71,7 @@ serve(async (req) => {
     const body = await req.json();
     const { initialPrompt, previousAnswers = [] } = body;
 
-    if (!initialPrompt || typeof initialPrompt !== "string") {
+    if (!initialPrompt || typeof initialPrompt !== "string" || initialPrompt.trim().length === 0) {
       return new Response(JSON.stringify({ error: "invalid_initial_prompt" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

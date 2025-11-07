@@ -62,11 +62,11 @@ export function RuleGenerator({ onRuleReady, disabled }: GeneratorProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, currentQuestion]);
 
-  const fetchNextQuestion = async () => {
+  const fetchNextQuestion = async (prompt: string) => {
     setLoadingQuestion(true);
     try {
       const { data, error } = await supabase.functions.invoke("generate-rule-questions", {
-        body: { initialPrompt, previousAnswers: guidedAnswers },
+        body: { initialPrompt: prompt, previousAnswers: guidedAnswers },
       });
 
       if (error) throw error;
@@ -117,22 +117,23 @@ export function RuleGenerator({ onRuleReady, disabled }: GeneratorProps) {
     } else {
       // Charger la prochaine question
       setCurrentQuestion(null);
-      await fetchNextQuestion();
+      await fetchNextQuestion(initialPrompt);
     }
   };
 
   const startGuidedMode = async () => {
     if (!input.trim()) return;
     
-    setInitialPrompt(input);
+    const promptValue = input.trim();
+    setInitialPrompt(promptValue);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: input },
+      { role: "user", content: promptValue },
     ]);
     setInput("");
     setGuidedMode(true);
     
-    await fetchNextQuestion();
+    await fetchNextQuestion(promptValue);
   };
 
   const handleSend = async (prompt?: string, answers?: GuidedAnswer[]) => {
