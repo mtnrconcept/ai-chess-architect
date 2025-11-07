@@ -6,7 +6,6 @@ import {
   Crown,
   Flame,
   Gamepad2,
-  MapPin,
   Radar,
   Sparkles,
   Trophy,
@@ -33,12 +32,6 @@ const navItems = [
     to: "/generator",
     icon: Sparkles,
     accent: "from-fuchsia-500 via-pink-400 to-rose-300",
-  },
-  {
-    label: "Carte des spots",
-    to: "/map",
-    icon: MapPin,
-    accent: "from-emerald-400 via-teal-300 to-lime-200",
   },
   {
     label: "Tournois",
