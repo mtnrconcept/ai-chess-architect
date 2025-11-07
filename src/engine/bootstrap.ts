@@ -14,36 +14,25 @@ export function createRuleEngine(engineContracts: EngineContracts, rules: RuleJS
 
   // Phase 6: Feature flag legacy
   let validRules = rules;
-  if (import.meta.env.VITE_ENABLE_LEGACY_RULES !== 'true') {
-    validRules = rules.filter(r => r.logic?.effects && r.logic.effects.length > 0);
-console.log(`[engine] Legacy mode disabled, ${validRules.length}/${rules.length} rules loaded`);  
+  if (import.meta.env.VITE_ENABLE_LEGACY_RULES !== "true") {
+    validRules = rules.filter((r) => r.logic?.effects && r.logic.effects.length > 0);
+    console.log(`[engine] Legacy mode disabled, ${validRules.length}/${rules.length} rules loaded`); // ✅ CORRIGÉ
+  }
 
   const ruleEngine = new RuleEngine(engineContracts, registry);
   ruleEngine.loadRules(validRules);
 
-  engineContracts.eventBus.on("lifecycle.onEnterTile", (p) =>
-    ruleEngine.onEnterTile(p.pieceId, p.to)
-  );
+  engineContracts.eventBus.on("lifecycle.onEnterTile", (p) => ruleEngine.onEnterTile(p.pieceId, p.to));
 
-  engineContracts.eventBus.on("lifecycle.onMoveCommitted", (p) =>
-    ruleEngine.onMoveCommitted(p)
-  );
+  engineContracts.eventBus.on("lifecycle.onMoveCommitted", (p) => ruleEngine.onMoveCommitted(p));
 
-  engineContracts.eventBus.on("lifecycle.onUndo", () =>
-    ruleEngine.onUndo()
-  );
+  engineContracts.eventBus.on("lifecycle.onUndo", () => ruleEngine.onUndo());
 
-  engineContracts.eventBus.on("lifecycle.onPromote", (p) =>
-    ruleEngine.onPromote(p.pieceId, p.fromType, p.toType)
-  );
+  engineContracts.eventBus.on("lifecycle.onPromote", (p) => ruleEngine.onPromote(p.pieceId, p.fromType, p.toType));
 
-  engineContracts.eventBus.on("lifecycle.onTurnStart", (p) =>
-    ruleEngine.onTurnStart(p.side)
-  );
+  engineContracts.eventBus.on("lifecycle.onTurnStart", (p) => ruleEngine.onTurnStart(p.side));
 
-  engineContracts.eventBus.on("ui.runAction", (p) =>
-    ruleEngine.runUIAction(p.actionId, p.pieceId, p.targetTile)
-  );
+  engineContracts.eventBus.on("ui.runAction", (p) => ruleEngine.runUIAction(p.actionId, p.pieceId, p.targetTile));
 
   return ruleEngine;
 }
