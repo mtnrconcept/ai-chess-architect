@@ -5,9 +5,13 @@ export function registerBuiltinConditions(reg: Registry) {
 
   reg.registerCondition("ctx.hasTargetTile", (ctx) => !!ctx.targetTile);
 
-  reg.registerCondition("cooldown.ready", (ctx) => {
-    if (!ctx.piece || !ctx.rule || !ctx.baseActionId) return true;
-    return ctx.engine.cooldown.isReady(ctx.piece.id, ctx.baseActionId);
+  reg.registerCondition("cooldown.ready", (ctx, ...args: unknown[]) => {
+    // Accepter des paramètres optionnels : pieceId et actionId
+    const pieceId = typeof args[0] === 'string' ? args[0] : ctx.piece?.id;
+    const actionId = typeof args[1] === 'string' ? args[1] : ctx.baseActionId;
+    
+    if (!pieceId || !actionId) return true;
+    return ctx.engine.cooldown.isReady(pieceId, actionId);
   });
 
   reg.registerCondition("tile.isEmpty", (ctx) => {

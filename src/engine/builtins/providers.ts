@@ -66,7 +66,7 @@ export function registerBuiltinProviders(reg: Registry) {
     const b = ctx.engine.board;
     const startTile = ctx.piece.tile;
     const startPos = tileToPosition(startTile);
-    const enemies: string[] = [];
+    const tiles: Tile[] = []; // ✅ Retourner des Tile[] au lieu de PieceID[]
 
     // Directions : orthogonales + diagonales
     const directions = [
@@ -91,14 +91,14 @@ export function registerBuiltinProviders(reg: Registry) {
         if (pid) {
           const piece = b.getPiece(pid);
           if (piece.side !== ctx.piece.side) {
-            enemies.push(pid);
+            tiles.push(tile); // ✅ Retourner la tuile
           }
           break; // Bloqué par une pièce
         }
       }
     });
 
-    return enemies;
+    return tiles;
   });
 }
 

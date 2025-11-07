@@ -150,6 +150,24 @@ export class Registry {
       return current;
     }
 
+    // ✅ Résolution des variables courantes
+    const varMap: Record<string, unknown> = {
+      "$pieceId": ctx.piece?.id,
+      "$targetPieceId": ctx.targetPieceId,
+      "$targetTile": ctx.targetTile,
+      "$sourceTile": ctx.piece?.tile,
+      "$params": ctx.params,
+    };
+
+    if (token.startsWith("$params.") && ctx.params) {
+      const paramKey = token.slice(8);
+      return ctx.params[paramKey];
+    }
+
+    if (varMap[token] !== undefined) {
+      return varMap[token];
+    }
+
     return token;
   }
 
