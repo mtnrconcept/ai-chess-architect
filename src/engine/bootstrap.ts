@@ -16,7 +16,16 @@ export function createRuleEngine(engineContracts: EngineContracts, rules: RuleJS
   let validRules = rules;
   if (import.meta.env.VITE_ENABLE_LEGACY_RULES !== "true") {
     validRules = rules.filter((r) => r.logic?.effects && r.logic.effects.length > 0);
-    console.log(`[engine] Legacy mode disabled, ${validRules.length}/${rules.length} rules loaded`); // ✅ CORRIGÉ
+    console.log(`[engine] Legacy mode disabled, ${validRules.length}/${rules.length} rules loaded`);
+  }
+
+  // Mode debug enrichi
+  if (import.meta.env.VITE_DEBUG_RULE_ENGINE === "true") {
+    console.group("[RuleEngine Debug]");
+    console.log("Rules to load:", rules.length);
+    console.log("Valid rules after filter:", validRules.length);
+    console.log("Rules JSON:", JSON.stringify(validRules, null, 2));
+    console.groupEnd();
   }
 
   const ruleEngine = new RuleEngine(engineContracts, registry);

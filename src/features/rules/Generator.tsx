@@ -49,6 +49,8 @@ export function RuleGenerator({ onRuleReady, disabled }: GeneratorProps) {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 2;
   const [guidedAnswers, setGuidedAnswers] = useState<GuidedAnswer[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<QuestionData | null>(null);
   const [initialPrompt, setInitialPrompt] = useState("");
@@ -145,8 +147,11 @@ export function RuleGenerator({ onRuleReady, disabled }: GeneratorProps) {
       if (result.status === "ready" && result.rule) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: "Règle générée avec succès !" },
+          { role: "assistant", content: "✅ Règle générée avec succès !" },
         ]);
+
+        // Reset retry sur succès
+        setRetryCount(0);
 
         onRuleReady?.({
           result: {
@@ -163,17 +168,38 @@ export function RuleGenerator({ onRuleReady, disabled }: GeneratorProps) {
           ...prev,
           {
             role: "assistant",
-            content: result.message || "Plus d'informations nécessaires",
+            content: `ℹ️ ${result.message || "Plus d'informations nécessaires"}`,
           },
         ]);
       }
     } catch (error) {
-      console.error("Error generating rule:", error);
+      console.error("[handleSend] Error:", error);
+      
+      const errorMessage = error instanceof Error ? error.message : "Erreur inconnue";
+      
+      // Gestion du retry uniquement pour erreurs réseau (pas 400/422)
+      if (retryCount < MAX_RETRIES && !errorMessage.includes("invalide") && !errorMessage.includes("Crédits")) {
+        setRetryCount((prev) => prev + 1);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `⚠️ ${errorMessage}\n\nNouvelle tentative (${retryCount + 1}/${MAX_RETRIES})...`,
+          },
+        ]);
+        
+        // Backoff exponentiel
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (retryCount + 1)));
+        return handleSend(prompt, answers);
+      }
+      
+      // Échec final
+      setRetryCount(0);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "Erreur lors de la génération. Réessayez.",
+          content: `❌ ${errorMessage}\n\nRéessayez ou reformulez votre demande.`,
         },
       ]);
     } finally {
@@ -338,28 +364,108 @@ export function RuleGenerator({ onRuleReady, disabled }: GeneratorProps) {
   );
 }
 
-async function generateRule(prompt: string, guidedAnswers?: GuidedAnswer[]): Promise<{
+async function generateRule(
+  prompt: string,
+  guidedAnswers?: GuidedAnswer[]
+): Promise<{
   status: "ready" | "need_info";
   rule?: any;
   message?: string;
+  httpStatus?: number;
 }> {
-  const { data, error } = await supabase.functions.invoke("generate-chess-rule", {
-    body: { prompt, guidedAnswers },
-  });
+  try {
+    const { data, error } = await supabase.functions.invoke("generate-chess-rule", {
+      body: { prompt, guidedAnswers },
+    });
 
-  if (error) {
-    throw new Error(error.message || "Erreur lors de la génération");
+    // 1️⃣ Gestion explicite des erreurs Supabase
+    if (error) {
+      console.error("[generateRule] Supabase error:", error);
+      throw new Error(error.message || "Erreur de connexion");
+    }
+
+    // 2️⃣ Vérification de la structure de réponse
+    if (!data) {
+      console.error("[generateRule] Empty data from edge function");
+      throw new Error("Aucune donnée reçue du serveur");
+    }
+
+    // 3️⃣ Log complet pour debug
+    console.log("[generateRule] Full response:", JSON.stringify(data, null, 2));
+
+    // 4️⃣ Gestion des statuts HTTP spéciaux (via data)
+    if (!data.ok) {
+      const errorType = data.error || "unknown_error";
+      const errorMessage = data.message || data.reason || "Erreur inconnue";
+      
+      console.error(`[generateRule] Server error: ${errorType}`, data);
+      
+      // Cas spéciaux identifiés
+      if (errorType === "rate_limited" || data.httpStatus === 429) {
+        throw new Error("Trop de requêtes. Réessayez dans quelques secondes.");
+      }
+      if (errorType === "payment_required" || data.httpStatus === 402) {
+        throw new Error("Crédits insuffisants. Ajoutez des crédits à votre workspace.");
+      }
+      if (errorType === "invalid_initial_prompt") {
+        throw new Error(`Prompt invalide : ${errorMessage}`);
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    // 5️⃣ Extraction sécurisée de result
+    const result = data.result;
+    if (!result || typeof result !== "object") {
+      console.error("[generateRule] Invalid result structure:", data);
+      throw new Error("Structure de réponse invalide : 'result' manquant");
+    }
+
+    // 6️⃣ Cas "need_info" (422)
+    if (result.status === "need_info") {
+      console.warn("[generateRule] Model needs more info:", result.message);
+      return {
+        status: "need_info",
+        message: result.message || "L'IA a besoin de plus d'informations",
+        httpStatus: 422,
+      };
+    }
+
+    // 7️⃣ Validation stricte de la règle
+    const rule = result.rule;
+    if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+      console.error("[generateRule] Invalid rule object:", rule);
+      throw new Error("La règle générée est invalide (pas un objet)");
+    }
+
+    // 8️⃣ Vérification de la présence de meta (structure minimale)
+    if (!rule.meta || typeof rule.meta !== "object") {
+      console.error("[generateRule] Rule missing 'meta':", rule);
+      throw new Error("La règle générée est incomplète (meta manquant)");
+    }
+
+    // 9️⃣ Vérification des logic.effects (pour éviter 0/0 rules loaded)
+    if (!rule.logic?.effects || !Array.isArray(rule.logic.effects) || rule.logic.effects.length === 0) {
+      console.error("[generateRule] Rule has no effects:", rule);
+      throw new Error("La règle générée n'a aucun effet (logic.effects vide)");
+    }
+
+    // ✅ Tout est OK
+    console.info("[generateRule] ✅ Valid rule generated with", rule.logic.effects.length, "effects");
+    
+    return {
+      status: "ready",
+      rule,
+      httpStatus: 200,
+    };
+
+  } catch (error) {
+    // Re-throw avec contexte préservé
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(String(error));
   }
-
-  if (!data || !data.ok) {
-    throw new Error(data?.error || "Réponse invalide du serveur");
-  }
-
-  return {
-    status: data.result?.status || "ready",
-    rule: data.result?.rule,
-    message: data.result?.message,
-  };
 }
 
 export default RuleGenerator;

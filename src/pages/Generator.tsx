@@ -53,15 +53,37 @@ const Generator = () => {
         return;
       }
 
+      // Log complet du payload reçu
+      console.log("[handleRuleReady] Received payload:", JSON.stringify(result, null, 2));
+
       const normalizedRule = result.rule;
+      
+      // Validation du format de la règle
       if (!isRecord(normalizedRule)) {
+        console.error("[handleRuleReady] Invalid rule format:", normalizedRule);
         toast({
-          title: "Erreur",
-          description: "La règle générée est invalide (format inattendu).",
+          title: "❌ Erreur de format",
+          description: "La règle générée est invalide. Réessayez avec un prompt plus clair.",
           variant: "destructive",
         });
         return;
       }
+
+      // Vérifier logic.effects avant sauvegarde
+      const ruleLogic = isRecord(normalizedRule.logic) ? normalizedRule.logic : null;
+      const ruleEffects = ruleLogic && Array.isArray(ruleLogic.effects) ? ruleLogic.effects : [];
+      
+      if (ruleEffects.length === 0) {
+        console.error("[handleRuleReady] Rule has no effects:", normalizedRule);
+        toast({
+          title: "⚠️ Règle incomplète",
+          description: "La règle n'a aucun effet jouable. Reformulez votre demande.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.info("[handleRuleReady] ✅ Valid rule with", ruleEffects.length, "effects");
 
       setSaving(true);
       setGeneratedRule(null);
