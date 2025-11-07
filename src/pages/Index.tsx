@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
 import {
   Bomb,
   Crown,
@@ -88,7 +89,13 @@ const Index = () => {
 
       <div className="relative z-10 flex min-h-screen flex-col">
         <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-16 px-6 py-12">
-          <header className="flex flex-col items-center gap-6 text-center">
+          <motion.header
+            initial={{ opacity: 0, y: -30, rotateX: -15 }}
+            animate={{ opacity: 1, y: 0, rotateX: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="flex flex-col items-center gap-6 text-center"
+            style={{ perspective: "1000px" }}
+          >
             <div className="space-y-3">
               <span className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-200/80">
                 Voltus-Chess · v9 Final
@@ -113,34 +120,54 @@ const Index = () => {
               <span className="hidden sm:inline">·</span>
               <span className="hidden sm:inline">Temps réel</span>
             </div>
-          </header>
+          </motion.header>
 
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-            {navItems.map((item) => {
+          <section className="mx-auto flex w-full max-w-5xl justify-center">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" style={{ perspective: "1000px" }}>
+            {navItems.map((item, index) => {
               const Icon = item.icon;
               const isProfile = item.to === "/profile";
               const to = isProfile ? profileLink : item.to;
               return (
-                <Link key={item.label} to={to} className="group relative">
-                  <div
-                    className={`absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-r ${item.accent}`}
-                  />
-                  <div className="relative flex h-full flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 bg-black/40 px-6 py-8 text-center shadow-[0_0_35px_rgba(15,118,203,0.2)] backdrop-blur-xl transition-all duration-200 group-hover:border-transparent group-hover:shadow-[0_0_45px_rgba(255,255,255,0.25)]">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500/10 shadow-[0_0_20px_rgba(34,211,238,0.35)]">
-                      <Icon className="h-6 w-6 text-cyan-100" />
-                    </span>
-                    <span className="text-lg font-semibold">{item.label}</span>
-                  </div>
-                  <div
-                    className={`pointer-events-none absolute inset-x-[18%] bottom-0 h-[3px] rounded-full bg-gradient-to-r ${item.accent}`}
-                  />
-                </Link>
+                <motion.div
+                  key={item.label}
+                  initial={{ opacity: 0, y: 50, rotateX: 45, scale: 0.8 }}
+                  animate={{ opacity: 1, y: 0, rotateX: 0, scale: 1 }}
+                  transition={{
+                    duration: 0.6,
+                    delay: 0.2 + index * 0.1,
+                    ease: "easeOut",
+                  }}
+                  style={{ transformStyle: "preserve-3d" }}
+                >
+                  <Link to={to} className="group relative block">
+                    <div
+                      className={`absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-r ${item.accent}`}
+                    />
+                    <div className="relative flex h-full flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 bg-black/40 px-6 py-8 text-center shadow-[0_0_35px_rgba(15,118,203,0.2)] backdrop-blur-xl transition-all duration-200 group-hover:border-transparent group-hover:shadow-[0_0_45px_rgba(255,255,255,0.25)]">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500/10 shadow-[0_0_20px_rgba(34,211,238,0.35)]">
+                        <Icon className="h-6 w-6 text-cyan-100" />
+                      </span>
+                      <span className="text-lg font-semibold">{item.label}</span>
+                    </div>
+                    <div
+                      className={`pointer-events-none absolute inset-x-[18%] bottom-0 h-[3px] rounded-full bg-gradient-to-r ${item.accent}`}
+                    />
+                  </Link>
+                </motion.div>
               );
             })}
+            </div>
           </section>
 
-          <section className="grid gap-10 lg:grid-cols-[3fr_2fr]">
-            <div className="relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-black/50 p-8 shadow-[0_0_55px_rgba(34,211,238,0.25)] backdrop-blur-xl">
+          <section className="grid gap-10 lg:grid-cols-[3fr_2fr]" style={{ perspective: "1000px" }}>
+            <motion.div
+              initial={{ opacity: 0, x: -50, rotateY: -15 }}
+              animate={{ opacity: 1, x: 0, rotateY: 0 }}
+              transition={{ duration: 0.8, delay: 0.8, ease: "easeOut" }}
+              className="relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-black/50 p-8 shadow-[0_0_55px_rgba(34,211,238,0.25)] backdrop-blur-xl"
+              style={{ transformStyle: "preserve-3d" }}
+            >
               <div className="pointer-events-none absolute inset-x-12 top-0 h-1 bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-amber-400" />
               <div className="flex flex-col gap-6">
                 <div className="flex items-center justify-between gap-4">
@@ -192,9 +219,15 @@ const Index = () => {
                   ))}
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            <div className="flex flex-col gap-6 rounded-3xl border border-amber-400/20 bg-gradient-to-b from-black/60 via-black/40 to-black/60 p-8 shadow-[0_0_45px_rgba(251,191,36,0.2)] backdrop-blur-xl">
+            <motion.div
+              initial={{ opacity: 0, x: 50, rotateY: 15 }}
+              animate={{ opacity: 1, x: 0, rotateY: 0 }}
+              transition={{ duration: 0.8, delay: 1, ease: "easeOut" }}
+              className="flex flex-col gap-6 rounded-3xl border border-amber-400/20 bg-gradient-to-b from-black/60 via-black/40 to-black/60 p-8 shadow-[0_0_45px_rgba(251,191,36,0.2)] backdrop-blur-xl"
+              style={{ transformStyle: "preserve-3d" }}
+            >
               <div className="flex flex-col gap-2 text-left">
                 <span className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-200/70">
                   Partie instantanée
@@ -250,11 +283,16 @@ const Index = () => {
                   <span>Connexion ultra stable</span>
                 </span>
               </div>
-            </div>
+            </motion.div>
           </section>
         </div>
 
-        <footer className="border-t border-white/10 bg-black/30 py-6">
+        <motion.footer
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 1.2, ease: "easeOut" }}
+          className="border-t border-white/10 bg-black/30 py-6"
+        >
           <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-2 px-6 text-center text-xs text-white/60 sm:flex-row sm:justify-between">
             <p>
               © {new Date().getFullYear()} Voltus-Chess. Propulsé par Lovable
@@ -278,7 +316,7 @@ const Index = () => {
               </Link>
             </div>
           </div>
-        </footer>
+        </motion.footer>
       </div>
     </div>
   );
