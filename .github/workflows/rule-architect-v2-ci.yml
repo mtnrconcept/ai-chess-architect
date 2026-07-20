@@ -94,13 +94,25 @@ jobs:
           cache: true
 
       - name: Type-check five Edge entrypoints
+        shell: bash
         run: |
+          set -o pipefail
           deno check --node-modules-dir=manual \
             supabase/functions/compile-chess-rule/index.ts \
             supabase/functions/publish-rule-version/index.ts \
             supabase/functions/create-rule-lobby-v2/index.ts \
             supabase/functions/join-rule-lobby-v2/index.ts \
-            supabase/functions/process-chess-move/index.ts
+            supabase/functions/process-chess-move/index.ts \
+            2>&1 | tee deno-check.log
+
+      - name: Upload Deno diagnostics on failure
+        if: failure() && hashFiles('deno-check.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: deno-check-diagnostics
+          path: deno-check.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Test Edge replay, CORS, managed assets, and STANDARD move guards
         run: |
