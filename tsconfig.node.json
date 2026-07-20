@@ -18,5 +18,9 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "configs/security/**/*.ts"]
+  "include": [
+    "vite.config.ts",
+    "configs/deployment/**/*.ts",
+    "configs/security/**/*.ts"
+  ]
 }

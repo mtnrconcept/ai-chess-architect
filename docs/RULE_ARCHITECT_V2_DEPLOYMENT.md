@@ -31,12 +31,19 @@ test ! -e bootstrap-diagnostic.txt
 Configurer séparément Preview et Production, puis reconstruire chaque
 déploiement car Vite incorpore les variables au build :
 
-| Variable | Portée | Commentaire |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | Preview/Production | URL explicite du projet de l'environnement |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` ou `VITE_SUPABASE_ANON_KEY` | Preview/Production | clé publique uniquement |
-| `VITE_SUPABASE_PROJECT_ID` | Preview/Production | requis pour `*.supabase.co`, correspondance exacte avec l'URL |
-| `VITE_SUPABASE_CUSTOM_HOST` | Preview/Production | domaine personnalisé : host exact, port non standard inclus, sans schéma ni chemin |
+| Variable                                                    | Portée             | Commentaire                                                                        |
+| ----------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`                                         | Preview/Production | URL explicite du projet de l'environnement                                         |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` ou `VITE_SUPABASE_ANON_KEY` | Preview/Production | clé publique uniquement                                                            |
+| `VITE_SUPABASE_PROJECT_ID`                                  | Preview/Production | requis pour `*.supabase.co`, correspondance exacte avec l'URL                      |
+| `VITE_SUPABASE_CUSTOM_HOST`                                 | Preview/Production | domaine personnalisé : host exact, port non standard inclus, sans schéma ni chemin |
+
+Ces variables restent la configuration canonique et sont toujours prioritaires.
+En leur absence totale, le build frontend dispose d'un secours exclusivement
+public qui ne s'active que si le projet Vercel, le dépôt, le propriétaire, la
+branche et l'environnement correspondent tous exactement à la cible staging ou
+production attendue. Une seule variable `VITE_SUPABASE_*` partielle désactive ce
+secours et conserve le comportement fail-closed.
 
 Ne jamais créer de variable Vercel `VITE_` contenant `OPENAI_API_KEY`, une clé
 `service_role`, une clé `sb_secret_…`, un token GitHub ou un token Supabase de
@@ -48,7 +55,7 @@ gestion.
 OPENAI_API_KEY
 OPENAI_RULE_MODEL=gpt-5.6-terra
 OPENAI_PREMIUM_RULE_MODEL=gpt-5.6-sol
-ALLOWED_ORIGINS=https://preview-stable.example,https://production.example,http://localhost:5173
+ALLOWED_ORIGINS=http://localhost:5173
 RULE_ARCHITECT_PREMIUM_USER_IDS=
 RULE_COMPILE_HOURLY_LIMIT=12
 RULE_COMPILE_STALE_SECONDS=180
@@ -59,9 +66,12 @@ RULE_PROMPT_MAX_CHARS=4000
 en traitement avant ce seuil reste rejouable avec la même clé ; au-delà, elle
 est close atomiquement et le client doit démarrer une nouvelle tentative.
 
-`ALLOWED_ORIGINS` est une liste d'origines exactes séparées par des virgules,
-sans slash final, chemin ni wildcard. Utiliser un alias Vercel de branche stable
-pour la preview et mettre à jour le secret si l'origine change.
+Les trois alias de production exacts du projet Vercel `ai-chess-architect`
+(canonique, équipe et branche `main`) sont intégrés au serveur. Aucun domaine
+de preview générique n'est accepté. `ALLOWED_ORIGINS` permet uniquement
+d'ajouter des origines exactes (par exemple l'alias stable d'une branche de
+staging ou localhost), séparées par des virgules, sans slash final, chemin ni
+wildcard.
 
 ### GitHub Environments
 

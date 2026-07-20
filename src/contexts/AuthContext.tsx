@@ -44,30 +44,34 @@ type MissingSupabaseConfigProps = {
 };
 
 const MissingSupabaseConfig = ({ diagnostics }: MissingSupabaseConfigProps) => (
-  <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 py-12 text-center">
-    <div className="max-w-xl space-y-4">
-      <h1 className="text-3xl font-semibold text-destructive">
+  <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4 overflow-x-hidden bg-background px-6 py-12 text-center">
+    <div className="w-full min-w-0 max-w-xl space-y-4">
+      <h1 className="text-2xl font-semibold text-destructive sm:text-3xl">
         Configuration Supabase manquante
       </h1>
       <p className="text-muted-foreground">
         Aucune instance Supabase n'est configurée pour cet environnement.
         Renseigne les variables
-        <code className="mx-1 rounded bg-muted px-2 py-0.5">
+        <code className="mx-1 inline-block max-w-full rounded bg-muted px-2 py-0.5 [overflow-wrap:anywhere]">
           VITE_SUPABASE_URL
         </code>
         et une clé publique
-        <code className="mx-1 rounded bg-muted px-2 py-0.5">
-          VITE_SUPABASE_ANON_KEY
+        <code className="mx-1 inline-block max-w-full rounded bg-muted px-2 py-0.5 [overflow-wrap:anywhere]">
+          VITE_SUPABASE_PUBLISHABLE_KEY
         </code>
         ou
-        <code className="mx-1 rounded bg-muted px-2 py-0.5">
-          VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+        <code className="mx-1 inline-block max-w-full rounded bg-muted px-2 py-0.5 [overflow-wrap:anywhere]">
+          VITE_SUPABASE_ANON_KEY
         </code>
         dans l'environnement Vercel ciblé, puis reconstruis le déploiement. Une
         clé
-        <code className="mx-1 rounded bg-muted px-2 py-0.5">service_role</code>
+        <code className="mx-1 inline-block max-w-full rounded bg-muted px-2 py-0.5 [overflow-wrap:anywhere]">
+          service_role
+        </code>
         ou{" "}
-        <code className="mx-1 rounded bg-muted px-2 py-0.5">sb_secret_…</code>
+        <code className="mx-1 inline-block max-w-full rounded bg-muted px-2 py-0.5 [overflow-wrap:anywhere]">
+          sb_secret_…
+        </code>
         est volontairement refusée dans le navigateur.
       </p>
       {diagnostics.problems.length > 0 && (
@@ -75,20 +79,20 @@ const MissingSupabaseConfig = ({ diagnostics }: MissingSupabaseConfigProps) => (
           <p className="mb-2 font-medium text-destructive">
             Problèmes détectés :
           </p>
-          <ul className="list-disc space-y-1 pl-5 text-destructive">
+          <ul className="list-disc space-y-1 break-words pl-5 text-destructive">
             {diagnostics.problems.map((problem) => (
               <li key={problem}>{problem}</li>
             ))}
           </ul>
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
+      <p className="break-words text-xs text-muted-foreground">
         Projet détecté :{" "}
-        <code className="rounded bg-muted px-1 py-0.5">
+        <code className="max-w-full rounded bg-muted px-1 py-0.5 [overflow-wrap:anywhere]">
           {diagnostics.projectId ?? "inconnu"}
         </code>{" "}
         • URL brute :{" "}
-        <code className="rounded bg-muted px-1 py-0.5">
+        <code className="max-w-full rounded bg-muted px-1 py-0.5 [overflow-wrap:anywhere]">
           {diagnostics.rawUrl ?? "non fournie"}
         </code>
       </p>
