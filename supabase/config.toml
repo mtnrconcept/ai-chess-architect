@@ -35,6 +35,10 @@ verify_jwt = false
 verify_jwt = true
 
 
+[functions.resolve-rule-assets]
+verify_jwt = true
+
+
 [functions.publish-rule-version]
 verify_jwt = true
 
