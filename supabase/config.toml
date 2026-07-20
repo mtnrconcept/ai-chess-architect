@@ -30,22 +30,20 @@ verify_jwt = false
 [functions.integration-health]
 verify_jwt = false
 
-
 [functions.compile-chess-rule]
 verify_jwt = true
 
+[functions.compile-rule-presentation]
+verify_jwt = true
 
 [functions.publish-rule-version]
 verify_jwt = true
 
-
 [functions.create-rule-lobby-v2]
 verify_jwt = true
 
-
 [functions.join-rule-lobby-v2]
 verify_jwt = true
-
 
 [functions.process-chess-move]
 verify_jwt = true
