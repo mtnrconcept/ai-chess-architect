@@ -13,7 +13,11 @@ export type FxIntent =
       style?: FxStyle;
     }
   | {
-      intent: "combat.explosion" | "combat.hit" | "combat.freeze" | "combat.burn";
+      intent:
+        | "combat.explosion"
+        | "combat.hit"
+        | "combat.freeze"
+        | "combat.burn";
       power?: "small" | "medium" | "large";
       style?: FxStyle;
     }
@@ -30,6 +34,11 @@ export type FxIntent =
       intent: "piece.trail";
       color?: string;
       duration?: number;
+      style?: FxStyle;
+    }
+  | {
+      intent: "asset.scene";
+      sceneId: string;
       style?: FxStyle;
     }
   | {
