@@ -1,0 +1,16 @@
+chunk_count=6
+.rule-architect-v2/chunk-00.b64
+.rule-architect-v2/chunk-01.b64
+.rule-architect-v2/chunk-02.b64
+.rule-architect-v2/chunk-03.b64
+.rule-architect-v2/chunk-04.b64
+.rule-architect-v2/chunk-05.b64
+decode_status=0
+Archive:  /tmp/rule-architect-v2.zip
+  End-of-central-directory signature not found.  Either this file is not
+  a zipfile, or it constitutes one disk of a multi-part archive.  In the
+  latter case the central directory and zipfile comment will be found on
+  the last disk(s) of this archive.
+unzip:  cannot find zipfile directory in one of /tmp/rule-architect-v2.zip or
+        /tmp/rule-architect-v2.zip.zip, and cannot find /tmp/rule-architect-v2.zip.ZIP, period.
+zip_status=9
