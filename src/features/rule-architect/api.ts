@@ -1,5 +1,6 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { requireSupabaseClient } from "@/integrations/supabase/client";
+import type { CompilePresentationResponse } from "@/rule-presentation/types";
 import type {
   CompileRuleResponse,
   CreatedRuleLobby,
@@ -152,6 +153,31 @@ export async function compileChessRule(input: {
   return unwrap<CompileRuleResponse>(
     data as FunctionEnvelope<CompileRuleResponse>,
     "La compilation de la règle a échoué.",
+  );
+}
+
+export async function compileRulePresentation(input: {
+  compilationId: string;
+  requestKey: string;
+}): Promise<CompilePresentationResponse> {
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase.functions.invoke(
+    "compile-rule-presentation",
+    {
+      body: input,
+    },
+  );
+
+  if (error) {
+    throw await parseFunctionInvokeError(
+      error,
+      "La mise en scène de la règle n'a pas pu être générée.",
+    );
+  }
+
+  return unwrap<CompilePresentationResponse>(
+    data as FunctionEnvelope<CompilePresentationResponse>,
+    "La mise en scène de la règle n'a pas pu être générée.",
   );
 }
 
