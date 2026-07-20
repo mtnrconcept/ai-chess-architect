@@ -21,18 +21,39 @@ const readPublicEnv = (...keys: string[]) => {
   return undefined;
 };
 
-const RAW_SUPABASE_URL = readPublicEnv("VITE_SUPABASE_URL");
-const RAW_SUPABASE_PROJECT_ID = readPublicEnv(
+const EXPLICIT_SUPABASE_URL = readPublicEnv("VITE_SUPABASE_URL");
+const EXPLICIT_SUPABASE_PROJECT_ID = readPublicEnv(
   "VITE_SUPABASE_PROJECT_ID",
   "VITE_SUPABASE_PROJECT_REF",
 );
 const RAW_SUPABASE_CUSTOM_HOST = readPublicEnv("VITE_SUPABASE_CUSTOM_HOST");
 const RAW_SUPABASE_PROJECT_NAME = readPublicEnv("VITE_SUPABASE_PROJECT_NAME");
-const SUPABASE_ANON_KEY = readPublicEnv(
+const EXPLICIT_SUPABASE_ANON_KEY = readPublicEnv(
   "VITE_SUPABASE_PUBLISHABLE_KEY",
   "VITE_SUPABASE_ANON_KEY",
   "VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
 );
+
+const hasAnyExplicitSupabaseValue = Object.entries(importMetaEnv).some(
+  ([key, value]) =>
+    key.startsWith("VITE_SUPABASE_") && Boolean(normaliseEnvValue(value)),
+);
+const previewSupabaseFallback =
+  !hasAnyExplicitSupabaseValue &&
+  typeof __SUPABASE_PREVIEW_FALLBACK__ !== "undefined"
+    ? __SUPABASE_PREVIEW_FALLBACK__
+    : null;
+
+const RAW_SUPABASE_URL = EXPLICIT_SUPABASE_URL ?? previewSupabaseFallback?.url;
+const RAW_SUPABASE_PROJECT_ID =
+  EXPLICIT_SUPABASE_PROJECT_ID ?? previewSupabaseFallback?.projectId;
+const SUPABASE_ANON_KEY =
+  EXPLICIT_SUPABASE_ANON_KEY ?? previewSupabaseFallback?.publishableKey;
+const SUPABASE_CONFIGURATION_SOURCE = previewSupabaseFallback
+  ? "vercel-preview-fallback"
+  : hasAnyExplicitSupabaseValue
+    ? "explicit"
+    : "missing";
 
 const normaliseHttpUrl = (rawValue: string | undefined): string | undefined => {
   if (!rawValue) return undefined;
@@ -204,6 +225,7 @@ export const validatePublicSupabaseTarget = ({
 };
 
 export type SupabaseDiagnostics = {
+  configurationSource: "explicit" | "vercel-preview-fallback" | "missing";
   initialisedAt: string;
   expectedProjectId: null;
   expectedProjectName: null;
@@ -259,6 +281,7 @@ const createSingletonClient = (): SupabaseInitialisation => {
 
   const problems = buildEnvProblems();
   const diagnostics: SupabaseDiagnostics = {
+    configurationSource: SUPABASE_CONFIGURATION_SOURCE,
     initialisedAt: new Date().toISOString(),
     expectedProjectId: null,
     expectedProjectName: null,

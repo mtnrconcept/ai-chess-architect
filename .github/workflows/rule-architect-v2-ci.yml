@@ -55,6 +55,7 @@ jobs:
           src/pages/Leaderboard.test.tsx
           src/pages/MultiplayerMatch.test.tsx
           src/integrations/supabase/client.test.ts
+          configs/deployment/previewSupabaseFallback.test.ts
 
       - name: Type check
         run: pnpm exec tsc --noEmit -p tsconfig.app.json
