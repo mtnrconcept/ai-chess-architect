@@ -102,10 +102,13 @@ jobs:
             supabase/functions/join-rule-lobby-v2/index.ts \
             supabase/functions/process-chess-move/index.ts
 
-      - name: Test Edge replay, CORS, and STANDARD move guards
+      - name: Test Edge replay, CORS, managed assets, and STANDARD move guards
         run: |
           deno test --node-modules-dir=manual --allow-env \
             supabase/functions/_shared/cors-v2.test.ts \
+            supabase/functions/_shared/prompt-security.test.ts \
+            supabase/functions/_shared/rule-architect-input.test.ts \
+            supabase/functions/_shared/rule-assets.test.ts \
             supabase/functions/compile-chess-rule/replay-state.test.ts \
             supabase/functions/process-chess-move/protocol.test.ts \
             supabase/functions/process-chess-move/clock.test.ts \
