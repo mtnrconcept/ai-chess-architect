@@ -79,6 +79,7 @@ fi
 
 protected_functions=(
   compile-chess-rule
+  compile-rule-presentation
   publish-rule-version
   create-rule-lobby-v2
   join-rule-lobby-v2
