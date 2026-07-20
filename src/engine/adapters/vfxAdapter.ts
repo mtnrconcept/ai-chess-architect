@@ -1,6 +1,8 @@
-import { VFXAPI, SpriteId, AudioId, Tile } from '../types';
-import { SoundEffect } from '@/hooks/useSoundEffects';
-import type { FxIntent, FxPayload } from '@/fx/types';
+import type { AudioId, SpriteId, Tile, VFXAPI } from "../types";
+import type { SoundEffect } from "@/hooks/useSoundEffects";
+import type { FxIntent, FxPayload } from "@/fx/types";
+import { parseManagedCinematicResourceId } from "@/fx/managed-asset-ids";
+import { playManagedCinematicDom } from "@/fx/dom-managed-cinematic";
 
 export class VFXAdapter implements VFXAPI {
   private playSoundCallback?: (effect: SoundEffect) => void;
@@ -9,13 +11,21 @@ export class VFXAdapter implements VFXAPI {
     clear?: (tile: Tile) => void;
   };
   private animationCallback?: (spriteId: SpriteId, tile: Tile) => void;
-  private fxTrigger?: (intents: FxIntent[] | undefined, payload?: FxPayload) => Promise<void>;
+  private fxTrigger?: (
+    intents: FxIntent[] | undefined,
+    payload?: FxPayload,
+  ) => Promise<void>;
 
   constructor() {
     this.decalCallbacks = {};
   }
 
-  setFxTrigger(trigger: (intents: FxIntent[] | undefined, payload?: FxPayload) => Promise<void>): void {
+  setFxTrigger(
+    trigger?: (
+      intents: FxIntent[] | undefined,
+      payload?: FxPayload,
+    ) => Promise<void>,
+  ): void {
     this.fxTrigger = trigger;
   }
 
@@ -30,64 +40,66 @@ export class VFXAdapter implements VFXAPI {
     this.decalCallbacks = callbacks;
   }
 
-  setAnimationCallback(callback: (spriteId: SpriteId, tile: Tile) => void): void {
+  setAnimationCallback(
+    callback: (spriteId: SpriteId, tile: Tile) => void,
+  ): void {
     this.animationCallback = callback;
   }
 
   spawnDecal(spriteId: SpriteId, tile: Tile): void {
-    if (this.decalCallbacks.spawn) {
-      this.decalCallbacks.spawn(spriteId, tile);
-    }
+    this.decalCallbacks.spawn?.(spriteId, tile);
   }
 
   clearDecal(tile: Tile): void {
-    if (this.decalCallbacks.clear) {
-      this.decalCallbacks.clear(tile);
-    }
+    this.decalCallbacks.clear?.(tile);
   }
 
   playAnimation(spriteId: SpriteId, tile: Tile): void {
-    // Phase 4: Déclencher via FxContext si disponible
-    if (this.fxTrigger) {
-      const intent = this.mapSpriteToFxIntent(spriteId);
-      if (intent) {
-        this.fxTrigger([intent], { cell: tile }).catch(err => {
-          console.error('[VFXAdapter] Failed to trigger FX', err);
-        });
-      }
+    const managed = parseManagedCinematicResourceId(spriteId);
+    if (managed) {
+      void playManagedCinematicDom(managed.resourceId, tile).catch(
+        (error: unknown) => {
+          console.warn("[VFXAdapter] Managed cinematic skipped", error);
+        },
+      );
+      this.animationCallback?.(spriteId, tile);
+      return;
     }
-    
-    if (this.animationCallback) {
-      this.animationCallback(spriteId, tile);
+
+    const intent = this.mapBuiltInSpriteToFxIntent(spriteId);
+    if (this.fxTrigger && intent) {
+      this.fxTrigger([intent], { cell: tile }).catch((error: unknown) => {
+        console.error("[VFXAdapter] Failed to trigger FX", error);
+      });
     }
+
+    this.animationCallback?.(spriteId, tile);
   }
 
-  private mapSpriteToFxIntent(spriteId: SpriteId): FxIntent | null {
-    // Mapper les sprites du moteur vers les intents FX
+  private mapBuiltInSpriteToFxIntent(spriteId: SpriteId): FxIntent | null {
     const mapping: Record<string, FxIntent> = {
-      'explosion': { intent: 'combat.explosion', power: 'medium' },
-      'freeze': { intent: 'combat.freeze' },
-      'mine': { intent: 'object.spawn', kind: 'mine' },
-      'hologram': { intent: 'viz.hologram' },
-      'warp': { intent: 'space.warp', mode: 'blink' },
+      explosion: { intent: "combat.explosion", power: "medium" },
+      freeze: { intent: "combat.freeze" },
+      mine: { intent: "object.spawn", kind: "mine" },
+      hologram: { intent: "viz.hologram" },
+      warp: { intent: "space.warp", mode: "blink" },
     };
-    
-    return mapping[spriteId] || null;
+
+    return mapping[spriteId] ?? null;
   }
 
   playAudio(audioId: AudioId): void {
-    if (this.playSoundCallback) {
-      const soundMap: Record<string, SoundEffect> = {
-        'boom': 'explosion',
-        'freeze': 'check',
-        'missile': 'capture',
-        'trap': 'mine-detonation',
-        'spawn': 'capture',
-        'cloaking': 'check'
-      };
+    if (!this.playSoundCallback) return;
 
-      const effect = soundMap[audioId] || 'move';
-      this.playSoundCallback(effect);
-    }
+    const soundMap: Record<string, SoundEffect> = {
+      boom: "explosion",
+      freeze: "check",
+      missile: "capture",
+      trap: "mine-detonation",
+      spawn: "capture",
+      cloaking: "check",
+    };
+
+    this.playSoundCallback(soundMap[audioId] ?? "move");
   }
 }
