@@ -1,4 +1,5 @@
 import type { AudioId, SpriteId, Tile, VFXAPI } from "../types";
+import { dispatchRuntimeFxEvent } from "@/fx/eventBridge";
 import type { FxIntent, FxPayload } from "@/fx/types";
 import type { SoundEffect } from "@/hooks/useSoundEffects";
 import type {
@@ -43,8 +44,6 @@ export class VFXAdapter implements VFXAPI {
     event: PresentationEvent,
     payload: PresentationEventPayload,
   ): void {
-    if (!this.fxTrigger) return;
-
     const intents: FxIntent[] = [];
     for (const manifest of this.presentationManifests) {
       if (!manifest.enabled) continue;
@@ -80,15 +79,13 @@ export class VFXAdapter implements VFXAPI {
 
     if (intents.length === 0) return;
 
-    void this.fxTrigger(intents, {
+    this.triggerFx(intents, {
       cell: payload.tile,
       fromCell: payload.fromTile,
       toCell: payload.tile,
       capturedPieceType: payload.capturedPieceType,
       capturedPieceColor: payload.capturedPieceColor,
       promotedPieceType: payload.promotedPieceType,
-    }).catch(() => {
-      console.error("[VFXAdapter] Presentation FX failed.");
     });
   }
 
@@ -119,16 +116,23 @@ export class VFXAdapter implements VFXAPI {
   }
 
   playAnimation(spriteId: SpriteId, tile: Tile): void {
-    if (this.fxTrigger) {
-      const intent = this.mapSpriteToFxIntent(spriteId);
-      if (intent) {
-        void this.fxTrigger([intent], { cell: tile }).catch(() => {
-          console.error("[VFXAdapter] Built-in FX failed.");
-        });
-      }
+    const intent = this.mapSpriteToFxIntent(spriteId);
+    if (intent) {
+      this.triggerFx([intent], { cell: tile });
     }
 
     this.animationCallback?.(spriteId, tile);
+  }
+
+  private triggerFx(intents: FxIntent[], payload: FxPayload): void {
+    if (!this.fxTrigger) {
+      dispatchRuntimeFxEvent(intents, payload);
+      return;
+    }
+
+    void this.fxTrigger(intents, payload).catch(() => {
+      console.error("[VFXAdapter] FX dispatch failed.");
+    });
   }
 
   private mapSpriteToFxIntent(spriteId: SpriteId): FxIntent | null {
