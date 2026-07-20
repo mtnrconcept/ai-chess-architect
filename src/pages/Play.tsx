@@ -2,7 +2,12 @@
 // src/pages/Play.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -483,10 +488,13 @@ const Play = () => {
         opponentElo?: number;
         matchId?: string;
         matchStatus?: string;
+        ruleArchitectMatchSeed?: string | number;
+        ruleArchitectRulesetHash?: string;
+        ruleArchitectEngineVersion?: string;
         tournamentId?: string;
       }
     | undefined;
-  
+
   // Récupérer le ruleId depuis l'URL (ex: /play?ruleId=xxx)
   const urlRuleId = searchParams.get("ruleId");
 
@@ -750,7 +758,7 @@ const Play = () => {
                 try {
                   const converted = convertRuleJsonToChessRule(row.rule_json);
                   aiRules.push(converted);
-                  
+
                   // Si cette règle correspond au ruleId de l'URL, la mémoriser
                   if (urlRuleId && row.rule_id === urlRuleId) {
                     urlRule = converted;
@@ -778,7 +786,7 @@ const Play = () => {
 
   const [customRules, setCustomRules] =
     useState<ChessRule[]>(analyzedCustomRules);
-  
+
   // Activer automatiquement la règle depuis l'URL si présente
   useEffect(() => {
     if (urlLoadedRule && dbRulesLoaded) {
@@ -791,7 +799,7 @@ const Play = () => {
       });
     }
   }, [urlLoadedRule, dbRulesLoaded]);
-  
+
   const activePresetRule = useMemo(() => {
     if (initialPresetRuleIds.length === 0 || !dbRulesLoaded) return null;
     const [firstRuleId] = initialPresetRuleIds;
@@ -992,7 +1000,14 @@ const Play = () => {
     onTurnStart,
     runUIAction,
     boardAdapter,
-  } = useRuleEngine(gameState, activeRuleJsons);
+  } = useRuleEngine(gameState, activeRuleJsons, {
+    matchSeed:
+      locationState?.ruleArchitectMatchSeed ??
+      locationState?.lobbyId ??
+      "local-match",
+    maxEffectsPerRuleEvent: 128,
+    maxNestedDepth: 8,
+  });
 
   // Déclenche l'événement de début de tour au montage
   useEffect(() => {

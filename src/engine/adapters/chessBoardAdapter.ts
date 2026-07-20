@@ -130,12 +130,15 @@ export class ChessBoardAdapter implements BoardAPI {
       throw new Error(`Piece not found: ${id}`);
     }
 
+    entry.piece.specialState ??= {};
     return {
       id,
       type: entry.piece.type,
       side: entry.piece.color as Side,
       tile: this.positionToTile(entry.position),
-      statuses: entry.piece.specialState ?? {},
+      hasMoved: entry.piece.hasMoved,
+      invisible: entry.piece.isHidden === true,
+      statuses: entry.piece.specialState,
     };
   }
 
@@ -147,6 +150,13 @@ export class ChessBoardAdapter implements BoardAPI {
     const chessPiece = entry.piece as ChessPieceWithId;
     const oldPos = entry.position;
     const newPos = this.tileToPosition(tile);
+    if (!this.withinBoard(tile)) {
+      throw new Error(`Tile outside board: ${tile}`);
+    }
+    const occupant = this.getPieceAt(tile);
+    if (occupant && occupant !== id) {
+      throw new Error(`Tile already occupied: ${tile}`);
+    }
 
     this.board[oldPos.row][oldPos.col] = null;
     chessPiece.position = newPos;
@@ -175,6 +185,12 @@ export class ChessBoardAdapter implements BoardAPI {
 
   spawnPiece(type: string, side: Side, tile: Tile): PieceID {
     const pos = this.tileToPosition(tile);
+    if (!this.withinBoard(tile)) {
+      throw new Error(`Tile outside board: ${tile}`);
+    }
+    if (!this.isEmpty(tile)) {
+      throw new Error(`Tile already occupied: ${tile}`);
+    }
     const newPiece: ChessPieceWithId = {
       type: type as ChessPiece["type"],
       color: side as ChessPiece["color"],
@@ -189,6 +205,27 @@ export class ChessBoardAdapter implements BoardAPI {
     this.positionMap.set(this.getTileKey(tile), id);
 
     return id;
+  }
+
+  setPieceInvisible(id: PieceID, value: boolean): void {
+    const entry = this.getOrResolvePiece(id);
+    if (!entry) throw new Error(`Piece not found: ${id}`);
+    entry.piece.isHidden = value;
+  }
+
+  setPieceStatus(id: PieceID, key: string, value: unknown): void {
+    const entry = this.getOrResolvePiece(id);
+    if (!entry) throw new Error(`Piece not found: ${id}`);
+    entry.piece.specialState ??= {};
+    entry.piece.specialState[key] = structuredClone(value);
+  }
+
+  clearPieceStatus(id: PieceID, key: string): void {
+    const entry = this.getOrResolvePiece(id);
+    if (!entry) throw new Error(`Piece not found: ${id}`);
+    if (entry.piece.specialState) {
+      delete entry.piece.specialState[key];
+    }
   }
 
   withinBoard(tile: Tile): boolean {
@@ -233,6 +270,37 @@ export class ChessBoardAdapter implements BoardAPI {
 
   getBoard(): ChessBoard {
     return this.board;
+  }
+
+  serialize(): string {
+    return JSON.stringify({
+      board: this.board,
+      decals: Array.from(this.decals.entries()),
+      nextId: this.nextId,
+    });
+  }
+
+  deserialize(payload: string): void {
+    const parsed = JSON.parse(payload) as {
+      board?: ChessBoard;
+      decals?: Array<[string, SpriteId | null]>;
+      nextId?: number;
+    };
+    if (
+      !Array.isArray(parsed.board) ||
+      parsed.board.length !== 8 ||
+      parsed.board.some((row) => !Array.isArray(row) || row.length !== 8)
+    ) {
+      throw new Error("Invalid board snapshot.");
+    }
+
+    this.board.splice(0, this.board.length, ...parsed.board);
+    this.decals = new Map(parsed.decals ?? []);
+    this.nextId =
+      Number.isInteger(parsed.nextId) && (parsed.nextId ?? 0) > 0
+        ? parsed.nextId!
+        : 1;
+    this.rebuildPieceMap();
   }
 
   updateBoard(newBoard: ChessBoard): void {

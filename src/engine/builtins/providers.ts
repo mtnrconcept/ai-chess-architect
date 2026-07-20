@@ -1,116 +1,136 @@
-import { Registry } from "../registry";
-import { Tile } from "../types";
+import { Registry, type EngineContext } from "../registry";
+import type { PieceID, Tile } from "../types";
 
-export function registerBuiltinProviders(reg: Registry) {
-  reg.registerProvider("provider.anyEmptyTile", (ctx) => {
-    const b = ctx.engine.board;
-    return b.tiles().filter((t: Tile) => b.isEmpty(t));
+const BOARD_TILE = /^[a-h][1-8]$/;
+
+const sourceTile = (ctx: EngineContext): Tile | null => {
+  const tile = ctx.piece?.tile;
+  return typeof tile === "string" && BOARD_TILE.test(tile) ? tile : null;
+};
+
+const allPieceIds = (ctx: EngineContext): PieceID[] => {
+  const board = ctx.engine.board;
+  const ids = board
+    .tiles()
+    .map((tile: Tile) => board.getPieceAt(tile))
+    .filter((id: PieceID | null): id is PieceID => id !== null);
+  return [...new Set(ids)];
+};
+
+/**
+ * Rule Architect providers are deliberately contextual and zero-argument.
+ * Their output type is fixed by PROVIDER_CATALOG and checked again by the UI.
+ */
+export function registerBuiltinProviders(registry: Registry): void {
+  registry.registerProvider("provider.anyEmptyTile", (ctx) => {
+    const board = ctx.engine.board;
+    return board
+      .tiles()
+      .filter((tile: Tile) => board.withinBoard(tile) && board.isEmpty(tile));
   });
 
-  reg.registerProvider("provider.neighborsEmpty", (ctx, center: Tile, radius = 1) => {
-    const b = ctx.engine.board;
-    const targetTile = center ?? ctx.piece?.tile;
-    if (!targetTile) return [];
-    return b.neighbors(targetTile, radius).filter((t: Tile) => b.isEmpty(t));
-  });
-
-  reg.registerProvider("provider.allTiles", (ctx) => {
-    return ctx.engine.board.tiles();
-  });
-
-  reg.registerProvider("provider.tilesInRadius", (ctx, center: Tile, radius = 1) => {
+  registry.registerProvider("provider.neighborsEmpty", (ctx) => {
+    const center = sourceTile(ctx);
     if (!center) return [];
-    return ctx.engine.board.neighbors(center, radius);
+    const board = ctx.engine.board;
+    return board
+      .neighbors(center, 1)
+      .filter((tile: Tile) => board.withinBoard(tile) && board.isEmpty(tile));
   });
 
-  reg.registerProvider("provider.emptyTilesInRadius", (ctx, center: Tile, radius = 1) => {
+  registry.registerProvider("provider.allTiles", (ctx) =>
+    ctx.engine.board
+      .tiles()
+      .filter((tile: Tile) => ctx.engine.board.withinBoard(tile)),
+  );
+
+  registry.registerProvider("provider.tilesInRadius", (ctx) => {
+    const center = sourceTile(ctx);
+    return center
+      ? ctx.engine.board
+          .neighbors(center, 1)
+          .filter((tile: Tile) => ctx.engine.board.withinBoard(tile))
+      : [];
+  });
+
+  registry.registerProvider("provider.emptyTilesInRadius", (ctx) => {
+    const center = sourceTile(ctx);
     if (!center) return [];
-    const b = ctx.engine.board;
-    return b.neighbors(center, radius).filter((t: Tile) => b.isEmpty(t));
+    const board = ctx.engine.board;
+    return board
+      .neighbors(center, 1)
+      .filter((tile: Tile) => board.withinBoard(tile) && board.isEmpty(tile));
   });
 
-  // Phase 2: Advanced piece targeting providers
-  reg.registerProvider("provider.enemyPieces", (ctx) => {
+  registry.registerProvider("provider.enemyPieces", (ctx) => {
     if (!ctx.piece) return [];
-    const b = ctx.engine.board;
-    return b.tiles()
-      .map(t => b.getPieceAt(t))
-      .filter(pid => pid !== null)
-      .map(pid => b.getPiece(pid!))
-      .filter(p => p.side !== ctx.piece!.side)
-      .map(p => p.id);
+    return allPieceIds(ctx).filter(
+      (id) => ctx.engine.board.getPiece(id).side !== ctx.piece.side,
+    );
   });
 
-  reg.registerProvider("provider.friendlyPieces", (ctx) => {
+  registry.registerProvider("provider.friendlyPieces", (ctx) => {
     if (!ctx.piece) return [];
-    const b = ctx.engine.board;
-    return b.tiles()
-      .map(t => b.getPieceAt(t))
-      .filter(pid => pid !== null)
-      .map(pid => b.getPiece(pid!))
-      .filter(p => p.side === ctx.piece!.side)
-      .map(p => p.id);
+    return allPieceIds(ctx).filter(
+      (id) => ctx.engine.board.getPiece(id).side === ctx.piece.side,
+    );
   });
 
-  reg.registerProvider("provider.piecesInRadius", (ctx, center: Tile, radius = 1) => {
+  registry.registerProvider("provider.piecesInRadius", (ctx) => {
+    const center = sourceTile(ctx);
     if (!center) return [];
-    const b = ctx.engine.board;
-    return b.neighbors(center, radius)
-      .map(t => b.getPieceAt(t))
-      .filter(pid => pid !== null);
+    return ctx.engine.board
+      .neighbors(center, 1)
+      .map((tile: Tile) => ctx.engine.board.getPieceAt(tile))
+      .filter((id: PieceID | null): id is PieceID => id !== null);
   });
 
-  reg.registerProvider("provider.enemiesInLineOfSight", (ctx, ...args: unknown[]) => {
-    const maxRange = typeof args[0] === 'number' ? args[0] : 8;
-    if (!ctx.piece) return [];
-    const b = ctx.engine.board;
-    const startTile = ctx.piece.tile;
-    const startPos = tileToPosition(startTile);
-    const tiles: Tile[] = []; // ✅ Retourner des Tile[] au lieu de PieceID[]
+  registry.registerProvider("provider.enemiesInLineOfSight", (ctx) => {
+    const center = sourceTile(ctx);
+    if (!center || !ctx.piece) return [];
 
-    // Directions : orthogonales + diagonales
+    const board = ctx.engine.board;
+    const start = tileToPosition(center);
+    const targets: PieceID[] = [];
     const directions = [
-      [0, 1], [0, -1], [1, 0], [-1, 0],  // ortho
-      [1, 1], [1, -1], [-1, 1], [-1, -1] // diag
-    ];
+      [0, 1],
+      [0, -1],
+      [1, 0],
+      [-1, 0],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ] as const;
 
-    directions.forEach(([dr, dc]) => {
-      for (let dist = 1; dist <= maxRange; dist++) {
-        const newPos = {
-          row: startPos.row + dr * dist,
-          col: startPos.col + dc * dist
-        };
-        
-        if (newPos.row < 0 || newPos.row >= 8 || newPos.col < 0 || newPos.col >= 8) {
-          break; // Hors plateau
+    for (const [rowDelta, columnDelta] of directions) {
+      for (let distance = 1; distance <= 8; distance += 1) {
+        const row = start.row + rowDelta * distance;
+        const column = start.column + columnDelta * distance;
+        if (row < 0 || row >= 8 || column < 0 || column >= 8) break;
+
+        const targetTile = positionToTile(row, column);
+        const pieceId = board.getPieceAt(targetTile);
+        if (!pieceId) continue;
+
+        if (board.getPiece(pieceId).side !== ctx.piece.side) {
+          targets.push(pieceId);
         }
-        
-        const tile = positionToTile(newPos);
-        const pid = b.getPieceAt(tile);
-        
-        if (pid) {
-          const piece = b.getPiece(pid);
-          if (piece.side !== ctx.piece.side) {
-            tiles.push(tile); // ✅ Retourner la tuile
-          }
-          break; // Bloqué par une pièce
-        }
+        break;
       }
-    });
+    }
 
-    return tiles;
+    return targets;
   });
 }
 
-// Helper functions for line of sight calculations
-function tileToPosition(tile: string) {
-  const file = tile.charCodeAt(0) - 97; // a=0, b=1, etc.
-  const rank = 8 - parseInt(tile[1]); // 8=0, 7=1, etc.
-  return { row: rank, col: file };
+function tileToPosition(tile: Tile): { row: number; column: number } {
+  return {
+    row: 8 - Number.parseInt(tile[1], 10),
+    column: tile.charCodeAt(0) - 97,
+  };
 }
 
-function positionToTile(pos: { row: number; col: number }): string {
-  const file = String.fromCharCode(97 + pos.col);
-  const rank = (8 - pos.row).toString();
-  return `${file}${rank}`;
+function positionToTile(row: number, column: number): Tile {
+  return `${String.fromCharCode(97 + column)}${8 - row}`;
 }

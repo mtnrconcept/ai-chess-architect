@@ -6,8 +6,11 @@ import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 import Index from "./pages/Index";
 import Generator from "./pages/Generator";
+import RuleArchitect from "./pages/RuleArchitect";
 import Lobby from "./pages/Lobby";
+import RuleLobby from "./pages/RuleLobby";
 import Play from "./pages/Play";
+import PlayHub from "./pages/PlayHub";
 import NotFound from "./pages/NotFound";
 import SignUp from "./pages/SignUp";
 import Profile from "./pages/Profile";
@@ -18,6 +21,7 @@ import Tournaments from "./pages/Tournaments";
 import Pricing from "./pages/Pricing";
 import Diagnostics from "./pages/Diagnostics";
 import Legal from "./pages/Legal";
+import { MultiplayerMatch } from "./pages/MultiplayerMatch";
 import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
@@ -28,10 +32,14 @@ const router = createBrowserRouter(
       element: <AppLayout />,
       children: [
         { path: "/", element: <Index /> },
-        { path: "/generator", element: <Generator /> },
+        { path: "/generator", element: <RuleArchitect /> },
+        { path: "/generator-legacy", element: <Generator /> },
         { path: "/lobby", element: <Lobby /> },
+        { path: "/rule-lobby", element: <RuleLobby /> },
+        { path: "/play-hub", element: <PlayHub /> },
         { path: "/play", element: <Play /> },
         { path: "/play/:matchId", element: <Play /> },
+        { path: "/match/:matchId", element: <MultiplayerMatch /> },
         { path: "/leaderboard", element: <Leaderboard /> },
         { path: "/signup", element: <SignUp /> },
         { path: "/profile", element: <Profile /> },

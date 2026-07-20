@@ -1,107 +1,200 @@
+import type { EngineContext } from "../registry";
 import { Registry } from "../registry";
 
-export function registerBuiltinConditions(reg: Registry) {
-  reg.registerCondition("always", () => true);
+const FORBIDDEN_PATH_SEGMENTS = new Set([
+  "__proto__",
+  "prototype",
+  "constructor",
+]);
 
-  reg.registerCondition("ctx.hasTargetTile", (ctx) => !!ctx.targetTile);
+const asParams = (args: unknown[]): Record<string, unknown> => {
+  const first = args[0];
+  return first && typeof first === "object" && !Array.isArray(first)
+    ? (first as Record<string, unknown>)
+    : {};
+};
 
-  reg.registerCondition("cooldown.ready", (ctx, ...args: unknown[]) => {
-    // Accepter des paramètres optionnels : pieceId et actionId
-    const pieceId = typeof args[0] === 'string' ? args[0] : ctx.piece?.id;
-    const actionId = typeof args[1] === 'string' ? args[1] : ctx.baseActionId;
-    
-    if (!pieceId || !actionId) return true;
-    return ctx.engine.cooldown.isReady(pieceId, actionId);
-  });
+const argument = (
+  ctx: EngineContext,
+  args: unknown[],
+  name: string,
+  positionalIndex = 0,
+): unknown => {
+  const params = asParams(args);
+  if (Object.prototype.hasOwnProperty.call(params, name)) {
+    return params[name];
+  }
+  if (args[positionalIndex] !== undefined) {
+    return args[positionalIndex];
+  }
+  return ctx.params?.[name];
+};
 
-  reg.registerCondition("tile.isEmpty", (ctx) => {
-    if (!ctx.targetTile) return false;
-    return ctx.engine.board.isEmpty(ctx.targetTile);
-  });
+const readStatePath = (
+  state: Record<string, unknown>,
+  path: unknown,
+): unknown => {
+  if (typeof path !== "string" || path.length === 0) {
+    return undefined;
+  }
 
-  reg.registerCondition("piece.isTypeInScope", (ctx) => {
-    if (!ctx.piece || !ctx.rule?.scope?.affectedPieces) return true;
-    return ctx.rule.scope.affectedPieces.includes(ctx.piece.type);
-  });
+  const segments = path.split(".");
+  if (segments.some((segment) => FORBIDDEN_PATH_SEGMENTS.has(segment))) {
+    return undefined;
+  }
 
-  reg.registerCondition("piece.hasMoved.equals", (ctx, expected) => {
-    if (!ctx.piece) return false;
-    const hasMoved = Boolean((ctx.piece as { hasMoved?: boolean }).hasMoved);
-    if (expected === undefined) return hasMoved;
-    return hasMoved === Boolean(expected);
-  });
+  let current: unknown = state;
+  for (const segment of segments) {
+    if (current === null || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+};
 
-  reg.registerCondition("status.targetNotFrozen", (ctx) => {
-    if (!ctx.targetPieceId) return true;
-    const p = ctx.engine.board.getPiece(ctx.targetPieceId);
-    return !p.statuses?.frozen;
-  });
+const isStatusActive = (
+  statuses: Record<string, unknown> | undefined,
+  key: unknown,
+): boolean => {
+  if (!statuses || typeof key !== "string" || !key) {
+    return false;
+  }
 
-  reg.registerCondition("random.50", () => Math.random() < 0.5);
+  const status = statuses[key];
+  if (status && typeof status === "object" && "active" in status) {
+    return Boolean((status as { active?: boolean }).active);
+  }
+  return Boolean(status);
+};
 
-  reg.registerCondition("piece.exists", (ctx) => {
-    if (!ctx.pieceId) return false;
-    try {
-      const piece = ctx.engine.board.getPiece(ctx.pieceId);
-      return !!piece;
-    } catch {
+export function registerBuiltinConditions(registry: Registry): void {
+  registry.registerCondition("always", () => true);
+
+  registry.registerCondition("ctx.hasTargetTile", (ctx) =>
+    Boolean(ctx.targetTile),
+  );
+
+  registry.registerCondition("ctx.hasTargetPiece", (ctx) =>
+    Boolean(ctx.targetPieceId),
+  );
+
+  registry.registerCondition("cooldown.ready", (ctx, ...args) => {
+    const pieceId =
+      argument(ctx, args, "pieceId", 0) ?? ctx.piece?.id ?? ctx.pieceId;
+    const actionId = argument(ctx, args, "actionId", 1) ?? ctx.baseActionId;
+
+    if (typeof pieceId !== "string" || typeof actionId !== "string") {
       return false;
     }
+
+    return Boolean(ctx.engine.cooldown.isReady(pieceId, actionId));
   });
 
-  reg.registerCondition("tile.withinBoard", (ctx) => {
-    if (!ctx.targetTile) return false;
-    return ctx.engine.board.withinBoard(ctx.targetTile);
-  });
-
-  reg.registerCondition("piece.isSide", (ctx) => {
-    if (!ctx.piece || !ctx.params?.side) return true;
-    return ctx.piece.side === ctx.params.side;
-  });
-
-  // Phase 1: Status management conditions
-  reg.registerCondition("piece.hasStatus", (ctx) => {
-    const key = ctx.params?.statusKey || ctx.params?.key;
-    if (!ctx.pieceId || !key) return false;
-    try {
-      const piece = ctx.engine.board.getPiece(ctx.pieceId);
-      return !!piece.statuses?.[key]?.active;
-    } catch {
+  registry.registerCondition("tile.isEmpty", (ctx) => {
+    if (typeof ctx.targetTile !== "string") {
       return false;
     }
+    return Boolean(ctx.engine.board.isEmpty(ctx.targetTile));
   });
 
-  reg.registerCondition("target.hasStatus", (ctx) => {
-    let key = ctx.params?.statusKey || ctx.params?.key;
+  registry.registerCondition("tile.withinBoard", (ctx) => {
+    if (typeof ctx.targetTile !== "string") {
+      return false;
+    }
+    return Boolean(ctx.engine.board.withinBoard(ctx.targetTile));
+  });
 
-    // Résoudre les références $params.*
-    if (typeof key === "string" && key.startsWith("$params.")) {
-      const paramPath = key.slice(8); // "freezeKey" depuis "$params.freezeKey"
-      key = ctx.params?.[paramPath];
+  registry.registerCondition("piece.isTypeInScope", (ctx) => {
+    if (!ctx.piece) {
+      return false;
     }
 
-    if (!ctx.targetPieceId || !key) return false;
+    const affectedPieces = ctx.rule?.scope?.affectedPieces;
+    if (
+      !Array.isArray(affectedPieces) ||
+      affectedPieces.length === 0 ||
+      affectedPieces.includes("any")
+    ) {
+      return true;
+    }
+    return affectedPieces.includes(ctx.piece.type);
+  });
+
+  registry.registerCondition("piece.hasMoved.equals", (ctx, ...args) => {
+    if (!ctx.piece) {
+      return false;
+    }
+    const expected = argument(ctx, args, "expected", 0);
+    if (typeof expected !== "boolean") {
+      return false;
+    }
+    return Boolean(ctx.piece.hasMoved) === expected;
+  });
+
+  registry.registerCondition("status.targetNotFrozen", (ctx) => {
+    if (!ctx.targetPieceId) {
+      return false;
+    }
     try {
       const piece = ctx.engine.board.getPiece(ctx.targetPieceId);
-      return !!piece.statuses?.[key]?.active;
+      return !isStatusActive(piece.statuses, "frozen");
     } catch {
       return false;
     }
   });
 
-  // Phase 2: Advanced targeting conditions
-  reg.registerCondition("ctx.hasTargetPiece", (ctx) => {
-    const hasTarget = !!ctx.targetPieceId;
-    if (!hasTarget) {
-      console.warn(
-        "[condition] ctx.hasTargetPiece failed - no targetPieceId in context",
-      );
+  registry.registerCondition("piece.exists", (ctx) => {
+    const pieceId = ctx.pieceId ?? ctx.piece?.id;
+    if (!pieceId) {
+      return false;
     }
-    return hasTarget;
+    try {
+      return Boolean(ctx.engine.board.getPiece(pieceId));
+    } catch {
+      return false;
+    }
   });
 
-  reg.registerCondition("target.isEnemy", (ctx) => {
-    if (!ctx.targetPieceId || !ctx.piece) return false;
+  registry.registerCondition("piece.isSide", (ctx, ...args) => {
+    const side = argument(ctx, args, "side", 0);
+    if (!ctx.piece || (side !== "white" && side !== "black")) {
+      return false;
+    }
+    return ctx.piece.side === side;
+  });
+
+  registry.registerCondition("piece.hasStatus", (ctx, ...args) => {
+    const key = argument(ctx, args, "key", 0);
+    const pieceId = ctx.pieceId ?? ctx.piece?.id;
+    if (!pieceId) {
+      return false;
+    }
+    try {
+      const piece = ctx.engine.board.getPiece(pieceId);
+      return isStatusActive(piece.statuses, key);
+    } catch {
+      return false;
+    }
+  });
+
+  registry.registerCondition("target.hasStatus", (ctx, ...args) => {
+    const key = argument(ctx, args, "key", 0);
+    if (!ctx.targetPieceId) {
+      return false;
+    }
+    try {
+      const piece = ctx.engine.board.getPiece(ctx.targetPieceId);
+      return isStatusActive(piece.statuses, key);
+    } catch {
+      return false;
+    }
+  });
+
+  registry.registerCondition("target.isEnemy", (ctx) => {
+    if (!ctx.targetPieceId || !ctx.piece) {
+      return false;
+    }
     try {
       const target = ctx.engine.board.getPiece(ctx.targetPieceId);
       return target.side !== ctx.piece.side;
@@ -110,8 +203,10 @@ export function registerBuiltinConditions(reg: Registry) {
     }
   });
 
-  reg.registerCondition("target.isFriendly", (ctx) => {
-    if (!ctx.targetPieceId || !ctx.piece) return false;
+  registry.registerCondition("target.isFriendly", (ctx) => {
+    if (!ctx.targetPieceId || !ctx.piece) {
+      return false;
+    }
     try {
       const target = ctx.engine.board.getPiece(ctx.targetPieceId);
       return target.side === ctx.piece.side;
@@ -120,79 +215,66 @@ export function registerBuiltinConditions(reg: Registry) {
     }
   });
 
-  // Phase 3: State management conditions
-  reg.registerCondition("state.exists", (ctx) => {
-    const path = ctx.params?.path;
-    if (!path) return false;
-
-    const keys = path.split(".");
-    let current = ctx.state;
-
-    for (const key of keys) {
-      if (!current || typeof current !== "object") return false;
-      current = current[key];
-    }
-
-    return current !== undefined;
+  registry.registerCondition("state.exists", (ctx, ...args) => {
+    const path = argument(ctx, args, "path", 0);
+    return readStatePath(ctx.state, path) !== undefined;
   });
 
-  reg.registerCondition("state.equals", (ctx) => {
-    const path = ctx.params?.path;
-    const value = ctx.params?.value;
-    if (!path) return false;
-
-    const keys = path.split(".");
-    let current = ctx.state;
-
-    for (const key of keys) {
-      if (!current || typeof current !== "object") return false;
-      current = current[key];
-    }
-
-    return current === value;
+  registry.registerCondition("state.equals", (ctx, ...args) => {
+    const path = argument(ctx, args, "path", 0);
+    const value = argument(ctx, args, "value", 1);
+    return Object.is(readStatePath(ctx.state, path), value);
   });
 
-  reg.registerCondition("state.lessThan", (ctx) => {
-    const path = ctx.params?.path;
-    const value = ctx.params?.value;
-    if (!path || value === undefined) return false;
-
-    const keys = path.split(".");
-    let current = ctx.state;
-
-    for (const key of keys) {
-      if (!current || typeof current !== "object") return false;
-      current = current[key];
-    }
-
-    return typeof current === "number" && current < value;
+  registry.registerCondition("state.lessThan", (ctx, ...args) => {
+    const path = argument(ctx, args, "path", 0);
+    const value = argument(ctx, args, "value", 1);
+    const current = readStatePath(ctx.state, path);
+    return (
+      typeof current === "number" &&
+      typeof value === "number" &&
+      current < value
+    );
   });
 
-  // Phase 4: Probabilistic conditions
-  reg.registerCondition("random.chance", (ctx) => {
-    const percent = ctx.params?.percent ?? 50;
-    return Math.random() * 100 < percent;
-  });
-
-  reg.registerCondition("match.turnNumber.atLeast", (ctx, value) => {
-    if (typeof value !== "number") return false;
-    try {
-      const match = ctx.engine.match.get?.();
-      const ply = typeof match?.ply === "number" ? match.ply : 0;
-      return ply >= value;
-    } catch {
+  const randomChance = (ctx: EngineContext, ...args: unknown[]): boolean => {
+    if (!ctx.random) {
+      console.error("[RuleEngine] RNG déterministe absent du contexte.");
       return false;
     }
-  });
 
-  reg.registerCondition("match.turnNumber.lessThan", (ctx, value) => {
-    if (typeof value !== "number") return false;
-    try {
-      const match = ctx.engine.match.get?.();
-      const ply = typeof match?.ply === "number" ? match.ply : 0;
-      return ply < value;
-    } catch {
+    const rawPercent = argument(ctx, args, "percent", 0) ?? 50;
+    if (typeof rawPercent !== "number" || !Number.isFinite(rawPercent)) {
       return false;
     }
+
+    const percent = Math.min(100, Math.max(0, rawPercent));
+    return ctx.random() * 100 < percent;
+  };
+
+  registry.registerCondition("random.chance", randomChance);
+
+  registry.registerCondition("random.50", (ctx) =>
+    randomChance(ctx, { percent: 50 }),
+  );
+
+  registry.registerCondition("match.turnNumber.atLeast", (ctx, ...args) => {
+    const value = argument(ctx, args, "value", 0);
+    if (typeof value !== "number") {
+      return false;
+    }
+    const match = ctx.engine.match.get?.();
+    const ply = typeof match?.ply === "number" ? match.ply : 0;
+    return ply >= value;
+  });
+
+  registry.registerCondition("match.turnNumber.lessThan", (ctx, ...args) => {
+    const value = argument(ctx, args, "value", 0);
+    if (typeof value !== "number") {
+      return false;
+    }
+    const match = ctx.engine.match.get?.();
+    const ply = typeof match?.ply === "number" ? match.ply : 0;
+    return ply < value;
   });
 }

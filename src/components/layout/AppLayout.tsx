@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 const navigationLinks = [
   { label: "Accueil", to: "/" },
   { label: "Lobby", to: "/lobby" },
-  { label: "Jouer", to: "/play" },
+  { label: "Jouer", to: "/play-hub" },
   { label: "Variantes IA", to: "/generator" },
   { label: "Abonnements", to: "/pricing" },
   { label: "Tournois", to: "/tournaments" },

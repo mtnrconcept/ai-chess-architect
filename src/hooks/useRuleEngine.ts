@@ -4,34 +4,65 @@ import {
   EventBus,
   Cooldown,
   StateStore,
+  type RuleEngineOptions,
 } from "@/engine/bootstrap";
-import { EngineContracts, RuleJSON, UIActionSpec } from "@/engine/types";
+import type {
+  EngineContracts,
+  EngineEventMap,
+  EngineEventName,
+  RuleJSON,
+  Side,
+  UIActionSpec,
+} from "@/engine/types";
 import { ChessBoardAdapter } from "@/engine/adapters/chessBoardAdapter";
 import { UIAdapter } from "@/engine/adapters/uiAdapter";
 import { VFXAdapter } from "@/engine/adapters/vfxAdapter";
 import { MatchAdapter } from "@/engine/adapters/matchAdapter";
-import { GameState } from "@/types/chess";
+import type { GameState } from "@/types/chess";
+import { createDeterministicIdGenerator } from "@/rules-v2";
 import { useSoundEffects } from "./useSoundEffects";
 
-export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
+export type UseRuleEngineOptions = RuleEngineOptions;
+
+export const useRuleEngine = (
+  gameState: GameState,
+  rules: RuleJSON[] = [],
+  options: UseRuleEngineOptions = {},
+) => {
   const { playSound } = useSoundEffects();
   const engineRef = useRef<ReturnType<typeof createRuleEngine> | null>(null);
   const contractsRef = useRef<EngineContracts | null>(null);
   const rulesSignatureRef = useRef<string | null>(null);
 
-  const boardAdapter = useMemo(
-    () => new ChessBoardAdapter(gameState.board),
-    [gameState.board],
-  );
-
+  // The adapters must survive normal board updates. The previous
+  // implementation recreated the engine whenever the board array changed.
+  const boardAdapterRef = useRef<ChessBoardAdapter | null>(null);
+  if (!boardAdapterRef.current) {
+    boardAdapterRef.current = new ChessBoardAdapter(gameState.board);
+  }
+  const boardAdapter = boardAdapterRef.current;
   const uiAdapter = useMemo(() => new UIAdapter(), []);
   const vfxAdapter = useMemo(() => new VFXAdapter(), []);
-  const matchAdapter = useMemo(
-    () => new MatchAdapter(gameState.currentPlayer),
-    [gameState.currentPlayer],
-  );
+  const matchAdapterRef = useRef<MatchAdapter | null>(null);
+  if (!matchAdapterRef.current) {
+    matchAdapterRef.current = new MatchAdapter(gameState.currentPlayer);
+  }
+  const matchAdapter = matchAdapterRef.current;
 
-  const rulesSignature = useMemo(() => JSON.stringify(rules ?? []), [rules]);
+  const matchSeed = options.matchSeed ?? "local-match";
+  const maxEffectsPerRuleEvent = options.maxEffectsPerRuleEvent ?? 128;
+  const maxNestedDepth = options.maxNestedDepth ?? 8;
+
+  const rulesSignature = useMemo(
+    () =>
+      JSON.stringify({
+        rules: rules ?? [],
+        matchSeed: String(matchSeed),
+        maxEffectsPerRuleEvent,
+        maxNestedDepth,
+      }),
+    [matchSeed, maxEffectsPerRuleEvent, maxNestedDepth, rules],
+  );
 
   useEffect(() => {
     vfxAdapter.setPlaySoundCallback(playSound);
@@ -43,10 +74,11 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
 
   useEffect(() => {
     matchAdapter.setCurrentTurn(gameState.currentPlayer);
-  }, [matchAdapter, gameState.currentPlayer]);
+  }, [gameState.currentPlayer, matchAdapter]);
 
   const initializeEngine = useCallback(() => {
     const signature = rulesSignature;
+
     if (engineRef.current && rulesSignatureRef.current === signature) {
       return engineRef.current;
     }
@@ -54,6 +86,9 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     const eventBus = new EventBus();
     const cooldown = new Cooldown();
     const stateStore = new StateStore();
+    const nextDeterministicId = createDeterministicIdGenerator(
+      `${String(matchSeed)}|entities`,
+    );
 
     uiAdapter.clearActions();
 
@@ -66,7 +101,7 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
       state: stateStore,
       eventBus,
       util: {
-        uuid: () => crypto.randomUUID(),
+        uuid: nextDeterministicId,
       },
       capturePiece: (id: string, reason?: string) => {
         console.log(`Capturing piece ${id} - ${reason || "rule effect"}`);
@@ -75,14 +110,22 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     };
 
     contractsRef.current = contracts;
-    const engine = createRuleEngine(contracts, rules);
+
+    const engine = createRuleEngine(contracts, rules, {
+      matchSeed,
+      maxEffectsPerRuleEvent,
+      maxNestedDepth,
+    });
+
     engineRef.current = engine;
     rulesSignatureRef.current = signature;
-
     return engine;
   }, [
     boardAdapter,
     matchAdapter,
+    matchSeed,
+    maxEffectsPerRuleEvent,
+    maxNestedDepth,
     rules,
     rulesSignature,
     uiAdapter,
@@ -92,10 +135,11 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
   const engine = useMemo(() => initializeEngine(), [initializeEngine]);
 
   const triggerLifecycleEvent = useCallback(
-    (event: string, payload: unknown) => {
-      if (contractsRef.current) {
-        contractsRef.current.eventBus.emit(event, payload);
-      }
+    <Event extends EngineEventName>(
+      event: Event,
+      payload: EngineEventMap[Event],
+    ) => {
+      contractsRef.current?.eventBus.emit(event, payload);
     },
     [],
   );
@@ -129,23 +173,26 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     [triggerLifecycleEvent],
   );
 
+  const onTurnStart = useCallback(
+    (side: Side) => {
+      triggerLifecycleEvent("lifecycle.onTurnStart", { side });
+    },
+    [triggerLifecycleEvent],
+  );
+
   const runUIAction = useCallback(
     (actionId: string, pieceId?: string, targetTile?: string) => {
-      if (contractsRef.current) {
-        contractsRef.current.eventBus.emit("ui.runAction", {
-          actionId,
-          pieceId,
-          targetTile,
-        });
-      }
+      triggerLifecycleEvent("ui.runAction", {
+        actionId,
+        pieceId,
+        targetTile,
+      });
     },
-    [],
+    [triggerLifecycleEvent],
   );
 
   const tickCooldowns = useCallback(() => {
-    if (contractsRef.current) {
-      contractsRef.current.cooldown.tickAll();
-    }
+    contractsRef.current?.cooldown.tickAll();
   }, []);
 
   const getUIActions = useCallback((): UIActionSpec[] => {
@@ -153,7 +200,10 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
   }, [uiAdapter]);
 
   const serializeState = useCallback(() => {
-    if (!contractsRef.current) return null;
+    if (!contractsRef.current) {
+      return null;
+    }
+
     return {
       rules: contractsRef.current.state.serialize(),
       cooldowns: contractsRef.current.cooldown.serialize(),
@@ -161,12 +211,20 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
   }, []);
 
   const deserializeState = useCallback((state: unknown) => {
-    if (!contractsRef.current || !state || typeof state !== "object") return;
-    const payload = state as { rules?: unknown; cooldowns?: unknown };
-    if (payload.rules && typeof payload.rules === "string") {
+    if (!contractsRef.current || !state || typeof state !== "object") {
+      return;
+    }
+
+    const payload = state as {
+      rules?: unknown;
+      cooldowns?: unknown;
+    };
+
+    if (typeof payload.rules === "string") {
       contractsRef.current.state.deserialize(payload.rules);
     }
-    if (payload.cooldowns && typeof payload.cooldowns === "string") {
+
+    if (typeof payload.cooldowns === "string") {
       contractsRef.current.cooldown.deserialize(payload.cooldowns);
     }
   }, []);
@@ -177,11 +235,7 @@ export const useRuleEngine = (gameState: GameState, rules: RuleJSON[] = []) => {
     onMoveCommitted,
     onUndo,
     onPromote,
-    onTurnStart: useCallback((side: string) => {
-      if (contractsRef.current) {
-        contractsRef.current.eventBus.emit("lifecycle.onTurnStart", { side });
-      }
-    }, []),
+    onTurnStart,
     runUIAction,
     tickCooldowns,
     getUIActions,

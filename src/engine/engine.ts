@@ -1,156 +1,884 @@
-import { EngineContracts, RuleJSON, LogicStep, ActionStep, UIActionSpec, PieceID, Tile } from "./types";
-import { Registry } from "./registry";
+import type {
+  ActionStep,
+  Condition,
+  EngineContracts,
+  LogicStep,
+  Piece,
+  PieceID,
+  RuleJSON,
+  Tile,
+  UIActionSpec,
+} from "./types";
+import {
+  Registry,
+  type ConditionDescriptor,
+  type EngineContext,
+} from "./registry";
+import {
+  CONDITION_OPS,
+  createDeterministicRandom,
+  EFFECT_OPS,
+  PROVIDERS,
+  RuntimeBudget,
+  RuntimeBudgetExceededError,
+} from "../rules-v2";
+
+export interface RuleEngineOptions {
+  matchSeed?: string | number;
+  maxEffectsPerRuleEvent?: number;
+  maxNestedDepth?: number;
+}
+
+interface EvaluationOutcome {
+  blocked: boolean;
+  executed: number;
+  turnEnded: boolean;
+}
+
+interface MutableEngineSnapshot {
+  board: string | null;
+  cooldown: string;
+  state: string;
+}
+
+class RuleRollbackError extends Error {
+  constructor(public readonly failures: readonly unknown[]) {
+    super("Échec de restauration de la transaction de règle.");
+    this.name = "RuleRollbackError";
+  }
+}
+
+const BLOCKED_LEGACY_EFFECTS = new Set([
+  "area.forEachTile",
+  "board.areaEffect",
+  "composite",
+]);
+
+const V2_CONDITIONS = new Set<string>(CONDITION_OPS);
+const V2_EFFECTS = new Set<string>(EFFECT_OPS);
+const V2_PROVIDERS = new Set<string>(PROVIDERS);
+
+const cloneRule = (rule: RuleJSON): RuleJSON =>
+  JSON.parse(JSON.stringify(rule)) as RuleJSON;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const isRuleArchitectRule = (rule: RuleJSON): boolean =>
+  rule.integration?.ruleArchitect?.source === "ai-blueprint";
+
+const isActionStep = (value: unknown): value is ActionStep =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof (value as ActionStep).action === "string",
+  );
+
+const isV2ConditionTree = (value: unknown, depth = 0): boolean => {
+  if (depth > 8) return false;
+  if (typeof value === "string") return V2_CONDITIONS.has(value);
+  if (!Array.isArray(value) || value.length === 0) return false;
+
+  const [operation, ...args] = value;
+  if (operation === "not") {
+    return args.length === 1 && isV2ConditionTree(args[0], depth + 1);
+  }
+  if (operation === "and" || operation === "or") {
+    return (
+      args.length > 0 &&
+      args.every((item) => isV2ConditionTree(item, depth + 1))
+    );
+  }
+  return typeof operation === "string" && V2_CONDITIONS.has(operation);
+};
 
 export class RuleEngine {
-  constructor(
-    private engine: EngineContracts,
-    private registry: Registry
-  ) {}
-
   private rules: RuleJSON[] = [];
-  private handlers = new Map<string, string[]>();
-  private uiActions: UIActionSpec[] = [];
+  private readonly handlers = new Map<string, string[]>();
+  private readonly uiActions: UIActionSpec[] = [];
+  private readonly actionOwners = new Map<string, RuleJSON>();
+  private eventSequence = 0;
+  private readonly options: Required<RuleEngineOptions>;
 
-  loadRules(rules: RuleJSON[]) {
-    this.rules = rules.filter(r => r.meta?.isActive !== false);
+  constructor(
+    private readonly engine: EngineContracts,
+    private readonly registry: Registry,
+    options: RuleEngineOptions = {},
+  ) {
+    this.options = {
+      matchSeed: options.matchSeed ?? "local-match",
+      maxEffectsPerRuleEvent: options.maxEffectsPerRuleEvent ?? 128,
+      maxNestedDepth: options.maxNestedDepth ?? 8,
+    };
+  }
+
+  loadRules(rules: RuleJSON[]): void {
+    const previousActions = [...this.uiActions];
+    const uiWithUnregister = this.engine.ui as EngineContracts["ui"] & {
+      unregisterAction?: (actionId: string) => void;
+    };
+
+    if (uiWithUnregister.unregisterAction) {
+      previousActions.forEach((action) =>
+        uiWithUnregister.unregisterAction?.(action.id),
+      );
+    }
+
+    this.handlers.clear();
+    this.uiActions.length = 0;
+    this.actionOwners.clear();
+    this.eventSequence = 0;
+
+    const preparedRules = rules
+      .filter((rule) => rule.meta?.isActive !== false)
+      .map((rule) => this.prepareRule(rule))
+      .filter((rule): rule is RuleJSON => rule !== null)
+      .sort((left, right) => {
+        const priorityDelta =
+          (right.meta?.priority ?? 0) - (left.meta?.priority ?? 0);
+        return (
+          priorityDelta || left.meta.ruleId.localeCompare(right.meta.ruleId)
+        );
+      });
+
+    const generatedRuleIds = new Set<string>();
+    this.rules = preparedRules.filter((rule) => {
+      if (!isRuleArchitectRule(rule)) return true;
+      if (generatedRuleIds.has(rule.meta.ruleId)) {
+        console.error(
+          `[RuleEngine] Version Rule Architect dupliquée refusée: ${rule.meta.ruleId}`,
+        );
+        return false;
+      }
+      generatedRuleIds.add(rule.meta.ruleId);
+      return true;
+    });
 
     for (const rule of this.rules) {
-      if (rule.ui?.actions) {
-        rule.ui.actions.forEach(a => {
-          this.engine.ui.registerAction(a);
-          this.uiActions.push(a);
-        });
+      for (const action of rule.ui?.actions ?? []) {
+        if (this.actionOwners.has(action.id)) {
+          console.error(`[RuleEngine] Action dupliquée ignorée: ${action.id}`);
+          continue;
+        }
+
+        this.actionOwners.set(action.id, rule);
+        this.uiActions.push(action);
+        this.engine.ui.registerAction(action);
       }
 
-      Object.entries(rule.handlers ?? {}).forEach(([evt, id]) => {
-        if (!this.handlers.has(evt)) this.handlers.set(evt, []);
-        this.handlers.get(evt)!.push(id);
-      });
+      for (const [eventName, handlerId] of Object.entries(
+        rule.handlers ?? {},
+      )) {
+        const handlers = this.handlers.get(eventName) ?? [];
+        handlers.push(String(handlerId));
+        this.handlers.set(eventName, handlers);
+      }
     }
   }
 
-  private evaluateLogicBlock(eventId: string, context: any, steps?: LogicStep[]) {
-    if (!steps) return;
+  /**
+   * Published versions may share the model-provided ruleKey/stateNamespace.
+   * Runtime IDs are therefore scoped by the immutable versioned ruleId.
+   */
+  private prepareRule(input: RuleJSON): RuleJSON | null {
+    const rule = cloneRule(input);
+    if (!isRuleArchitectRule(rule)) return rule;
 
-    for (const step of steps) {
-      if (step.when !== eventId && step.when !== "always") continue;
+    const ownerId = rule.meta?.ruleId;
+    if (
+      typeof ownerId !== "string" ||
+      ownerId.length < 1 ||
+      ownerId.length > 160 ||
+      !/^[a-zA-Z0-9._@:-]+$/.test(ownerId)
+    ) {
+      console.error("[RuleEngine] ruleId Rule Architect invalide.");
+      return null;
+    }
 
-      const conds = Array.isArray(step.if) ? step.if : step.if ? [step.if] : [];
-      const pass = conds.every(c => this.registry.runCondition(c, context));
+    const actionIds = new Map<string, string>();
+    for (const action of rule.ui?.actions ?? []) {
+      if (actionIds.has(action.id)) {
+        console.error(
+          `[RuleEngine] Action V2 dupliquée dans ${ownerId}: ${action.id}`,
+        );
+        return null;
+      }
+      const provider = action.targeting?.validTilesProvider;
+      if (provider && !V2_PROVIDERS.has(provider)) {
+        console.error(
+          `[RuleEngine] Provider hors catalogue dans ${ownerId}: ${provider}`,
+        );
+        return null;
+      }
+      const scopedId = `${ownerId}::${action.id}`;
+      actionIds.set(action.id, scopedId);
+      action.id = scopedId;
+    }
 
-      if (!pass) {
-        if (step.onFail === "blockAction") {
-          if (step.message) this.engine.ui.toast(step.message);
-          return;
+    for (const step of rule.logic?.effects ?? []) {
+      if (step.if !== undefined && !isV2ConditionTree(step.if)) {
+        console.error(`[RuleEngine] Condition hors catalogue dans ${ownerId}.`);
+        return null;
+      }
+      if (step.when.startsWith("ui.")) {
+        const originalId = step.when.slice(3);
+        const scopedId = actionIds.get(originalId);
+        if (!scopedId) {
+          console.error(
+            `[RuleEngine] Trigger sans action dans ${ownerId}: ${originalId}`,
+          );
+          return null;
         }
-        continue;
+        step.when = `ui.${scopedId}`;
       }
 
       const actions = Array.isArray(step.do) ? step.do : [step.do];
-      for (const a of actions) {
-        this.registry.runEffect(a, context);
+      for (const action of actions) {
+        if (!V2_EFFECTS.has(action.action)) {
+          console.error(
+            `[RuleEngine] Effet hors catalogue dans ${ownerId}: ${action.action}`,
+          );
+          return null;
+        }
+        if (
+          action.action === "cooldown.set" &&
+          typeof action.params?.actionId === "string"
+        ) {
+          const scopedId = actionIds.get(action.params.actionId);
+          if (!scopedId) {
+            console.error(
+              `[RuleEngine] Cooldown sans action dans ${ownerId}: ${action.params.actionId}`,
+            );
+            return null;
+          }
+          action.params.actionId = scopedId;
+        }
       }
     }
-  }
 
-  onEnterTile(pieceId: PieceID, to: Tile) {
-    const ctx = this.buildContext({ pieceId, to, event: "lifecycle.onEnterTile" });
-    for (const rule of this.rules) {
-      this.evaluateLogicBlock("lifecycle.onEnterTile", ctx.withRule(rule), rule.logic?.effects);
+    if (!rule.state?.namespace) {
+      console.error(`[RuleEngine] Namespace absent dans ${ownerId}.`);
+      return null;
     }
+    rule.state.namespace = `${rule.state.namespace}::${ownerId}`;
+    return rule;
   }
 
-  onMoveCommitted(move: { pieceId: PieceID; from: Tile; to: Tile }) {
-    const ctx = this.buildContext({ ...move, event: "lifecycle.onMoveCommitted" });
-    for (const rule of this.rules) {
-      this.evaluateLogicBlock("lifecycle.onMoveCommitted", ctx.withRule(rule), rule.logic?.effects);
+  onEnterTile(pieceId: PieceID, to: Tile): void {
+    this.dispatchLifecycle("lifecycle.onEnterTile", {
+      pieceId,
+      to,
+      targetTile: to,
+    });
+  }
+
+  onMoveCommitted(move: { pieceId: PieceID; from: Tile; to: Tile }): void {
+    this.dispatchLifecycle("lifecycle.onMoveCommitted", {
+      ...move,
+      targetTile: move.to,
+    });
+  }
+
+  onUndo(): void {
+    this.dispatchLifecycle("lifecycle.onUndo", {});
+  }
+
+  onPromote(pieceId: PieceID, fromType: string, toType: string): void {
+    this.dispatchLifecycle("lifecycle.onPromote", {
+      pieceId,
+      fromType,
+      toType,
+    });
+  }
+
+  onTurnStart(side: string): void {
+    this.engine.cooldown.tickAll();
+
+    const systemBudget = new RuntimeBudget(
+      this.options.maxEffectsPerRuleEvent,
+      this.options.maxNestedDepth,
+    );
+    const systemContext: EngineContext = {
+      engine: this.engine,
+      event: "system.statusTick",
+      side,
+      state: {},
+      params: { side },
+      random: createDeterministicRandom(
+        `${this.options.matchSeed}|system|${this.eventSequence}`,
+      ),
+      budget: systemBudget,
+      turnEnded: false,
+    };
+
+    try {
+      this.registry.runEffect(
+        {
+          action: "status.tickAll",
+          params: { side },
+        },
+        systemContext,
+      );
+    } catch (error) {
+      this.reportRuntimeError(error);
     }
+
+    this.dispatchLifecycle("lifecycle.onTurnStart", { side });
   }
 
-  onUndo() {
-    const ctx = this.buildContext({ event: "lifecycle.onUndo" });
-    for (const rule of this.rules) {
-      this.evaluateLogicBlock("lifecycle.onUndo", ctx.withRule(rule), rule.logic?.effects);
-    }
-  }
+  runUIAction(actionId: string, pieceId?: PieceID, targetTile?: Tile): void {
+    const action = this.uiActions.find(
+      (candidate) => candidate.id === actionId,
+    );
+    const rule = this.actionOwners.get(actionId);
 
-  onPromote(pieceId: PieceID, fromType: string, toType: string) {
-    const ctx = this.buildContext({ event: "lifecycle.onPromote", pieceId, fromType, toType });
-    for (const rule of this.rules) {
-      this.evaluateLogicBlock("lifecycle.onPromote", ctx.withRule(rule), rule.logic?.effects);
-    }
-  }
-
-  // Phase 1: Gestion du début de tour pour tick des statuts
-  onTurnStart(side: string) {
-    const ctx = this.buildContext({ event: "lifecycle.onTurnStart", side });
-    
-    // Tick des statuts AVANT d'évaluer les règles
-    this.registry.runEffect({ action: "status.tickAll", params: { side } }, ctx);
-    
-    for (const rule of this.rules) {
-      this.evaluateLogicBlock("lifecycle.onTurnStart", ctx.withRule(rule), rule.logic?.effects);
-    }
-  }
-
-  runUIAction(actionId: string, pieceId?: PieceID, targetTile?: Tile) {
-    const action = this.uiActions.find(a => a.id === actionId);
-    if (!action) {
+    if (!action || !rule) {
       this.engine.ui.toast(`Action inconnue: ${actionId}`);
       return;
     }
 
-    // Phase 2: Enrichir avec targetPieceId si une pièce est sur targetTile
+    let piece: Piece | null = null;
+    if (pieceId) {
+      try {
+        piece = this.engine.board.getPiece(pieceId);
+      } catch {
+        this.engine.ui.toast("La pièce sélectionnée n'existe plus.");
+        return;
+      }
+    }
+
+    if (action.availability?.requiresSelection && !piece) {
+      this.engine.ui.toast("Sélectionne d'abord une pièce.");
+      return;
+    }
+
+    const allowedPieces = action.availability?.pieceTypes ?? [];
+    if (
+      piece &&
+      allowedPieces.length > 0 &&
+      !allowedPieces.includes("any") &&
+      !allowedPieces.includes(piece.type)
+    ) {
+      this.engine.ui.toast(
+        "Cette action n'est pas disponible pour cette pièce.",
+      );
+      return;
+    }
+
+    const allowedSides = rule.scope?.sides ?? [];
+    if (
+      piece &&
+      allowedSides.length > 0 &&
+      !allowedSides.includes(piece.side)
+    ) {
+      this.engine.ui.toast("Cette règle ne s'applique pas à ce camp.");
+      return;
+    }
+
     let targetPieceId: PieceID | undefined;
     if (targetTile) {
       targetPieceId = this.engine.board.getPieceAt(targetTile) ?? undefined;
     }
 
-    const ctx = this.buildContext({ 
-      event: `ui.${actionId}`, 
-      pieceId, 
-      targetTile,
-      targetPieceId,
-      baseActionId: actionId
-    });
-    
-    for (const rule of this.rules) {
-      this.evaluateLogicBlock(`ui.${actionId}`, ctx.withRule(rule), rule.logic?.effects);
+    const targetingMode = action.targeting?.mode ?? "none";
+    if (isRuleArchitectRule(rule) && targetingMode !== "none" && !targetTile) {
+      this.engine.ui.toast("Choisis une cible valide.");
+      return;
+    }
+
+    if (
+      isRuleArchitectRule(rule) &&
+      targetingMode === "piece" &&
+      !targetPieceId
+    ) {
+      this.engine.ui.toast("Cette action exige une pièce cible.");
+      return;
+    }
+
+    const sequence = ++this.eventSequence;
+    const budget = new RuntimeBudget(
+      this.options.maxEffectsPerRuleEvent,
+      this.options.maxNestedDepth,
+    );
+    const context = this.buildContext(
+      {
+        event: `ui.${actionId}`,
+        pieceId,
+        targetTile,
+        targetPieceId,
+        baseActionId: actionId,
+      },
+      rule,
+      sequence,
+      budget,
+    );
+
+    const provider = action.targeting?.validTilesProvider;
+    if (provider && (isRuleArchitectRule(rule) || targetTile !== undefined)) {
+      try {
+        const provided = this.registry.runProvider(provider, context);
+        const candidates = Array.isArray(provided) ? provided : [];
+        const targetIsValid =
+          (targetTile !== undefined && candidates.includes(targetTile)) ||
+          (targetPieceId !== undefined && candidates.includes(targetPieceId));
+
+        if (!targetIsValid) {
+          this.engine.ui.toast("Cette cible n'est pas autorisée par la règle.");
+          return;
+        }
+      } catch (error) {
+        this.reportRuntimeError(error);
+        return;
+      }
+    }
+
+    if (
+      pieceId &&
+      action.cooldown?.perPiece &&
+      action.cooldown.perPiece > 0 &&
+      !this.engine.cooldown.isReady(pieceId, actionId)
+    ) {
+      this.engine.ui.toast("Cette action est encore en recharge.");
+      return;
+    }
+
+    if (
+      pieceId &&
+      action.maxPerPiece &&
+      action.maxPerPiece > 0 &&
+      this.getActionUsage(rule, pieceId, actionId) >= action.maxPerPiece
+    ) {
+      this.engine.ui.toast(
+        "La limite d'utilisation est atteinte pour cette pièce.",
+      );
+      return;
+    }
+
+    const outcome = this.evaluateLogicBlock(
+      `ui.${actionId}`,
+      context,
+      rule.logic?.effects,
+      () => {
+        if (pieceId) {
+          this.incrementActionUsage(rule, pieceId, actionId);
+          const cooldownTurns = action.cooldown?.perPiece ?? 0;
+          if (cooldownTurns > 0) {
+            this.engine.cooldown.set(pieceId, actionId, cooldownTurns);
+          }
+        }
+        if (action.consumesTurn) context.turnEnded = true;
+      },
+    );
+
+    if (outcome.blocked || outcome.executed === 0) {
+      if (outcome.executed === 0 && !outcome.blocked) {
+        this.engine.ui.toast(
+          "Aucun effet jouable n'est associé à cette action.",
+        );
+      }
+      return;
     }
   }
 
-  private buildContext(base: Record<string, any>) {
-    const engine = this.engine;
-    const registry = this.registry;
+  getRules(): RuleJSON[] {
+    return this.rules.map(cloneRule);
+  }
+
+  getUIActions(): UIActionSpec[] {
+    return this.uiActions.map(
+      (action) => JSON.parse(JSON.stringify(action)) as UIActionSpec,
+    );
+  }
+
+  private dispatchLifecycle(
+    eventId: string,
+    base: Record<string, unknown>,
+  ): void {
+    const sequence = ++this.eventSequence;
+
+    for (const rule of this.rules) {
+      const budget = new RuntimeBudget(
+        this.options.maxEffectsPerRuleEvent,
+        this.options.maxNestedDepth,
+      );
+      const context = this.buildContext(
+        { ...base, event: eventId },
+        rule,
+        sequence,
+        budget,
+      );
+      const outcome = this.evaluateLogicBlock(
+        eventId,
+        context,
+        rule.logic?.effects,
+      );
+
+      if (outcome.blocked) {
+        break;
+      }
+    }
+  }
+
+  private evaluateLogicBlock(
+    eventId: string,
+    context: EngineContext,
+    steps?: LogicStep[],
+    onLogicalSuccess?: () => void,
+  ): EvaluationOutcome {
+    const outcome: EvaluationOutcome = {
+      blocked: false,
+      executed: 0,
+      turnEnded: false,
+    };
+
+    if (!steps) {
+      return outcome;
+    }
+
+    const candidates = steps.filter(
+      (step) => step.when === eventId || step.when === "always",
+    );
+    if (candidates.length === 0) return outcome;
+
+    for (const step of candidates) {
+      const rawActions = Array.isArray(step.do) ? step.do : [step.do];
+      const actions = this.normaliseActions(step.do);
+      const invalidAction = actions.find(
+        (action) =>
+          !this.registry.effects.has(action.action) ||
+          BLOCKED_LEGACY_EFFECTS.has(action.action),
+      );
+      if (
+        rawActions.length === 0 ||
+        actions.length !== rawActions.length ||
+        invalidAction
+      ) {
+        console.error(
+          `[RuleEngine] Bloc refusé avant exécution : effet invalide ${
+            invalidAction?.action ?? "(forme inconnue)"
+          }.`,
+        );
+        if (step.message) this.engine.ui.toast(step.message);
+        outcome.blocked = true;
+        return outcome;
+      }
+    }
+
+    let snapshot: MutableEngineSnapshot;
+    try {
+      snapshot = this.captureMutableState(context.rule as RuleJSON, context);
+    } catch (error) {
+      this.reportRuntimeError(error);
+      outcome.blocked = true;
+      return outcome;
+    }
+
+    context.postCommit = [];
+    let failureMessage: string | undefined;
+
+    try {
+      for (const step of candidates) {
+        const conditions = this.normaliseConditions(step.if);
+        const passes = conditions.every((condition) =>
+          this.registry.runCondition(condition, context),
+        );
+
+        if (!passes) {
+          if (step.onFail === "blockAction") {
+            if (step.message) {
+              failureMessage = step.message;
+            }
+            outcome.blocked = true;
+            break;
+          }
+          continue;
+        }
+
+        const actions = this.normaliseActions(step.do);
+        for (const action of actions) {
+          const succeeded = this.registry.runEffect(action, context);
+          if (!succeeded) {
+            failureMessage = step.message;
+            outcome.blocked = true;
+            break;
+          } else {
+            outcome.executed += 1;
+          }
+        }
+
+        if (outcome.blocked) break;
+      }
+      if (!outcome.blocked && outcome.executed > 0) {
+        onLogicalSuccess?.();
+      }
+    } catch (error) {
+      this.reportRuntimeError(error);
+      outcome.blocked = true;
+    }
+
+    if (outcome.blocked) {
+      try {
+        this.restoreMutableState(snapshot);
+      } catch (error) {
+        this.reportRuntimeError(error);
+      }
+      context.postCommit.length = 0;
+      context.turnEnded = false;
+      outcome.executed = 0;
+      if (failureMessage) this.engine.ui.toast(failureMessage);
+      return outcome;
+    }
+
+    outcome.turnEnded = context.turnEnded === true;
+    if (outcome.turnEnded && outcome.executed > 0) {
+      try {
+        this.engine.match.endTurn();
+      } catch (error) {
+        try {
+          this.restoreMutableState(snapshot);
+        } catch (restoreError) {
+          this.reportRuntimeError(restoreError);
+        }
+        context.postCommit.length = 0;
+        context.turnEnded = false;
+        outcome.blocked = true;
+        outcome.executed = 0;
+        this.reportRuntimeError(error);
+        return outcome;
+      }
+    }
+
+    for (const callback of context.postCommit) {
+      try {
+        callback();
+      } catch (error) {
+        console.error("[RuleEngine] Effet visuel post-commit ignoré:", error);
+      }
+    }
+    context.postCommit.length = 0;
+    return outcome;
+  }
+
+  private captureMutableState(
+    rule: RuleJSON,
+    context: EngineContext,
+  ): MutableEngineSnapshot {
+    const boardCanSnapshot =
+      typeof this.engine.board.serialize === "function" &&
+      typeof this.engine.board.deserialize === "function";
+    if (
+      isRuleArchitectRule(rule) &&
+      (!boardCanSnapshot || context.statePersistenceValid === false)
+    ) {
+      throw new Error(
+        "Adaptateurs transactionnels requis pour une règle Rule Architect.",
+      );
+    }
 
     return {
-      ...base,
-      engine,
-      registry,
-      state: {}, // State global par défaut
-      get piece() {
-        return base.pieceId ? engine.board.getPiece(base.pieceId) : null;
-      },
-      withRule(rule: RuleJSON) {
-        const ruleState = rule.state?.namespace
-          ? engine.state.getOrInit(rule.state.namespace, rule.state.initial ?? {})
-          : {};
-
-        return {
-          ...this,
-          rule,
-          params: rule.parameters ?? {},
-          state: ruleState
-        };
-      }
+      board: boardCanSnapshot ? this.engine.board.serialize!() : null,
+      cooldown: this.engine.cooldown.serialize(),
+      state: this.engine.state.serialize(),
     };
   }
 
-  getRules() {
-    return this.rules;
+  private restoreMutableState(snapshot: MutableEngineSnapshot): void {
+    const failures: unknown[] = [];
+    const restore = (callback: () => void) => {
+      try {
+        callback();
+      } catch (error) {
+        failures.push(error);
+      }
+    };
+
+    if (snapshot.board !== null) {
+      restore(() => this.engine.board.deserialize!(snapshot.board!));
+    }
+    restore(() => this.engine.cooldown.deserialize(snapshot.cooldown));
+    restore(() => this.engine.state.deserialize(snapshot.state));
+
+    if (failures.length > 0) {
+      throw new RuleRollbackError(failures);
+    }
   }
 
-  getUIActions() {
-    return this.uiActions;
+  private normaliseConditions(
+    input: Condition | Condition[] | undefined,
+  ): ConditionDescriptor[] {
+    if (input === undefined) {
+      return [];
+    }
+
+    if (!Array.isArray(input)) {
+      return [input as ConditionDescriptor];
+    }
+
+    if (input.length === 0) {
+      return [];
+    }
+
+    const first = input[0];
+
+    if (first === "not" || first === "and" || first === "or") {
+      return [input as ConditionDescriptor];
+    }
+
+    const isConditionDescriptor = (
+      value: unknown,
+    ): value is ConditionDescriptor => {
+      if (typeof value === "string") {
+        return this.registry.conditions.has(value);
+      }
+
+      if (!Array.isArray(value) || value.length === 0) {
+        return false;
+      }
+
+      const operation = value[0];
+      return typeof operation === "string" && operation.length > 0;
+    };
+
+    const looksLikeConditionList =
+      input.length > 1 && input.every(isConditionDescriptor);
+
+    if (looksLikeConditionList) {
+      return input as ConditionDescriptor[];
+    }
+
+    if (typeof first === "string" && this.registry.conditions.has(first)) {
+      return [input as ConditionDescriptor];
+    }
+
+    // Keep unknown descriptors intact: Registry must see them and fail closed.
+    return [input as ConditionDescriptor];
+  }
+
+  private normaliseActions(input: ActionStep | ActionStep[]): ActionStep[] {
+    if (isActionStep(input)) {
+      return [input];
+    }
+    return Array.isArray(input) ? input.filter(isActionStep) : [];
+  }
+
+  private buildContext(
+    base: Record<string, unknown>,
+    rule: RuleJSON,
+    sequence: number,
+    budget: RuntimeBudget,
+  ): EngineContext {
+    const pieceId = typeof base.pieceId === "string" ? base.pieceId : undefined;
+
+    let piece: Piece | null = null;
+    if (pieceId) {
+      try {
+        piece = this.engine.board.getPiece(pieceId);
+      } catch {
+        piece = null;
+      }
+    }
+
+    const storedRuleState = rule.state?.namespace
+      ? this.engine.state.getOrInit(
+          rule.state.namespace,
+          rule.state.initial ?? {},
+        )
+      : {};
+    const statePersistenceValid = isRecord(storedRuleState);
+    const ruleState: Record<string, unknown> = statePersistenceValid
+      ? storedRuleState
+      : {};
+
+    const event = typeof base.event === "string" ? base.event : "unknown";
+    const side =
+      base.side === "white" || base.side === "black"
+        ? base.side
+        : (piece?.side ?? this.engine.match.get().turnSide);
+
+    const seed = [
+      this.options.matchSeed,
+      sequence,
+      rule.meta.ruleId,
+      event,
+      pieceId ?? "",
+      String(base.targetTile ?? ""),
+    ].join("|");
+
+    return {
+      ...base,
+      engine: this.engine,
+      registry: this.registry,
+      pieceId,
+      piece,
+      side,
+      rule,
+      scope: rule.scope,
+      params: rule.parameters ?? {},
+      state: ruleState,
+      statePersistenceValid,
+      random: createDeterministicRandom(seed),
+      budget,
+      turnEnded: false,
+    };
+  }
+
+  private getActionUsage(
+    rule: RuleJSON,
+    pieceId: string,
+    actionId: string,
+  ): number {
+    if (!rule.state?.namespace) {
+      return 0;
+    }
+
+    const state = this.engine.state.getOrInit(
+      rule.state.namespace,
+      rule.state.initial ?? {},
+    );
+    if (!isRecord(state)) return 0;
+    const usages = state.__ruleArchitectActionUses;
+    if (!isRecord(usages)) return 0;
+    const value = usages[`${pieceId}:${actionId}`];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
+
+  private incrementActionUsage(
+    rule: RuleJSON,
+    pieceId: string,
+    actionId: string,
+  ): void {
+    if (!rule.state?.namespace) {
+      return;
+    }
+
+    const state = this.engine.state.getOrInit(
+      rule.state.namespace,
+      rule.state.initial ?? {},
+    );
+    if (!isRecord(state)) return;
+    const currentUsages = state.__ruleArchitectActionUses;
+    const usages: Record<string, unknown> = isRecord(currentUsages)
+      ? currentUsages
+      : (state.__ruleArchitectActionUses = {});
+    const key = `${pieceId}:${actionId}`;
+    const current = usages[key];
+    usages[key] =
+      (typeof current === "number" && Number.isFinite(current) ? current : 0) +
+      1;
+  }
+
+  private reportRuntimeError(error: unknown): void {
+    if (error instanceof RuntimeBudgetExceededError) {
+      console.error("[RuleEngine] Budget d'exécution dépassé:", error);
+      this.engine.ui.toast(
+        "La règle a été stoppée car elle dépassait le budget de sécurité.",
+      );
+      return;
+    }
+
+    console.error("[RuleEngine] Erreur d'exécution:", error);
+    this.engine.ui.toast(
+      "La règle n'a pas pu être exécutée en toute sécurité.",
+    );
   }
 }
