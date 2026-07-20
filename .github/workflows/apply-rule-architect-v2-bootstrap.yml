@@ -32,23 +32,17 @@ jobs:
           set +e
           diagnostic="$GITHUB_WORKSPACE/bootstrap-diagnostic.txt"
           : > "$diagnostic"
-          exec_step() {
-            name="$1"
-            shift
-            echo "## $name" >> "$diagnostic"
-            "$@" >> "$diagnostic" 2>&1
-            status=$?
-            echo "status=$status" >> "$diagnostic"
-            return $status
-          }
 
           mapfile -t chunks < <(find .rule-architect-v2 -maxdepth 1 -type f -name 'chunk-*.b64' | sort)
           echo "chunk_count=${#chunks[@]}" >> "$diagnostic"
           printf '%s\n' "${chunks[@]}" >> "$diagnostic"
 
           if [ "${#chunks[@]}" -eq 6 ]; then
-            cat "${chunks[@]}" | tr -d '\r\n' | base64 -d > /tmp/rule-architect-v2.zip 2>> "$diagnostic"
-            decode_status=$?
+            : > /tmp/rule-architect-v2.zip
+            decode_status=0
+            for chunk in "${chunks[@]}"; do
+              base64 -d "$chunk" >> /tmp/rule-architect-v2.zip 2>> "$diagnostic" || decode_status=$?
+            done
             echo "decode_status=$decode_status" >> "$diagnostic"
 
             if [ "$decode_status" -eq 0 ]; then
