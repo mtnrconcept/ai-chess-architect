@@ -7,6 +7,13 @@ on:
     paths:
       - ".rule-architect-v2/**"
       - ".github/workflows/apply-rule-architect-v2-bootstrap.yml"
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
@@ -18,6 +25,7 @@ concurrency:
 
 jobs:
   apply:
+    if: github.head_ref == 'feat/rule-architect-v2' || github.ref_name == 'feat/rule-architect-v2'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
