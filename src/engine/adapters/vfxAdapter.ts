@@ -1,6 +1,8 @@
-import { VFXAPI, SpriteId, AudioId, Tile } from '../types';
-import { SoundEffect } from '@/hooks/useSoundEffects';
-import type { FxIntent, FxPayload } from '@/fx/types';
+import { VFXAPI, SpriteId, AudioId, Tile } from "../types";
+import { SoundEffect } from "@/hooks/useSoundEffects";
+import type { FxIntent, FxPayload } from "@/fx/types";
+
+const RULE_SCENE_ID_PATTERN = /^scene\.[a-z0-9][a-z0-9.-]{2,63}$/;
 
 export class VFXAdapter implements VFXAPI {
   private playSoundCallback?: (effect: SoundEffect) => void;
@@ -9,13 +11,21 @@ export class VFXAdapter implements VFXAPI {
     clear?: (tile: Tile) => void;
   };
   private animationCallback?: (spriteId: SpriteId, tile: Tile) => void;
-  private fxTrigger?: (intents: FxIntent[] | undefined, payload?: FxPayload) => Promise<void>;
+  private fxTrigger?: (
+    intents: FxIntent[] | undefined,
+    payload?: FxPayload,
+  ) => Promise<void>;
 
   constructor() {
     this.decalCallbacks = {};
   }
 
-  setFxTrigger(trigger: (intents: FxIntent[] | undefined, payload?: FxPayload) => Promise<void>): void {
+  setFxTrigger(
+    trigger: (
+      intents: FxIntent[] | undefined,
+      payload?: FxPayload,
+    ) => Promise<void>,
+  ): void {
     this.fxTrigger = trigger;
   }
 
@@ -30,7 +40,9 @@ export class VFXAdapter implements VFXAPI {
     this.decalCallbacks = callbacks;
   }
 
-  setAnimationCallback(callback: (spriteId: SpriteId, tile: Tile) => void): void {
+  setAnimationCallback(
+    callback: (spriteId: SpriteId, tile: Tile) => void,
+  ): void {
     this.animationCallback = callback;
   }
 
@@ -47,46 +59,53 @@ export class VFXAdapter implements VFXAPI {
   }
 
   playAnimation(spriteId: SpriteId, tile: Tile): void {
-    // Phase 4: Déclencher via FxContext si disponible
     if (this.fxTrigger) {
       const intent = this.mapSpriteToFxIntent(spriteId);
       if (intent) {
-        this.fxTrigger([intent], { cell: tile }).catch(err => {
-          console.error('[VFXAdapter] Failed to trigger FX', err);
+        this.fxTrigger([intent], { cell: tile }).catch(() => {
+          console.error("[VFXAdapter] Failed to trigger FX", {
+            code: "FX_TRIGGER_FAILED",
+          });
         });
       }
     }
-    
+
     if (this.animationCallback) {
       this.animationCallback(spriteId, tile);
     }
   }
 
   private mapSpriteToFxIntent(spriteId: SpriteId): FxIntent | null {
-    // Mapper les sprites du moteur vers les intents FX
+    if (RULE_SCENE_ID_PATTERN.test(spriteId)) {
+      return {
+        intent: "asset.scene",
+        sceneId: spriteId,
+      };
+    }
+
     const mapping: Record<string, FxIntent> = {
-      'explosion': { intent: 'combat.explosion', power: 'medium' },
-      'freeze': { intent: 'combat.freeze' },
-      'mine': { intent: 'object.spawn', kind: 'mine' },
-      'hologram': { intent: 'viz.hologram' },
-      'warp': { intent: 'space.warp', mode: 'blink' },
+      explosion: { intent: "combat.explosion", power: "medium" },
+      freeze: { intent: "combat.freeze" },
+      mine: { intent: "object.spawn", kind: "mine" },
+      hologram: { intent: "viz.hologram" },
+      warp: { intent: "space.warp", mode: "blink" },
     };
-    
+
     return mapping[spriteId] || null;
   }
 
   playAudio(audioId: AudioId): void {
     if (this.playSoundCallback) {
       const soundMap: Record<string, SoundEffect> = {
-        'boom': 'explosion',
-        'freeze': 'check',
-        'missile': 'capture',
-        'trap': 'mine-detonation',
-        'spawn': 'capture',
-        'cloaking': 'check'
+        boom: "explosion",
+        freeze: "check",
+        missile: "capture",
+        trap: "mine-detonation",
+        spawn: "capture",
+        cloaking: "check",
       };
 
-      const effect = soundMap[audioId] || 'move';
+      const effect = soundMap[audioId] || "move";
       this.playSoundCallback(effect);
     }
   }
