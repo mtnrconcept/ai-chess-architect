@@ -1,5 +1,6 @@
 name: Apply Rule Architect V2 bootstrap
 
+# Re-triggered after replacing the installer with direct, verified file application.
 on:
   push:
     branches:
