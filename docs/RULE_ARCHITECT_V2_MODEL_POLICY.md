@@ -5,9 +5,9 @@ Rule Architect V2 utilise l'API OpenAI Responses avec Structured Outputs.
 | Usage | Secret Supabase | Valeur par défaut |
 | --- | --- | --- |
 | compilation standard | `OPENAI_RULE_MODEL` | `gpt-5.6-terra` |
-| compilation premium | `OPENAI_PREMIUM_RULE_MODEL` | `gpt-5.6` |
+| compilation premium | `OPENAI_PREMIUM_RULE_MODEL` | `gpt-5.6-sol` |
 
-`gpt-5.6-terra` équilibre qualité, latence et coût. `gpt-5.6` est réservé aux
+`gpt-5.6-terra` équilibre qualité, latence et coût. `gpt-5.6-sol` est réservé aux
 interactions complexes. En production, une version datée peut être épinglée si
 la reproductibilité du comportement modèle prime sur les mises à jour de
 l'alias.
@@ -38,4 +38,5 @@ indique que le premium n'a pas été accordé.
 Références officielles :
 
 - <https://developers.openai.com/api/docs/models/gpt-5.6-terra>
+- <https://developers.openai.com/api/docs/models/gpt-5.6-sol>
 - <https://developers.openai.com/api/docs/guides/structured-outputs>

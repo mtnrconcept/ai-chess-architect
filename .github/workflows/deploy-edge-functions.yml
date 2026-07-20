@@ -1,4 +1,4 @@
-name: Deploy Rule Architect V2 Edge Functions
+name: Deploy Rule Architect V2 and Chess Platform Edge Functions
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy four V2 functions
+    name: Deploy four V2 functions and the STANDARD move validator
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -118,6 +118,7 @@ jobs:
             publish-rule-version
             create-rule-lobby-v2
             join-rule-lobby-v2
+            process-chess-move
           )
 
           for function_name in "${functions[@]}"; do
@@ -136,6 +137,6 @@ jobs:
             echo "- Environment: \`${{ inputs.target_environment }}\`"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Supabase CLI: \`${SUPABASE_CLI_VERSION}\`"
-            echo "- Functions: four explicit V2 functions"
+            echo "- Functions: four explicit V2 functions and process-chess-move"
             echo "- Retention cron: confirmed"
           } >> "$GITHUB_STEP_SUMMARY"

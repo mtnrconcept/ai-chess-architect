@@ -124,6 +124,7 @@ for (const functionName of [
   "publish-rule-version",
   "create-rule-lobby-v2",
   "join-rule-lobby-v2",
+  "process-chess-move",
 ]) {
   const handler = read(`supabase/functions/${functionName}/index.ts`);
   if (/console\.error\([^\n]*message/.test(handler)) {
@@ -203,6 +204,7 @@ for (const functionName of [
   "publish-rule-version",
   "create-rule-lobby-v2",
   "join-rule-lobby-v2",
+  "process-chess-move",
 ]) {
   requireText(deploymentWorkflow, functionName, "workflow Edge");
 }

@@ -1,8 +1,9 @@
 # Déploiement des fonctions Supabase Edge
 
-Les fonctions Rule Architect V2 ne sont jamais déployées automatiquement sur un
-`push`. Utiliser le workflow GitHub manuel, son environnement protégé et les
-quatre fonctions explicitement autorisées.
+Les fonctions Rule Architect V2 et le validateur de coups STANDARD ne sont
+jamais déployés automatiquement sur un `push`. Utiliser le workflow GitHub
+manuel, son environnement protégé et l'allowlist explicite des quatre fonctions
+V2 plus `process-chess-move`.
 
 La migration du même SHA doit avoir été appliquée et validée avant le
 déploiement Edge. Une référence projet codée en dur, un lien CLI local ancien ou

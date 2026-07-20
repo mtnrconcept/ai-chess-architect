@@ -77,19 +77,20 @@ else
   selected_functions=("${all_functions[@]}")
 fi
 
-v2_functions=(
+protected_functions=(
   compile-chess-rule
   publish-rule-version
   create-rule-lobby-v2
   join-rule-lobby-v2
+  process-chess-move
 )
 
 if [[ $# -eq 0 ]]; then
   legacy_functions=()
   for fn in "${selected_functions[@]}"; do
     is_v2=false
-    for v2_fn in "${v2_functions[@]}"; do
-      if [[ "$fn" == "$v2_fn" ]]; then
+    for protected_fn in "${protected_functions[@]}"; do
+      if [[ "$fn" == "$protected_fn" ]]; then
         is_v2=true
         break
       fi
@@ -102,9 +103,9 @@ if [[ $# -eq 0 ]]; then
 fi
 
 for fn in "${selected_functions[@]}"; do
-  for v2_fn in "${v2_functions[@]}"; do
-    if [[ "$fn" == "$v2_fn" ]]; then
-      echo "Rule Architect V2 function '$fn' must be deployed through the protected GitHub workflow." >&2
+  for protected_fn in "${protected_functions[@]}"; do
+    if [[ "$fn" == "$protected_fn" ]]; then
+      echo "Protected Edge function '$fn' must be deployed through the protected GitHub workflow." >&2
       exit 1
     fi
   done

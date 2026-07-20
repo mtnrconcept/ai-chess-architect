@@ -47,7 +47,7 @@ gestion.
 ```text
 OPENAI_API_KEY
 OPENAI_RULE_MODEL=gpt-5.6-terra
-OPENAI_PREMIUM_RULE_MODEL=gpt-5.6
+OPENAI_PREMIUM_RULE_MODEL=gpt-5.6-sol
 ALLOWED_ORIGINS=https://preview-stable.example,https://production.example,http://localhost:5173
 RULE_ARCHITECT_PREMIUM_USER_IDS=
 RULE_COMPILE_HOURLY_LIMIT=12
@@ -94,29 +94,41 @@ webhook Lovable. Elles ne font partie ni de `build`, ni de `postbuild`.
 ## 3. Supabase staging réel
 
 Faire une sauvegarde ou utiliser une branche Supabase jetable et
-représentative. Confirmer la cible pour chaque script d'écriture :
+représentative. La base distante présente une dérive historique : appliquer
+uniquement les migrations relues de cette livraison, dans cet ordre :
 
 ```bash
 export SUPABASE_PROJECT_ID="<staging-ref>"
 export SUPABASE_PROJECT_REF_CONFIRMATION="<staging-ref>"
-export SUPABASE_DB_URL="<staging-database-url>"
 
-npx --yes supabase@2.109.1 db push --db-url "$SUPABASE_DB_URL" --dry-run
-pnpm run db:push
+# À exécuter par l'API de migrations Supabase ou une procédure psql contrôlée,
+# jamais via un db push global sur ce dépôt divergent.
+supabase/migrations/20260719230000_rule_architect_v2.sql
+supabase/migrations/20260720132216_chess_platform_foundation.sql
+supabase/migrations/20260720143000_chess_platform_terminal_cas.sql
 ```
 
-Examiner intégralement le plan dry-run avant l'application. Le wrapper
-`db:push` n'accepte volontairement pas d'argument de contournement et revérifie
-la triple confirmation. L'alias historique `db:migrate` délègue au même wrapper
-et ne maintient plus de registre de migrations parallèle.
+Enregistrer chaque fichier comme une migration distincte, vérifier son succès
+avant le suivant, puis exécuter les deux suites SQL de cette livraison. Ne pas
+utiliser `pnpm db:push` ou `pnpm db:migrate` sur staging/production tant que
+l'historique distant et celui du dépôt n'ont pas été réconciliés.
 
-Déployer ensuite les quatre fonctions via le workflow manuel GitHub, cible
-`staging`, seulement après la migration :
+Déployer ensuite les quatre fonctions V2 et le validateur STANDARD via le
+workflow manuel GitHub, cible `staging`, seulement après les migrations :
 
 - `compile-chess-rule` ;
 - `publish-rule-version` ;
 - `create-rule-lobby-v2` ;
-- `join-rule-lobby-v2`.
+- `join-rule-lobby-v2` ;
+- `process-chess-move` (uniquement pour les matchs STANDARD).
+
+Le dernier endpoint exige en plus la migration
+`20260720143000_chess_platform_terminal_cas.sql`. Il refuse explicitement les
+rulesets personnalisés tant que le runtime serveur du DSL V2 n'est pas livré.
+La base applique le même refus sur `chess_rooms` et calcule elle-même le verdict
+d'un timeout depuis la FEN faisant autorité, y compris la nulle pour matériel de
+mat insuffisant. Les tables de coups et d'événements restent lisibles par le
+rôle serveur mais ne sont modifiables qu'au travers des RPC propriétaires.
 
 ### Cron de rétention obligatoire
 

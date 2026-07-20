@@ -209,7 +209,7 @@ Deno.serve(async (request) => {
       configuredPremiumUsers.has(user.id);
     const premium = premiumRequested && premiumEntitled;
     const model = premium
-      ? Deno.env.get("OPENAI_PREMIUM_RULE_MODEL")?.trim() || "gpt-5.6"
+      ? Deno.env.get("OPENAI_PREMIUM_RULE_MODEL")?.trim() || "gpt-5.6-sol"
       : Deno.env.get("OPENAI_RULE_MODEL")?.trim() || "gpt-5.6-terra";
     const promptHash = await sha256Hex(prompt);
     const expiresAt = new Date(

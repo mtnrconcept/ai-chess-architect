@@ -45,3 +45,7 @@ verify_jwt = true
 
 [functions.join-rule-lobby-v2]
 verify_jwt = true
+
+
+[functions.process-chess-move]
+verify_jwt = true
