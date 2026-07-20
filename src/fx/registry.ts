@@ -7,6 +7,7 @@ import {
   Texture,
 } from "pixi.js";
 import type { FxContext, FxIntent, FxPayload } from "./types";
+import { playAssetScene } from "./assetScene";
 
 const random = (min: number, max: number) => Math.random() * (max - min) + min;
 
@@ -44,7 +45,11 @@ function spawnMine(ctx: FxContext, payload: FxPayload, style?: any) {
   group.addChild(core);
 
   const halo = new Graphics();
-  halo.lineStyle(2, style?.glow ? parseInt(style.glow.replace("#", ""), 16) : 0x76e0ff, 0.85);
+  halo.lineStyle(
+    2,
+    style?.glow ? parseInt(style.glow.replace("#", ""), 16) : 0x76e0ff,
+    0.85,
+  );
   halo.drawCircle(0, 0, 16);
   group.addChild(halo);
 
@@ -53,35 +58,67 @@ function spawnMine(ctx: FxContext, payload: FxPayload, style?: any) {
     holo.lineStyle(1, 0x76e0ff, 0.65).drawCircle(0, 0, 20);
     // holo.filters = [buildGlowFilter()];
     group.addChild(holo);
-    gsap.to(holo, { rotation: Math.PI * 2, repeat: -1, duration: 6, ease: "linear" });
+    gsap.to(holo, {
+      rotation: Math.PI * 2,
+      repeat: -1,
+      duration: 6,
+      ease: "linear",
+    });
   }
 
   group.alpha = 0;
   ctx.app.stage.addChild(group);
   gsap.to(group, { alpha: 1, duration: 0.25, ease: "power2.out" });
   if (style?.blink) {
-    gsap.to(group, { alpha: 0.4, duration: 0.8, yoyo: true, repeat: -1, ease: "sine.inOut" });
+    gsap.to(group, {
+      alpha: 0.4,
+      duration: 0.8,
+      yoyo: true,
+      repeat: -1,
+      ease: "sine.inOut",
+    });
   }
 
   return group;
 }
 
-function areaHazard(ctx: FxContext, payload: FxPayload, radiusCells: number, style?: any) {
+function areaHazard(
+  ctx: FxContext,
+  payload: FxPayload,
+  radiusCells: number,
+  style?: any,
+) {
   const { x, y } = toPixel(ctx, payload.cell);
   const ring = new Graphics();
   ring.position.set(x, y);
-  ring.lineStyle(2, style?.glow ? parseInt(style.glow.replace("#", ""), 16) : 0x76e0ff, 0.6);
+  ring.lineStyle(
+    2,
+    style?.glow ? parseInt(style.glow.replace("#", ""), 16) : 0x76e0ff,
+    0.6,
+  );
   ring.drawCircle(0, 0, radiusCells * 40);
   ctx.app.stage.addChild(ring);
 
   if (style?.pulse) {
-    gsap.to(ring.scale, { x: 1.1, y: 1.1, yoyo: true, repeat: -1, duration: 1.4, ease: "sine.inOut" });
+    gsap.to(ring.scale, {
+      x: 1.1,
+      y: 1.1,
+      yoyo: true,
+      repeat: -1,
+      duration: 1.4,
+      ease: "sine.inOut",
+    });
   }
 
   return ring;
 }
 
-function explosionFx(ctx: FxContext, payload: FxPayload, power: "small" | "medium" | "large" = "medium", style?: any) {
+function explosionFx(
+  ctx: FxContext,
+  payload: FxPayload,
+  power: "small" | "medium" | "large" = "medium",
+  style?: any,
+) {
   const { x, y } = toPixel(ctx, payload.cell);
   const root = new Container();
   root.position.set(x, y);
@@ -92,21 +129,22 @@ function explosionFx(ctx: FxContext, payload: FxPayload, power: "small" | "mediu
   root.addChild(burst);
 
   const radius = power === "large" ? 80 : power === "medium" ? 58 : 42;
-  const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0xff6a00;
+  const color = style?.color
+    ? parseInt(style.color.replace("#", ""), 16)
+    : 0xff6a00;
 
   const animData = { val: 0 };
   gsap.to(animData, {
-      val: radius,
-      duration: 0.5,
-      ease: "power2.out",
-      onUpdate() {
-        const r = animData.val;
-        burst.clear();
-        burst.beginFill(color, 0.12).drawCircle(0, 0, r * 0.6).endFill();
-        burst.lineStyle(4, color, 0.9).drawCircle(0, 0, r);
-      },
+    val: radius,
+    duration: 0.5,
+    ease: "power2.out",
+    onUpdate() {
+      const r = animData.val;
+      burst.clear();
+      burst.beginFill(color, 0.12).drawCircle(0, 0, r * 0.6).endFill();
+      burst.lineStyle(4, color, 0.9).drawCircle(0, 0, r);
     },
-  );
+  });
 
   const texture = ensureParticleTexture(ctx.app);
   const sparkCount = style?.sparks === false ? 0 : 28;
@@ -129,11 +167,19 @@ function explosionFx(ctx: FxContext, payload: FxPayload, power: "small" | "mediu
 
   if (style?.smoke && style.smoke !== "none") {
     const smoke = new Graphics();
-    smoke.beginFill(0x2f2f32, style.smoke === "heavy" ? 0.4 : 0.25).drawCircle(0, 0, radius * 1.4).endFill();
+    smoke
+      .beginFill(0x2f2f32, style.smoke === "heavy" ? 0.4 : 0.25)
+      .drawCircle(0, 0, radius * 1.4)
+      .endFill();
     smoke.alpha = 0;
     root.addChild(smoke);
     gsap.to(smoke, { alpha: 1, duration: 0.3 });
-    gsap.to(smoke.scale, { x: 1.2, y: 1.2, duration: 1.5, ease: "sine.out" });
+    gsap.to(smoke.scale, {
+      x: 1.2,
+      y: 1.2,
+      duration: 1.5,
+      ease: "sine.out",
+    });
     gsap.to(smoke, { alpha: 0, duration: 0.6, delay: 0.9 });
   }
 
@@ -149,27 +195,42 @@ function warpFx(ctx: FxContext, payload: FxPayload, style?: any) {
   ring.position.set(from.x, from.y);
   ctx.app.stage.addChild(ring);
 
-  const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x76e0ff;
+  const color = style?.color
+    ? parseInt(style.color.replace("#", ""), 16)
+    : 0x76e0ff;
 
   const ringData = { radius: 5 };
   gsap.to(ringData, {
-      radius: 48,
-      duration: 0.35,
-      ease: "expo.out",
-      onUpdate() {
-        ring.clear();
-        ring.lineStyle(4, color, 1).drawCircle(0, 0, ringData.radius);
-      },
+    radius: 48,
+    duration: 0.35,
+    ease: "expo.out",
+    onUpdate() {
+      ring.clear();
+      ring.lineStyle(4, color, 1).drawCircle(0, 0, ringData.radius);
     },
-  );
-  gsap.to(ring, { alpha: 0, duration: 0.35, ease: "sine.in", delay: 0.1 });
+  });
+  gsap.to(ring, {
+    alpha: 0,
+    duration: 0.35,
+    ease: "sine.in",
+    delay: 0.1,
+  });
 
   const arrive = new Graphics();
   arrive.position.set(to.x, to.y);
   arrive.lineStyle(2, color, 1).drawCircle(0, 0, 12);
   ctx.app.stage.addChild(arrive);
-  gsap.fromTo(arrive.scale, { x: 0.2, y: 0.2 }, { x: 1.2, y: 1.2, duration: 0.35, ease: "expo.out" });
-  gsap.to(arrive, { alpha: 0, duration: 0.35, delay: 0.3, onComplete: () => arrive.destroy() });
+  gsap.fromTo(
+    arrive.scale,
+    { x: 0.2, y: 0.2 },
+    { x: 1.2, y: 1.2, duration: 0.35, ease: "expo.out" },
+  );
+  gsap.to(arrive, {
+    alpha: 0,
+    duration: 0.35,
+    delay: 0.3,
+    onComplete: () => arrive.destroy(),
+  });
 
   gsap.delayedCall(0.6, () => ring.destroy());
 }
@@ -178,19 +239,35 @@ function hologramFx(ctx: FxContext, payload: FxPayload, style?: any) {
   const { x, y } = toPixel(ctx, payload.cell);
   const holo = new Graphics();
   holo.position.set(x, y);
-  holo.lineStyle(1, style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x00f1ff, 0.65);
+  holo.lineStyle(
+    1,
+    style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x00f1ff,
+    0.65,
+  );
   holo.drawRoundedRect(-24, -24, 48, 48, 8);
   // holo.filters = [buildGlowFilter()];
   ctx.app.stage.addChild(holo);
-  gsap.to(holo, { alpha: 0.35, duration: 0.4, yoyo: true, repeat: 4, ease: "sine.inOut" });
+  gsap.to(holo, {
+    alpha: 0.35,
+    duration: 0.4,
+    yoyo: true,
+    repeat: 4,
+    ease: "sine.inOut",
+  });
   gsap.delayedCall(2.2, () => holo.destroy());
 }
 
 function trailFx(ctx: FxContext, payload: FxPayload, style?: any) {
-  const path = Array.isArray(payload.path) ? payload.path : payload.fromCell && payload.toCell ? [payload.fromCell, payload.toCell] : [];
+  const path = Array.isArray(payload.path)
+    ? payload.path
+    : payload.fromCell && payload.toCell
+      ? [payload.fromCell, payload.toCell]
+      : [];
   if (path.length < 2) return;
   const container = new Container();
-  const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x76e0ff;
+  const color = style?.color
+    ? parseInt(style.color.replace("#", ""), 16)
+    : 0x76e0ff;
 
   for (let i = 0; i < path.length - 1; i++) {
     const from = ctx.toCellPos(path[i] as string);
@@ -205,19 +282,35 @@ function trailFx(ctx: FxContext, payload: FxPayload, style?: any) {
   container.alpha = 0;
   ctx.app.stage.addChild(container);
   gsap.to(container, { alpha: 1, duration: 0.15, ease: "power2.out" });
-  gsap.to(container, { alpha: 0, duration: style?.duration ?? 0.8, delay: 0.15, onComplete: () => container.destroy({ children: true }) });
+  gsap.to(container, {
+    alpha: 0,
+    duration: style?.duration ?? 0.8,
+    delay: 0.15,
+    onComplete: () => container.destroy({ children: true }),
+  });
 }
 
-export async function resolveFx(intent: FxIntent, ctx: FxContext, payload: FxPayload) {
+export async function resolveFx(
+  intent: FxIntent,
+  ctx: FxContext,
+  payload: FxPayload,
+) {
   switch (intent.intent) {
     case "object.spawn":
       if (intent.kind === "mine") spawnMine(ctx, payload, intent.style);
       break;
     case "area.hazard":
-      if (intent.kind === "mine-radius") areaHazard(ctx, payload, Number(intent.radius) || 1, intent.style);
+      if (intent.kind === "mine-radius") {
+        areaHazard(ctx, payload, Number(intent.radius) || 1, intent.style);
+      }
       break;
     case "combat.explosion":
-      explosionFx(ctx, payload, (intent.power as "large" | "medium" | "small") ?? "medium", intent.style);
+      explosionFx(
+        ctx,
+        payload,
+        (intent.power as "large" | "medium" | "small") ?? "medium",
+        intent.style,
+      );
       break;
     case "space.warp":
       warpFx(ctx, payload, intent.style);
@@ -227,6 +320,11 @@ export async function resolveFx(intent: FxIntent, ctx: FxContext, payload: FxPay
       break;
     case "piece.trail":
       trailFx(ctx, payload, intent.style);
+      break;
+    case "asset.scene":
+      if (typeof intent.sceneId === "string") {
+        await playAssetScene(ctx, payload, intent.sceneId);
+      }
       break;
     default:
       break;
