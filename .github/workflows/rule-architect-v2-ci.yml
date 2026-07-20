@@ -55,10 +55,12 @@ jobs:
           src/pages/Leaderboard.test.tsx
           src/pages/MultiplayerMatch.test.tsx
           src/integrations/supabase/client.test.ts
-          configs/deployment/previewSupabaseFallback.test.ts
+          configs/deployment/supabaseBuildFallback.test.ts
 
       - name: Type check
-        run: pnpm exec tsc --noEmit -p tsconfig.app.json
+        run: |
+          pnpm exec tsc --noEmit -p tsconfig.app.json
+          pnpm exec tsc --noEmit -p tsconfig.node.json
 
       - name: Production build without remote writes
         run: pnpm build

@@ -23,6 +23,17 @@ function allowedOrigins(): Set<string> {
   return new Set(configured);
 }
 
+const builtInProjectOrigins = new Set([
+  "https://ai-chess-architect.vercel.app",
+  "https://ai-chess-architect-mtnrconcepts-projects.vercel.app",
+  "https://ai-chess-architect-git-main-mtnrconcepts-projects.vercel.app",
+]);
+
+function isBuiltInProjectOrigin(origin: string): boolean {
+  const normalized = normalizeOrigin(origin);
+  return normalized !== null && builtInProjectOrigins.has(normalized);
+}
+
 const baseHeaders = (): Headers =>
   new Headers({
     "Cache-Control": "no-store",
@@ -51,7 +62,7 @@ export function corsHeaders(request: Request): Headers | null {
     return headers;
   }
 
-  return allowedOrigins().has(origin)
+  return allowedOrigins().has(origin) || isBuiltInProjectOrigin(origin)
     ? appendCorsHeaders(headers, origin)
     : null;
 }

@@ -25,7 +25,7 @@ const withAllowedOrigins = (value: string | null, run: () => void) => {
 };
 
 Deno.test({
-  name: "CORS V2 refuse toute origine navigateur sans allowlist",
+  name: "CORS V2 refuse toute origine navigateur inconnue sans allowlist",
   permissions: { env: true },
   fn: () => {
     withAllowedOrigins(null, () => {
@@ -46,6 +46,48 @@ Deno.test({
         response.headers.get("Access-Control-Allow-Origin") === null,
         "Une origine refusée ne doit jamais être reflétée.",
       );
+    });
+  },
+});
+
+Deno.test({
+  name: "CORS V2 autorise uniquement les origines Vercel intégrées du projet",
+  permissions: { env: true },
+  fn: () => {
+    withAllowedOrigins(null, () => {
+      for (const origin of [
+        "https://ai-chess-architect.vercel.app",
+        "https://ai-chess-architect-mtnrconcepts-projects.vercel.app",
+        "https://ai-chess-architect-git-main-mtnrconcepts-projects.vercel.app",
+      ]) {
+        const response = handlePreflight(
+          new Request("https://edge.example.test", {
+            method: "OPTIONS",
+            headers: { Origin: origin },
+          }),
+        );
+        assert(response?.status === 204, `${origin} doit être autorisée.`);
+        assert(
+          response.headers.get("Access-Control-Allow-Origin") === origin,
+          "L'origine Vercel autorisée doit être reflétée exactement.",
+        );
+      }
+
+      for (const origin of [
+        "http://ai-chess-architect.vercel.app",
+        "https://ai-chess-architect-attacker.vercel.app",
+        "https://ai-chess-architect-attacker-mtnrconcepts-projects.vercel.app",
+        "https://ai-chess-architect-mrtyqd87g-mtnrconcepts-projects.vercel.app",
+        "https://ai-chess-architect-test-mtnrconcepts-projects.vercel.app.attacker.test",
+      ]) {
+        const response = handlePreflight(
+          new Request("https://edge.example.test", {
+            method: "OPTIONS",
+            headers: { Origin: origin },
+          }),
+        );
+        assert(response?.status === 403, `${origin} doit être refusée.`);
+      }
     });
   },
 });

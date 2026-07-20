@@ -38,19 +38,19 @@ const hasAnyExplicitSupabaseValue = Object.entries(importMetaEnv).some(
   ([key, value]) =>
     key.startsWith("VITE_SUPABASE_") && Boolean(normaliseEnvValue(value)),
 );
-const previewSupabaseFallback =
+const supabaseBuildFallback =
   !hasAnyExplicitSupabaseValue &&
-  typeof __SUPABASE_PREVIEW_FALLBACK__ !== "undefined"
-    ? __SUPABASE_PREVIEW_FALLBACK__
+  typeof __SUPABASE_BUILD_FALLBACK__ !== "undefined"
+    ? __SUPABASE_BUILD_FALLBACK__
     : null;
 
-const RAW_SUPABASE_URL = EXPLICIT_SUPABASE_URL ?? previewSupabaseFallback?.url;
+const RAW_SUPABASE_URL = EXPLICIT_SUPABASE_URL ?? supabaseBuildFallback?.url;
 const RAW_SUPABASE_PROJECT_ID =
-  EXPLICIT_SUPABASE_PROJECT_ID ?? previewSupabaseFallback?.projectId;
+  EXPLICIT_SUPABASE_PROJECT_ID ?? supabaseBuildFallback?.projectId;
 const SUPABASE_ANON_KEY =
-  EXPLICIT_SUPABASE_ANON_KEY ?? previewSupabaseFallback?.publishableKey;
-const SUPABASE_CONFIGURATION_SOURCE = previewSupabaseFallback
-  ? "vercel-preview-fallback"
+  EXPLICIT_SUPABASE_ANON_KEY ?? supabaseBuildFallback?.publishableKey;
+const SUPABASE_CONFIGURATION_SOURCE = supabaseBuildFallback
+  ? supabaseBuildFallback.configurationSource
   : hasAnyExplicitSupabaseValue
     ? "explicit"
     : "missing";
@@ -225,7 +225,11 @@ export const validatePublicSupabaseTarget = ({
 };
 
 export type SupabaseDiagnostics = {
-  configurationSource: "explicit" | "vercel-preview-fallback" | "missing";
+  configurationSource:
+    | "explicit"
+    | "vercel-preview-fallback"
+    | "vercel-production-fallback"
+    | "missing";
   initialisedAt: string;
   expectedProjectId: null;
   expectedProjectName: null;

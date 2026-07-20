@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
-import { resolvePreviewSupabaseFallback } from "./configs/deployment/previewSupabaseFallback";
+import { resolveSupabaseBuildFallback } from "./configs/deployment/supabaseBuildFallback";
 import { defaultPermissionsPolicyHeader } from "./configs/security/permissionsPolicy";
 
 const sharedSecurityHeaders = Object.freeze({
@@ -12,7 +12,7 @@ const sharedSecurityHeaders = Object.freeze({
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const publicEnvironment = loadEnv(mode, process.cwd(), "VITE_");
-  const previewSupabaseFallback = resolvePreviewSupabaseFallback({
+  const supabaseBuildFallback = resolveSupabaseBuildFallback({
     ...publicEnvironment,
     VERCEL: process.env.VERCEL,
     VERCEL_ENV: process.env.VERCEL_ENV,
@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     define: {
-      __SUPABASE_PREVIEW_FALLBACK__: JSON.stringify(previewSupabaseFallback),
+      __SUPABASE_BUILD_FALLBACK__: JSON.stringify(supabaseBuildFallback),
     },
     server: {
       host: "::",
