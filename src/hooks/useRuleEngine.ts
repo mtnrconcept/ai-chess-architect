@@ -18,8 +18,9 @@ import { ChessBoardAdapter } from "@/engine/adapters/chessBoardAdapter";
 import { UIAdapter } from "@/engine/adapters/uiAdapter";
 import { VFXAdapter } from "@/engine/adapters/vfxAdapter";
 import { MatchAdapter } from "@/engine/adapters/matchAdapter";
-import type { GameState } from "@/types/chess";
+import type { ChessMove, GameState } from "@/types/chess";
 import { createDeterministicIdGenerator } from "@/rules-v2";
+import { resolveCapturedTargetPieceId } from "@/engine/capture-context";
 import { useSoundEffects } from "./useSoundEffects";
 
 export type UseRuleEngineOptions = RuleEngineOptions;
@@ -33,6 +34,14 @@ export const useRuleEngine = (
   const engineRef = useRef<ReturnType<typeof createRuleEngine> | null>(null);
   const contractsRef = useRef<EngineContracts | null>(null);
   const rulesSignatureRef = useRef<string | null>(null);
+  const latestMoveRef = useRef<{
+    move: ChessMove | undefined;
+    moveNumber: number;
+  }>({ move: undefined, moveNumber: 0 });
+  latestMoveRef.current = {
+    move: gameState.moveHistory[gameState.moveHistory.length - 1],
+    moveNumber: gameState.moveHistory.length,
+  };
 
   // The adapters must survive normal board updates. The previous
   // implementation recreated the engine whenever the board array changed.
@@ -152,8 +161,18 @@ export const useRuleEngine = (
   );
 
   const onMoveCommitted = useCallback(
-    (payload: { pieceId: string; from: string; to: string }) => {
-      triggerLifecycleEvent("lifecycle.onMoveCommitted", payload);
+    (payload: EngineEventMap["lifecycle.onMoveCommitted"]) => {
+      const targetPieceId =
+        payload.targetPieceId ??
+        resolveCapturedTargetPieceId(
+          latestMoveRef.current.move,
+          latestMoveRef.current.moveNumber,
+          payload,
+        );
+      triggerLifecycleEvent("lifecycle.onMoveCommitted", {
+        ...payload,
+        targetPieceId,
+      });
     },
     [triggerLifecycleEvent],
   );
