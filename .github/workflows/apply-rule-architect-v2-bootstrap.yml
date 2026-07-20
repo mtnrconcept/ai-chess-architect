@@ -26,27 +26,72 @@ jobs:
           ref: feat/rule-architect-v2
           fetch-depth: 0
 
-      - name: Apply prepared files
+      - name: Apply prepared files with diagnostics
         shell: bash
         run: |
-          set -euo pipefail
-          mapfile -t chunks < <(find .rule-architect-v2 -maxdepth 1 -type f -name 'chunk-*.b64' | sort)
-          test "${#chunks[@]}" -eq 6
-          cat "${chunks[@]}" | tr -d '\r\n' | base64 -d > /tmp/rule-architect-v2.zip
-          unzip -q /tmp/rule-architect-v2.zip -d /tmp/rule-architect-v2
-          drop_in="$(find /tmp/rule-architect-v2 -type d -name drop-in -print -quit)"
-          test -n "$drop_in"
-          cp -a "$drop_in"/. "$GITHUB_WORKSPACE"/
-          rm -rf .rule-architect-v2
-          rm -f .github/workflows/apply-rule-architect-v2-bootstrap.yml
+          set +e
+          diagnostic="$GITHUB_WORKSPACE/bootstrap-diagnostic.txt"
+          : > "$diagnostic"
+          exec_step() {
+            name="$1"
+            shift
+            echo "## $name" >> "$diagnostic"
+            "$@" >> "$diagnostic" 2>&1
+            status=$?
+            echo "status=$status" >> "$diagnostic"
+            return $status
+          }
 
-      - name: Commit final files
+          mapfile -t chunks < <(find .rule-architect-v2 -maxdepth 1 -type f -name 'chunk-*.b64' | sort)
+          echo "chunk_count=${#chunks[@]}" >> "$diagnostic"
+          printf '%s\n' "${chunks[@]}" >> "$diagnostic"
+
+          if [ "${#chunks[@]}" -eq 6 ]; then
+            cat "${chunks[@]}" | tr -d '\r\n' | base64 -d > /tmp/rule-architect-v2.zip 2>> "$diagnostic"
+            decode_status=$?
+            echo "decode_status=$decode_status" >> "$diagnostic"
+
+            if [ "$decode_status" -eq 0 ]; then
+              unzip -t /tmp/rule-architect-v2.zip >> "$diagnostic" 2>&1
+              zip_status=$?
+              echo "zip_status=$zip_status" >> "$diagnostic"
+
+              if [ "$zip_status" -eq 0 ]; then
+                rm -rf /tmp/rule-architect-v2
+                mkdir -p /tmp/rule-architect-v2
+                unzip -q /tmp/rule-architect-v2.zip -d /tmp/rule-architect-v2 >> "$diagnostic" 2>&1
+                extract_status=$?
+                echo "extract_status=$extract_status" >> "$diagnostic"
+                drop_in="$(find /tmp/rule-architect-v2 -type d -name drop-in -print -quit)"
+                echo "drop_in=$drop_in" >> "$diagnostic"
+                if [ "$extract_status" -eq 0 ] && [ -n "$drop_in" ]; then
+                  cp -a "$drop_in"/. "$GITHUB_WORKSPACE"/ >> "$diagnostic" 2>&1
+                  copy_status=$?
+                  echo "copy_status=$copy_status" >> "$diagnostic"
+                  if [ "$copy_status" -eq 0 ]; then
+                    rm -rf .rule-architect-v2
+                    rm -f .github/workflows/apply-rule-architect-v2-bootstrap.yml
+                    echo "applied=true" >> "$diagnostic"
+                  fi
+                fi
+              fi
+            fi
+          fi
+
+      - name: Commit result or diagnostic
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          test -n "$(git status --porcelain)"
-          git commit -m "feat: add Rule Architect V2 files"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          if grep -q '^applied=true$' bootstrap-diagnostic.txt; then
+            git commit -m "feat: add Rule Architect V2 files"
+          else
+            git commit -m "chore: record Rule Architect bootstrap failure"
+          fi
           git push origin HEAD:feat/rule-architect-v2
