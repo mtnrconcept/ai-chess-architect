@@ -1,13 +1,15 @@
 import { useCallback, useRef, useState } from "react";
+import type { CompilePresentationResponse } from "@/rule-presentation/types";
+import type { CompileRuleResponse, PublishedRuleVersion } from "@/rules-v2";
 import {
   compileChessRule,
+  compileRulePresentation,
   createRuleLobby,
   publishRuleVersion,
   RuleArchitectApiError,
   type CreatedRuleLobbyResponse,
 } from "./api";
 import { createRequestKey } from "./request-key";
-import type { CompileRuleResponse, PublishedRuleVersion } from "@/rules-v2";
 
 export type RuleArchitectPhase =
   | "idle"
@@ -31,6 +33,11 @@ export function useRuleArchitect() {
   const [compilation, setCompilation] = useState<CompileRuleResponse | null>(
     null,
   );
+  const [presentation, setPresentation] =
+    useState<CompilePresentationResponse | null>(null);
+  const [presentationWarning, setPresentationWarning] = useState<string | null>(
+    null,
+  );
   const [publication, setPublication] = useState<PublishedRuleVersion | null>(
     null,
   );
@@ -45,6 +52,7 @@ export function useRuleArchitect() {
   const compileAttempt = useRef<{
     fingerprint: string;
     requestKey: string;
+    presentationRequestKey: string;
   } | null>(null);
   const lobbyAttempt = useRef<{
     fingerprint: string;
@@ -61,14 +69,19 @@ export function useRuleArchitect() {
       compileAttempt.current = {
         fingerprint,
         requestKey: createRequestKey(),
+        presentationRequestKey: createRequestKey(),
       };
     }
     const requestKey = compileAttempt.current.requestKey;
+    const presentationRequestKey =
+      compileAttempt.current.presentationRequestKey;
 
     setPhase("compiling");
     setError(null);
     setCompileFailure(null);
     setCompilation(null);
+    setPresentation(null);
+    setPresentationWarning(null);
     setPublication(null);
     setLobby(null);
 
@@ -80,6 +93,34 @@ export function useRuleArchitect() {
           requestKey,
         });
         setCompilation(result);
+
+        if (result.ok && result.compilationId) {
+          try {
+            const visualResult = await compileRulePresentation({
+              compilationId: result.compilationId,
+              requestKey: presentationRequestKey,
+            });
+            setPresentation(visualResult);
+          } catch (presentationError) {
+            const message =
+              presentationError instanceof Error
+                ? presentationError.message
+                : "La mise en scène est indisponible. La règle de jeu reste publiable.";
+            setPresentationWarning(message);
+
+            if (
+              presentationError instanceof RuleArchitectApiError &&
+              presentationError.newRequestRequired &&
+              compileAttempt.current?.fingerprint === fingerprint
+            ) {
+              compileAttempt.current = {
+                ...compileAttempt.current,
+                presentationRequestKey: createRequestKey(),
+              };
+            }
+          }
+        }
+
         setPhase("review");
         return result;
       } catch (caught) {
@@ -244,6 +285,8 @@ export function useRuleArchitect() {
   const resetCompilation = useCallback(() => {
     setPhase("idle");
     setCompilation(null);
+    setPresentation(null);
+    setPresentationWarning(null);
     setPublication(null);
     setLobby(null);
     setError(null);
@@ -255,6 +298,8 @@ export function useRuleArchitect() {
   return {
     phase,
     compilation,
+    presentation,
+    presentationWarning,
     publication,
     lobby,
     error,
