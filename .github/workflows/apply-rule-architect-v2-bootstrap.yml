@@ -1,13 +1,6 @@
 name: Apply Rule Architect V2 bootstrap
 
-# Re-triggered after replacing the installer with direct, verified file application.
 on:
-  push:
-    branches:
-      - feat/rule-architect-v2
-    paths:
-      - ".rule-architect-v2/**"
-      - ".github/workflows/apply-rule-architect-v2-bootstrap.yml"
   pull_request:
     branches:
       - main
@@ -20,13 +13,9 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: apply-rule-architect-v2-bootstrap
-  cancel-in-progress: false
-
 jobs:
   apply:
-    if: github.head_ref == 'feat/rule-architect-v2' || github.ref_name == 'feat/rule-architect-v2'
+    if: github.head_ref == 'feat/rule-architect-v2'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -37,128 +26,27 @@ jobs:
           ref: feat/rule-architect-v2
           fetch-depth: 0
 
-      - name: Rebuild package
+      - name: Apply prepared files
         shell: bash
         run: |
           set -euo pipefail
-          test -d .rule-architect-v2
           mapfile -t chunks < <(find .rule-architect-v2 -maxdepth 1 -type f -name 'chunk-*.b64' | sort)
-          test "${#chunks[@]}" -gt 0
-          cat "${chunks[@]}" | tr -d '\r\n' | base64 --decode > /tmp/rule-architect-v2.zip
-          unzip -t /tmp/rule-architect-v2.zip
-          rm -rf /tmp/rule-architect-v2
-          mkdir -p /tmp/rule-architect-v2
+          test "${#chunks[@]}" -eq 6
+          cat "${chunks[@]}" | tr -d '\r\n' | base64 -d > /tmp/rule-architect-v2.zip
           unzip -q /tmp/rule-architect-v2.zip -d /tmp/rule-architect-v2
           drop_in="$(find /tmp/rule-architect-v2 -type d -name drop-in -print -quit)"
           test -n "$drop_in"
           cp -a "$drop_in"/. "$GITHUB_WORKSPACE"/
-
-      - name: Patch repository integration
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-
-          root = Path.cwd()
-
-          app_path = root / "src/App.tsx"
-          app = app_path.read_text(encoding="utf-8")
-          if 'import RuleArchitect from "./pages/RuleArchitect";' not in app:
-              app = app.replace(
-                  'import Generator from "./pages/Generator";',
-                  'import Generator from "./pages/Generator";\nimport RuleArchitect from "./pages/RuleArchitect";',
-              )
-          if 'import RuleLobby from "./pages/RuleLobby";' not in app:
-              app = app.replace(
-                  'import Lobby from "./pages/Lobby";',
-                  'import Lobby from "./pages/Lobby";\nimport RuleLobby from "./pages/RuleLobby";',
-              )
-          app = app.replace(
-              '{ path: "/generator", element: <Generator /> },',
-              '{ path: "/generator", element: <RuleArchitect /> },\n        { path: "/generator-legacy", element: <Generator /> },',
-          )
-          if '{ path: "/rule-lobby", element: <RuleLobby /> },' not in app:
-              app = app.replace(
-                  '{ path: "/lobby", element: <Lobby /> },',
-                  '{ path: "/lobby", element: <Lobby /> },\n        { path: "/rule-lobby", element: <RuleLobby /> },',
-              )
-          app_path.write_text(app, encoding="utf-8")
-
-          play_path = root / "src/pages/Play.tsx"
-          play = play_path.read_text(encoding="utf-8")
-          if "ruleArchitectMatchSeed?: string | number;" not in play:
-              play = play.replace(
-                  "        matchStatus?: string;",
-                  "        matchStatus?: string;\n        ruleArchitectMatchSeed?: string | number;\n        ruleArchitectRulesetHash?: string;\n        ruleArchitectEngineVersion?: string;",
-              )
-          if "locationState?.ruleArchitectMatchSeed ??" not in play:
-              play, count = re.subn(
-                  r"useRuleEngine\(\s*gameState\s*,\s*activeRuleJsons\s*,?\s*\)",
-                  '''useRuleEngine(
-      gameState,
-      activeRuleJsons,
-      {
-        matchSeed:
-          locationState?.ruleArchitectMatchSeed ??
-          locationState?.lobbyId ??
-          "local-match",
-        maxEffectsPerRuleEvent: 128,
-        maxNestedDepth: 8,
-      },
-    )''',
-                  play,
-                  count=1,
-              )
-              if count != 1:
-                  raise SystemExit("Unable to patch useRuleEngine in Play.tsx")
-          play_path.write_text(play, encoding="utf-8")
-
-          config_path = root / "supabase/config.toml"
-          config = config_path.read_text(encoding="utf-8")
-          for function_name in (
-              "compile-chess-rule",
-              "publish-rule-version",
-              "create-rule-lobby-v2",
-              "join-rule-lobby-v2",
-          ):
-              heading = f"[functions.{function_name}]"
-              if heading not in config:
-                  config += f"\n\n{heading}\nverify_jwt = true\n"
-          config_path.write_text(config.rstrip() + "\n", encoding="utf-8")
-          PY
-
-      - name: Remove bootstrap artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
           rm -rf .rule-architect-v2
           rm -f .github/workflows/apply-rule-architect-v2-bootstrap.yml
 
-      - name: Verify applied files
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f src/pages/RuleArchitect.tsx
-          test -f src/pages/RuleLobby.tsx
-          test -f src/rules-v2/compiler.ts
-          test -f supabase/functions/compile-chess-rule/index.ts
-          test -f supabase/migrations/20260719230000_rule_architect_v2.sql
-          grep -q 'RuleArchitect' src/App.tsx
-          grep -q 'ruleArchitectMatchSeed' src/pages/Play.tsx
-          grep -q '\[functions.compile-chess-rule\]' supabase/config.toml
-
-      - name: Commit applied upgrade
+      - name: Commit final files
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git commit -m "feat: add Rule Architect V2"
+          test -n "$(git status --porcelain)"
+          git commit -m "feat: add Rule Architect V2 files"
           git push origin HEAD:feat/rule-architect-v2
