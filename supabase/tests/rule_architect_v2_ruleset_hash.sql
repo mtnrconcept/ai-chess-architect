@@ -169,6 +169,45 @@ begin
     raise exception
       'RULESET_HASH_MUST_BIND_IMMUTABLE_VERSION_ID';
   end if;
+
+  -- Production historically accepted only active/disabled on this legacy
+  -- projection. A private immutable V2 version must still be representable as
+  -- draft without being made publicly active for compatibility.
+  insert into public.chess_rules (
+    rule_id,
+    rule_name,
+    description,
+    category,
+    rule_json,
+    source,
+    status,
+    is_functional,
+    created_by
+  )
+  values (
+    'rule-architect-v2-status-compat-test',
+    'Status compatibility test',
+    'Private Rule Architect V2 projection compatibility test.',
+    'special',
+    '{"meta":{},"logic":{}}'::jsonb,
+    'ai_generated',
+    'draft',
+    true,
+    v_user_id
+  );
+
+  if exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'lobbies'
+      and policyname in (
+        'lobbies_read_all',
+        'Users can view all lobbies'
+      )
+  ) then
+    raise exception 'PERMISSIVE_LEGACY_LOBBY_READ_POLICY_REMAINS';
+  end if;
 end;
 $test$;
 

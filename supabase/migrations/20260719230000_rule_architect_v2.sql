@@ -92,6 +92,18 @@ alter table public.lobbies
   add column if not exists revision bigint not null default 0,
   add column if not exists request_key uuid;
 
+-- The historical installations do not all expose the same status set on the
+-- legacy projection. In particular, production still only allowed
+-- active/disabled while newer repository snapshots also use archived/draft.
+-- Keep the projection private without making a private V2 rule look active in
+-- older clients by accepting the union of the known legacy states.
+alter table public.chess_rules
+  drop constraint if exists chess_rules_status_check;
+
+alter table public.chess_rules
+  add constraint chess_rules_status_check
+  check (status in ('active', 'disabled', 'archived', 'draft'));
+
 alter table public.lobbies
   add constraint lobbies_v2_request_key_required
     check (rule_set_hash is null or request_key is not null),
@@ -278,6 +290,11 @@ grant select on public.lobby_rule_versions to authenticated;
 
 -- Les lobbies historiques restent modifiables par le client.
 -- Les lobbies V2 (rule_set_hash non nul) passent exclusivement par les RPC.
+-- Some production snapshots contain this additional permissive SELECT policy.
+-- Leaving it in place would make every V2 lobby readable despite the policy
+-- below because permissive RLS policies are combined with OR.
+drop policy if exists lobbies_read_all on public.lobbies;
+
 drop policy if exists "Users can view all lobbies" on public.lobbies;
 create policy "Users can view allowed lobbies"
   on public.lobbies for select
