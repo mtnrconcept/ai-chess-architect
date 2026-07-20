@@ -48,6 +48,8 @@ type JsonResponseLike = {
   json: () => Promise<unknown>;
 };
 
+const RULE_SCENE_ID_PATTERN = /^scene\.[a-z0-9][a-z0-9.-]{2,63}$/;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -129,6 +131,34 @@ const unwrap = <T>(
   return payload.data;
 };
 
+const hasRuleSceneAssetRequests = (compiledRule: unknown): boolean => {
+  if (!isRecord(compiledRule) || !isRecord(compiledRule.logic)) return false;
+  const effects = Array.isArray(compiledRule.logic.effects)
+    ? compiledRule.logic.effects.slice(0, 24)
+    : [];
+
+  for (const effect of effects) {
+    if (!isRecord(effect)) continue;
+    const actions = Array.isArray(effect.do)
+      ? effect.do.slice(0, 24)
+      : effect.do === undefined
+        ? []
+        : [effect.do];
+    for (const action of actions) {
+      if (!isRecord(action) || action.action !== "vfx.play") continue;
+      if (!isRecord(action.params)) continue;
+      if (
+        typeof action.params.sprite === "string" &&
+        RULE_SCENE_ID_PATTERN.test(action.params.sprite)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
 export async function compileChessRule(input: {
   prompt: string;
   premium: boolean;
@@ -149,10 +179,39 @@ export async function compileChessRule(input: {
     );
   }
 
-  return unwrap<CompileRuleResponse>(
+  const result = unwrap<CompileRuleResponse>(
     data as FunctionEnvelope<CompileRuleResponse>,
     "La compilation de la règle a échoué.",
   );
+
+  if (
+    result.ok &&
+    result.compilationId &&
+    hasRuleSceneAssetRequests(result.compiledRule)
+  ) {
+    try {
+      const { error: assetError } = await supabase.functions.invoke(
+        "resolve-rule-assets",
+        {
+          body: {
+            action: "resolve",
+            compilationId: result.compilationId,
+          },
+        },
+      );
+      if (assetError) {
+        console.warn(
+          "[RuleArchitect] Asset resolver unavailable; procedural fallback enabled.",
+        );
+      }
+    } catch {
+      console.warn(
+        "[RuleArchitect] Asset resolver unavailable; procedural fallback enabled.",
+      );
+    }
+  }
+
+  return result;
 }
 
 export async function publishRuleVersion(input: {
