@@ -41,6 +41,9 @@ jobs:
       - name: Verify deployment and security invariants
         run: node scripts/verify-rule-architect-v2-ops.mjs
 
+      - name: Verify secure rule asset invariants
+        run: node scripts/verify-rule-assets-security.mjs
+
       - name: Test confirmed Supabase target guard
         run: node --test scripts/utils/supabase-target.test.mjs
 
