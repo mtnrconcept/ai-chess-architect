@@ -23,6 +23,7 @@ create table if not exists public.rule_presentations (
   request_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  unique (id, user_id),
   unique (user_id, request_key),
   constraint rule_presentations_content_hash_required
     check (status in ('processing', 'failed') or content_hash is not null),
@@ -64,6 +65,10 @@ create table if not exists public.rule_assets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (presentation_id, request_id),
+  constraint rule_assets_owner_consistency
+    foreign key (presentation_id, user_id)
+    references public.rule_presentations(id, user_id)
+    on delete cascade,
   constraint rule_assets_ready_fields_required
     check (
       status = 'fallback'
@@ -103,7 +108,7 @@ create index if not exists idx_rule_presentations_status_updated
   where status in ('processing', 'failed');
 create index if not exists idx_rule_assets_presentation
   on public.rule_assets(presentation_id, created_at);
-create unique index if not exists idx_rule_assets_ready_sha256
+create index if not exists idx_rule_assets_ready_sha256
   on public.rule_assets(sha256)
   where status = 'ready' and sha256 is not null;
 
@@ -170,6 +175,45 @@ create policy "Public read approved rule assets"
   to public
   using (bucket_id = 'rule-assets-public');
 
+create or replace function public.enforce_rule_presentation_compilation_state()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_compilation public.rule_compilations%rowtype;
+begin
+  select * into v_compilation
+  from public.rule_compilations
+  where id = new.compilation_id
+    and user_id = new.user_id
+  for update;
+
+  if not found then
+    raise exception 'PRESENTATION_COMPILATION_NOT_FOUND';
+  end if;
+
+  if v_compilation.status <> 'validated'
+    or v_compilation.published_version_id is not null then
+    raise exception 'PRESENTATION_COMPILATION_NOT_EDITABLE';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_rule_presentation_compilation_state()
+  from public, anon, authenticated;
+
+drop trigger if exists trg_enforce_rule_presentation_compilation_state
+  on public.rule_presentations;
+create trigger trg_enforce_rule_presentation_compilation_state
+before insert or update of compilation_id, user_id
+on public.rule_presentations
+for each row
+execute function public.enforce_rule_presentation_compilation_state();
+
 create or replace function public.apply_rule_presentation_hash()
 returns trigger
 language plpgsql
@@ -179,6 +223,7 @@ as $$
 declare
   v_gameplay_hash text;
   v_combined_hash text;
+  v_published_version_id uuid;
 begin
   if new.status not in ('ready', 'fallback')
     or new.content_hash is null
@@ -186,11 +231,10 @@ begin
     return new;
   end if;
 
-  select coalesce(
-      metrics ->> 'gameplayContentHash',
-      content_hash
-    )
-    into v_gameplay_hash
+  select
+      coalesce(metrics ->> 'gameplayContentHash', content_hash),
+      published_version_id
+    into v_gameplay_hash, v_published_version_id
   from public.rule_compilations
   where id = new.compilation_id
     and user_id = new.user_id
@@ -198,6 +242,10 @@ begin
 
   if v_gameplay_hash is null then
     raise exception 'GAMEPLAY_CONTENT_HASH_MISSING';
+  end if;
+
+  if v_published_version_id is not null then
+    raise exception 'RULE_ALREADY_PUBLISHED';
   end if;
 
   v_combined_hash := encode(
@@ -252,10 +300,22 @@ begin
   select * into v_presentation
   from public.rule_presentations
   where compilation_id = new.compilation_id
-    and user_id = new.created_by
-    and status in ('ready', 'fallback');
+    and user_id = new.created_by;
 
   if not found then
+    return new;
+  end if;
+
+  if v_presentation.status = 'processing'
+    and v_presentation.updated_at > now() - interval '5 minutes' then
+    raise exception 'PRESENTATION_STILL_PROCESSING';
+  end if;
+
+  if v_presentation.status not in ('ready', 'fallback')
+    or coalesce(
+      (v_presentation.blueprint ->> 'enabled')::boolean,
+      false
+    ) is false then
     return new;
   end if;
 
@@ -284,7 +344,16 @@ begin
     '[]'::jsonb
   ) into v_assets
   from public.rule_assets
-  where presentation_id = v_presentation.id;
+  where presentation_id = v_presentation.id
+    and request_id in (
+      select request_item ->> 'id'
+      from jsonb_array_elements(
+        coalesce(
+          v_presentation.blueprint -> 'assetRequests',
+          '[]'::jsonb
+        )
+      ) as request_item
+    );
 
   v_manifest := jsonb_build_object(
     'schemaVersion', coalesce(
@@ -292,10 +361,7 @@ begin
       '1.0.0'
     ),
     'contentHash', v_presentation.content_hash,
-    'enabled', coalesce(
-      (v_presentation.blueprint ->> 'enabled')::boolean,
-      false
-    ),
+    'enabled', true,
     'sequences', coalesce(
       v_presentation.blueprint -> 'sequences',
       '[]'::jsonb
