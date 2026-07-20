@@ -2,19 +2,37 @@ import { createClient } from '@supabase/supabase-js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { loadEnv } from './utils/env.mjs';
+import { assertConfirmedSupabaseTarget } from './utils/supabase-target.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SERVICE_ROLE_KEY = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+loadEnv(path.resolve(__dirname, '..'));
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error('[migrate] Missing SUPABASE_URL or SERVICE_ROLE_KEY');
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+try {
+  assertConfirmedSupabaseTarget({
+    targetUrl: SUPABASE_URL,
+    label: 'migrate-legacy-rules-to-db',
+  });
+} catch (error) {
+  console.error(
+    `[migrate] ${error instanceof Error ? error.message : error}`,
+  );
+  process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 async function migrateRules() {
   console.log('[migrate] Loading legacy rules...');
@@ -98,4 +116,7 @@ async function migrateRules() {
   }
 }
 
-migrateRules().catch(console.error);
+migrateRules().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -1,15 +1,39 @@
 #!/usr/bin/env node
 import { createClient } from '@supabase/supabase-js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadEnv } from './utils/env.mjs';
+import { assertConfirmedSupabaseTarget } from './utils/supabase-target.mjs';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SERVICE_ROLE_KEY = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const projectRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
+loadEnv(projectRoot);
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error('❌ VITE_SUPABASE_URL et SERVICE_ROLE_KEY requis');
+  console.error('❌ SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY requis');
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+try {
+  assertConfirmedSupabaseTarget({
+    targetUrl: SUPABASE_URL,
+    label: 'fix-tournaments',
+  });
+} catch (error) {
+  console.error(
+    `❌ ${error instanceof Error ? error.message : error}`,
+  );
+  process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 async function fixTournaments() {
   console.log('🔧 Réparation du système de tournois...\n');
@@ -41,8 +65,7 @@ async function fixTournaments() {
     console.log('   ⚠️  Aucun tournoi actif - déclenchement de sync-tournaments...');
 
     // Appeler la fonction
-    const functionsUrl = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co');
-    const response = await fetch(`${functionsUrl}/sync-tournaments`, {
+    const response = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/sync-tournaments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -53,10 +76,10 @@ async function fixTournaments() {
     });
 
     if (response.ok) {
-      const data = await response.json();
-      console.log('   ✓ Tournois créés:', data);
+      console.log('   ✓ Synchronisation acceptée par la fonction Edge');
     } else {
-      console.error('   ❌ Échec sync-tournaments:', await response.text());
+      console.error(`   ❌ Échec sync-tournaments (HTTP ${response.status})`);
+      process.exit(1);
     }
   }
 
@@ -81,4 +104,7 @@ async function fixTournaments() {
   console.log("   3. Vérifiez les logs Supabase en cas d'erreur");
 }
 
-fixTournaments().catch(console.error);
+fixTournaments().catch(() => {
+  console.error('❌ Réparation interrompue par une erreur inattendue.');
+  process.exitCode = 1;
+});

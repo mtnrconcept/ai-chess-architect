@@ -13,8 +13,9 @@ export interface Piece {
   type: string;
   side: Side;
   tile: Tile;
+  hasMoved?: boolean;
   invisible?: boolean;
-  statuses?: Record<string, any>;
+  statuses?: Record<string, unknown>;
 }
 
 export interface MatchInfo {
@@ -30,10 +31,16 @@ export interface BoardAPI {
   setPieceTile(id: PieceID, tile: Tile): void;
   removePiece(id: PieceID): void;
   spawnPiece(type: string, side: Side, tile: Tile): PieceID;
+  setPieceInvisible?(id: PieceID, value: boolean): void;
+  setPieceStatus?(id: PieceID, key: string, value: unknown): void;
+  clearPieceStatus?(id: PieceID, key: string): void;
   withinBoard(tile: Tile): boolean;
   neighbors(tile: Tile, radius?: number): Tile[];
   setDecal(tile: Tile, spriteId: SpriteId | null): void;
   clearDecal(tile: Tile): void;
+  /** Optional transaction snapshot used by fail-closed Rule Architect rules. */
+  serialize?(): string;
+  deserialize?(payload: string): void;
 }
 
 export interface UIAPI {
@@ -57,11 +64,38 @@ export interface CooldownAPI {
 }
 
 export interface PersistenceAPI {
-  getOrInit(namespace: string, initial: any): any;
+  getOrInit(namespace: string, initial: unknown): unknown;
   serialize(): string;
   deserialize(payload: string): void;
   pushUndo(): void;
   undo(): void;
+}
+
+export interface EngineEventMap {
+  "lifecycle.onEnterTile": { pieceId: PieceID; to: Tile };
+  "lifecycle.onMoveCommitted": { pieceId: PieceID; from: Tile; to: Tile };
+  "lifecycle.onUndo": Record<string, never>;
+  "lifecycle.onPromote": {
+    pieceId: PieceID;
+    fromType: string;
+    toType: string;
+  };
+  "lifecycle.onTurnStart": { side: Side };
+  "ui.runAction": { actionId: string; pieceId?: PieceID; targetTile?: Tile };
+  "status.expired": { pieceId: PieceID; statusKey: string; tile: Tile };
+}
+
+export type EngineEventName = keyof EngineEventMap;
+
+export interface EngineEventBusAPI {
+  emit<Event extends EngineEventName>(
+    event: Event,
+    payload: EngineEventMap[Event],
+  ): void;
+  on<Event extends EngineEventName>(
+    event: Event,
+    callback: (payload: EngineEventMap[Event]) => void,
+  ): void;
 }
 
 export interface EngineContracts {
@@ -74,15 +108,14 @@ export interface EngineContracts {
     get(): MatchInfo;
     setTurn(side: Side): void;
     endTurn(): void;
+    serialize?(): string;
+    deserialize?(payload: string): void;
   };
   util: {
     uuid(): string;
   };
   capturePiece(pieceId: PieceID, reason?: string): void;
-  eventBus: {
-    emit(event: string, payload?: any): void;
-    on(event: string, cb: (payload: any) => void): void;
-  };
+  eventBus: EngineEventBusAPI;
 }
 
 export type RuleJSON = {
@@ -103,22 +136,28 @@ export type RuleJSON = {
   ui?: {
     actions?: UIActionSpec[];
   };
-  assets?: any;
+  assets?: unknown;
   state?: {
     namespace: string;
-    schema?: any;
-    initial?: any;
+    schema?: unknown;
+    initial?: unknown;
     serialize?: boolean;
   };
-  parameters?: Record<string, any>;
-  events?: { id: string; emit: string; payload?: any }[];
+  parameters?: Record<string, unknown>;
+  events?: { id: string; emit: string; payload?: unknown }[];
   handlers?: Record<string, string>;
   logic?: {
     guards?: LogicStep[];
     effects?: LogicStep[];
   };
-  integration?: any;
-  validationRules?: any;
+  integration?: {
+    ruleArchitect?: {
+      source?: string;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  validationRules?: unknown;
   createdAt?: string;
 };
 
@@ -143,7 +182,7 @@ export type UIActionSpec = {
   maxPerPiece?: number;
 };
 
-export type Condition = string | any[];
+export type Condition = string | unknown[];
 
 export type LogicStep = {
   id: string;
@@ -156,5 +195,5 @@ export type LogicStep = {
 
 export type ActionStep = {
   action: string;
-  params?: Record<string, any>;
+  params?: Record<string, unknown>;
 };

@@ -1,132 +1,61 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+import { loadEnv } from './utils/env.mjs';
+import { assertConfirmedSupabaseTarget } from './utils/supabase-target.mjs';
 
-function resolveProjectRoot() {
-  const currentFile = fileURLToPath(import.meta.url);
-  return path.resolve(path.dirname(currentFile), '..');
+const projectRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
+loadEnv(projectRoot);
+
+const rawUrl =
+  process.env.SUPABASE_DB_URL ??
+  process.env.POSTGRES_URL ??
+  process.env.DATABASE_URL ??
+  process.env.SUPABASE_DB_CONNECTION;
+
+if (!rawUrl?.trim()) {
+  console.error('[postgrest-reload] Une URL de base Supabase explicite est requise.');
+  process.exit(1);
 }
 
-function normaliseEnvLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith('#')) {
-    return null;
-  }
-
-  const withoutExport = trimmed.startsWith('export ')
-    ? trimmed.slice('export '.length).trim()
-    : trimmed;
-
-  const equalsIndex = withoutExport.indexOf('=');
-  if (equalsIndex === -1) {
-    return null;
-  }
-
-  const key = withoutExport.slice(0, equalsIndex).trim();
-  if (!key) {
-    return null;
-  }
-
-  let rawValue = withoutExport.slice(equalsIndex + 1).trim();
-  if (
-    (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
-    (rawValue.startsWith("'") && rawValue.endsWith("'"))
-  ) {
-    rawValue = rawValue.slice(1, -1);
-  }
-
-  const value = rawValue.replace(/\\n/g, '\n');
-  return { key, value };
-}
-
-function applyEnvFromFile(filePath) {
-  if (!existsSync(filePath)) {
-    return;
-  }
-
-  const content = readFileSync(filePath, 'utf8');
-  content
-    .split(/\r?\n/)
-    .map(normaliseEnvLine)
-    .filter((entry) => entry !== null)
-    .forEach(({ key, value }) => {
-      if (process.env[key] === undefined) {
-        process.env[key] = value;
-      }
-    });
-}
-
-function loadEnv(projectRoot) {
-  const candidateFiles = ['.env.local', '.env'];
-  for (const fileName of candidateFiles) {
-    applyEnvFromFile(path.join(projectRoot, fileName));
-  }
-}
-
-function normaliseConnectionString(rawUrl) {
-  if (!rawUrl) {
-    return null;
-  }
-
-  const trimmed = rawUrl.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (/sslmode=/i.test(trimmed)) {
-    return trimmed;
-  }
-
-  const separator = trimmed.includes('?') ? '&' : '?';
-  return `${trimmed}${separator}sslmode=require`;
-}
-
-async function main() {
-  const projectRoot = resolveProjectRoot();
-  loadEnv(projectRoot);
-
-  const rawUrl =
-    process.env.SUPABASE_DB_URL ??
-    process.env.POSTGRES_URL ??
-    process.env.DATABASE_URL ??
-    process.env.SUPABASE_DB_CONNECTION ??
-    null;
-
-  const connectionString = normaliseConnectionString(rawUrl);
-
-  if (!connectionString) {
-    console.error(
-      '❌ Impossible de déterminer la chaîne de connexion. Définissez SUPABASE_DB_URL (ou POSTGRES_URL / DATABASE_URL).'
-    );
-    process.exit(1);
-  }
-
-  const sql = postgres(connectionString, {
-    transform: {
-      undefined: null,
-    },
-    ssl: 'require',
-    max: 1,
+let projectRef;
+try {
+  projectRef = assertConfirmedSupabaseTarget({
+    targetUrl: rawUrl,
+    label: 'postgrest-reload',
   });
-
-  try {
-    console.log("Envoi de NOTIFY pgrst, 'reload schema' ...");
-    await sql.unsafe("select pg_notify('pgrst','reload schema');");
-    console.log('✅ Cache PostgREST rafraîchi.');
-  } catch (error) {
-    console.error("\n❌ Échec du rafraîchissement du cache PostgREST:");
-    if (error instanceof Error) {
-      console.error(error.message);
-    } else {
-      console.error(error);
-    }
-    process.exit(1);
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
+} catch (error) {
+  console.error(
+    `[postgrest-reload] ${error instanceof Error ? error.message : 'Cible refusée.'}`,
+  );
+  process.exit(1);
 }
 
-main();
+const separator = rawUrl.includes('?') ? '&' : '?';
+const connectionString = /(?:^|[?&])sslmode=/i.test(rawUrl)
+  ? rawUrl
+  : `${rawUrl}${separator}sslmode=require`;
+const sql = postgres(connectionString, {
+  ssl: 'require',
+  max: 1,
+  transform: { undefined: null },
+});
+
+try {
+  console.log(`[postgrest-reload] Projet confirmé : ${projectRef}.`);
+  await sql.unsafe("select pg_notify('pgrst', 'reload schema')");
+  console.log('[postgrest-reload] Cache PostgREST rafraîchi.');
+} catch (error) {
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String(error.code)
+    : 'UNKNOWN';
+  console.error(`[postgrest-reload] Échec de la requête (${code}).`);
+  process.exitCode = 1;
+} finally {
+  await sql.end({ timeout: 5 });
+}

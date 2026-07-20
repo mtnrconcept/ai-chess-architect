@@ -9,6 +9,25 @@ if (!hookUrl) {
   process.exit(0);
 }
 
+let parsedHookUrl;
+try {
+  parsedHookUrl = new URL(hookUrl);
+  const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(
+    parsedHookUrl.hostname,
+  );
+  if (
+    parsedHookUrl.username ||
+    parsedHookUrl.password ||
+    (parsedHookUrl.protocol !== 'https:' &&
+      !(parsedHookUrl.protocol === 'http:' && isLocalhost))
+  ) {
+    throw new Error('unsafe hook URL');
+  }
+} catch {
+  console.error('[lovable] Le webhook doit utiliser HTTPS (HTTP autorisé uniquement sur localhost) et ne contenir aucun identifiant.');
+  process.exit(1);
+}
+
 const method = (process.env.LOVABLE_DEPLOY_METHOD ?? 'POST').toUpperCase();
 const timeoutMs = Number.parseInt(process.env.LOVABLE_DEPLOY_TIMEOUT_MS ?? '15000', 10);
 
@@ -25,8 +44,8 @@ if (headerEnv) {
     if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
       throw new Error('Headers must be an object');
     }
-  } catch (error) {
-    console.error('[lovable] Impossible d\'analyser LOVABLE_DEPLOY_HEADERS (JSON invalide):', error.message);
+  } catch {
+    console.error('[lovable] LOVABLE_DEPLOY_HEADERS est un objet JSON invalide.');
     process.exit(1);
   }
 }
@@ -55,26 +74,19 @@ const buildTimeoutSignal = () => {
 
 const signal = buildTimeoutSignal();
 
-console.log(`[lovable] Déclenchement du hook (${method} ${hookUrl})…`);
+console.log(`[lovable] Déclenchement du hook (${method} ${parsedHookUrl.origin})…`);
 
 try {
-  const response = await fetch(hookUrl, {
+  const response = await fetch(parsedHookUrl, {
     method,
     headers,
     body: shouldSendBody ? body : undefined,
     signal,
   });
 
-  const text = await response.text();
-  const snippet = text ? text.slice(0, 512) : '';
-
   if (!response.ok) {
-    console.error(`[lovable] Le hook a renvoyé ${response.status} ${response.statusText}.`, snippet);
+    console.error(`[lovable] Le hook a renvoyé HTTP ${response.status}.`);
     process.exit(1);
-  }
-
-  if (snippet) {
-    console.log(`[lovable] Réponse: ${snippet}`);
   }
 
   console.log('[lovable] Déploiement Lovable déclenché avec succès.');
@@ -82,7 +94,7 @@ try {
   if (error.name === 'TimeoutError') {
     console.error(`[lovable] Le hook n\'a pas répondu après ${timeoutMs}ms.`);
   } else {
-    console.error('[lovable] Échec lors de l\'appel du hook Lovable:', error);
+    console.error('[lovable] Échec lors de l\'appel du hook Lovable.');
   }
   process.exit(1);
 }

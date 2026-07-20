@@ -11,3 +11,4 @@ Après avoir synchronisé ces migrations (`pnpm run db:push`) et relancé `selec
 - **Limiter les migrations destructives** : pour modifier les colonnes ou les contraintes, privilégier `alter table` plutôt que la recréation complète des tables.
 - **Vérifier la cohérence avec le client** : comparer toute évolution de schéma avec les types générés dans `src/integrations/supabase/types.ts` afin d'éviter les divergences silencieuses.
 - **Toujours recharger PostgREST** après une mise à jour du schéma pour rendre les nouvelles colonnes accessibles immédiatement (`pnpm run postgrest:reload`).
+- **Confirmer toute cible distante** : `db:push`, `db:migrate`, `postgrest:reload` et les scripts de réparation exigent `SUPABASE_PROJECT_ID`, la même valeur dans `SUPABASE_PROJECT_REF_CONFIRMATION`, puis une URL HTTPS/Postgres correspondant exactement à cette référence.

@@ -1,362 +1,469 @@
-import { Registry } from "../registry";
-import { Tile } from "../types";
+import { STATE_PATH_PATTERN } from "../../rules-v2/catalog";
+import { Registry, type EngineContext } from "../registry";
+import type { Piece, PieceID, Side, Tile } from "../types";
 
-export function registerBuiltinEffects(reg: Registry) {
-  reg.registerEffect("vfx.play", (ctx, p: any) => {
-    if (p?.sprite && p?.tile) {
-      ctx.engine.vfx.playAnimation(p.sprite, p.tile);
+const BOARD_TILE = /^[a-h][1-8]$/;
+// The V2 compiler applies the narrower lowercase form. Runtime keeps safe
+// camelCase compatibility for already-published legacy rules.
+const STATUS_KEY = /^[a-zA-Z][a-zA-Z0-9_-]{0,79}$/;
+const RESOURCE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/;
+const PIECE_TYPES = new Set(["pawn", "knight", "bishop", "rook", "queen"]);
+const PROMOTION_TYPES = new Set(["knight", "bishop", "rook", "queen"]);
+
+const fail = (message: string): never => {
+  throw new Error(message);
+};
+
+const stringParam = (
+  params: Record<string, unknown> | undefined,
+  name: string,
+  pattern?: RegExp,
+): string => {
+  const value = params?.[name];
+  if (
+    typeof value !== "string" ||
+    !value ||
+    (pattern && !pattern.test(value))
+  ) {
+    return fail(`Paramètre ${name} invalide.`);
+  }
+  return value;
+};
+
+const optionalString = (
+  params: Record<string, unknown> | undefined,
+  name: string,
+): string | undefined => {
+  const value = params?.[name];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return fail(`Paramètre ${name} invalide.`);
+  return value;
+};
+
+const numberParam = (
+  params: Record<string, unknown> | undefined,
+  name: string,
+  fallback?: number,
+): number => {
+  const value = params?.[name] ?? fallback;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fail(`Paramètre ${name} invalide.`);
+  }
+  return value;
+};
+
+const tileParam = (
+  ctx: EngineContext,
+  params: Record<string, unknown> | undefined,
+  name: string,
+): Tile => {
+  const tile = stringParam(params, name, BOARD_TILE);
+  if (!ctx.engine.board.withinBoard(tile)) {
+    return fail(`Case ${tile} hors plateau.`);
+  }
+  return tile;
+};
+
+const pieceParam = (
+  ctx: EngineContext,
+  params: Record<string, unknown> | undefined,
+  name: string,
+): PieceID => {
+  const id = stringParam(params, name);
+  ctx.engine.board.getPiece(id);
+  return id;
+};
+
+const statusKey = (params: Record<string, unknown> | undefined): string =>
+  stringParam(params, "key", STATUS_KEY);
+
+const afterCommit = (ctx: EngineContext, callback: () => void): void => {
+  if (ctx.postCommit) {
+    ctx.postCommit.push(callback);
+  } else {
+    callback();
+  }
+};
+
+const isRuleArchitectContext = (ctx: EngineContext): boolean =>
+  ctx.rule?.integration?.ruleArchitect?.source === "ai-blueprint";
+
+const setPieceInvisible = (
+  ctx: EngineContext,
+  pieceId: PieceID,
+  value: boolean,
+): void => {
+  const board = ctx.engine.board;
+  if (typeof board.setPieceInvisible === "function") {
+    board.setPieceInvisible(pieceId, value);
+    return;
+  }
+  if (isRuleArchitectContext(ctx)) {
+    return fail("L'adaptateur de plateau ne persiste pas l'invisibilité V2.");
+  }
+  board.getPiece(pieceId).invisible = value;
+};
+
+const setPieceStatus = (
+  ctx: EngineContext,
+  pieceId: PieceID,
+  key: string,
+  value: unknown,
+): void => {
+  const board = ctx.engine.board;
+  if (typeof board.setPieceStatus === "function") {
+    board.setPieceStatus(pieceId, key, value);
+    return;
+  }
+  if (isRuleArchitectContext(ctx)) {
+    return fail("L'adaptateur de plateau ne persiste pas les statuts V2.");
+  }
+  const piece = board.getPiece(pieceId);
+  piece.statuses ??= {};
+  piece.statuses[key] = structuredClone(value);
+};
+
+const clearPieceStatus = (
+  ctx: EngineContext,
+  pieceId: PieceID,
+  key: string,
+): void => {
+  const board = ctx.engine.board;
+  if (typeof board.clearPieceStatus === "function") {
+    board.clearPieceStatus(pieceId, key);
+    return;
+  }
+  if (isRuleArchitectContext(ctx)) {
+    return fail("L'adaptateur de plateau ne persiste pas les statuts V2.");
+  }
+  delete board.getPiece(pieceId).statuses?.[key];
+};
+
+const stateParent = (
+  state: Record<string, unknown>,
+  path: string,
+  create: boolean,
+): { parent: Record<string, unknown>; key: string } | null => {
+  if (!STATE_PATH_PATTERN.test(path)) return fail("Chemin d'état invalide.");
+  const segments = path.split(".");
+  const key = segments.pop();
+  if (!key) return fail("Chemin d'état vide.");
+
+  let current = state;
+  for (const segment of segments) {
+    const value = current[segment];
+    if (value === undefined && create) {
+      current[segment] = Object.create(null) as Record<string, unknown>;
+    } else if (
+      value === null ||
+      typeof value !== "object" ||
+      Array.isArray(value)
+    ) {
+      if (!create) return null;
+      return fail(`Le segment ${segment} n'est pas un objet d'état.`);
     }
+    current = current[segment] as Record<string, unknown>;
+  }
+  return { parent: current, key };
+};
+
+export function registerBuiltinEffects(registry: Registry): void {
+  registry.registerEffect("vfx.play", (ctx, params) => {
+    const sprite = stringParam(params, "sprite", RESOURCE_ID);
+    const tile = tileParam(ctx, params, "tile");
+    afterCommit(ctx, () => ctx.engine.vfx.playAnimation(sprite, tile));
+    return true;
   });
 
-  reg.registerEffect("audio.play", (ctx, p: any) => {
-    if (p?.id) {
-      ctx.engine.vfx.playAudio(p.id);
-    }
+  registry.registerEffect("audio.play", (ctx, params) => {
+    const id = stringParam(params, "id", RESOURCE_ID);
+    afterCommit(ctx, () => ctx.engine.vfx.playAudio(id));
+    return true;
   });
 
-  reg.registerEffect("decal.set", (ctx, p: any) => {
-    if (p?.tile && p?.sprite) {
-      ctx.engine.board.setDecal(p.tile as Tile, p.sprite as string);
-    }
+  registry.registerEffect("decal.set", (ctx, params) => {
+    const tile = tileParam(ctx, params, "tile");
+    const sprite = stringParam(params, "sprite", RESOURCE_ID);
+    ctx.engine.board.setDecal(tile, sprite);
+    return true;
   });
 
-  reg.registerEffect("decal.clear", (ctx, p: any) => {
-    if (p?.tile) {
-      ctx.engine.board.clearDecal(p.tile as Tile);
-    }
+  registry.registerEffect("decal.clear", (ctx, params) => {
+    ctx.engine.board.clearDecal(tileParam(ctx, params, "tile"));
+    return true;
   });
 
-  reg.registerEffect("turn.end", (ctx) => {
-    ctx.engine.match.endTurn();
+  registry.registerEffect("turn.end", (ctx) => {
+    ctx.turnEnded = true;
+    return true;
   });
 
-  reg.registerEffect("cooldown.set", (ctx, p) => {
-    if (p?.pieceId && p?.actionId) {
-      ctx.engine.cooldown.set(p.pieceId, p.actionId, p.turns ?? 1);
+  registry.registerEffect("cooldown.set", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    const actionId = stringParam(params, "actionId");
+    const turns = numberParam(params, "turns");
+    if (!Number.isInteger(turns) || turns < 0 || turns > 100) {
+      return fail("Durée de cooldown invalide.");
     }
+    ctx.engine.cooldown.set(pieceId, actionId, turns);
+    return true;
   });
 
-  reg.registerEffect("piece.capture", (ctx, p) => {
-    if (p?.pieceId) {
-      ctx.engine.capturePiece(p.pieceId, p.reason);
-    }
+  registry.registerEffect("piece.capture", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    ctx.engine.capturePiece(pieceId, optionalString(params, "reason"));
+    return true;
   });
 
-  reg.registerEffect("piece.move", (ctx, p) => {
-    if (p?.pieceId && p?.to) {
-      ctx.engine.board.setPieceTile(p.pieceId, p.to);
+  registry.registerEffect("piece.move", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    const destination = tileParam(ctx, params, "to");
+    if (!ctx.engine.board.isEmpty(destination)) {
+      return fail("La case de destination n'est pas vide.");
     }
+    ctx.engine.board.setPieceTile(pieceId, destination);
+    return true;
   });
 
-  reg.registerEffect("piece.spawn", (ctx, p) => {
-    if (p?.type && p?.side && p?.tile) {
-      ctx.engine.board.spawnPiece(p.type, p.side, p.tile);
+  registry.registerEffect("piece.spawn", (ctx, params) => {
+    const type = stringParam(params, "type");
+    const side = stringParam(params, "side") as Side;
+    const tile = tileParam(ctx, params, "tile");
+    if (!PIECE_TYPES.has(type) || (side !== "white" && side !== "black")) {
+      return fail("Type ou camp de pièce invalide.");
     }
+    if (!ctx.engine.board.isEmpty(tile))
+      return fail("La case d'apparition est occupée.");
+    ctx.engine.board.spawnPiece(type, side, tile);
+    return true;
   });
 
-  // Promotion générique: remplace la pièce par une nouvelle du type demandé, au même emplacement
-  // Fallback compatible avec l'API BoardAPI: remove + spawn pour éviter les mutations internes
-  reg.registerEffect("piece.promote", (ctx, p) => {
-    const pieceId = p?.pieceId || ctx.pieceId;
-    const toType = p?.toType || p?.type || p?.newType;
-    if (!pieceId || !toType) {
-      console.warn("[effect] piece.promote: pieceId ou toType manquant", p);
-      return;
-    }
-    try {
-      const current = ctx.engine.board.getPiece(pieceId);
-      // Retirer l'ancienne pièce puis en créer une nouvelle du type voulu à la même case et même camp
-      ctx.engine.board.removePiece(pieceId);
-      ctx.engine.board.spawnPiece(toType, current.side, current.tile);
-    } catch (error) {
-      console.warn("[effect] piece.promote a échoué:", error);
-    }
+  registry.registerEffect("piece.promote", (ctx, params) => {
+    const pieceIdValue = params?.pieceId ?? ctx.pieceId;
+    if (typeof pieceIdValue !== "string")
+      return fail("Pièce à promouvoir absente.");
+    const current = ctx.engine.board.getPiece(pieceIdValue);
+    const toType = stringParam(params, "toType");
+    if (!PROMOTION_TYPES.has(toType))
+      return fail("Type de promotion invalide.");
+    ctx.engine.board.removePiece(pieceIdValue);
+    ctx.engine.board.spawnPiece(toType, current.side, current.tile);
+    return true;
   });
 
-
-  reg.registerEffect("piece.duplicate", (ctx, p) => {
-    if (p?.sourceId && p?.tile) {
-      try {
-        const q = ctx.engine.board.getPiece(p.sourceId);
-        ctx.engine.board.spawnPiece(q.type, q.side, p.tile);
-      } catch (error) {
-        console.warn('Failed to duplicate piece:', error);
-      }
-    }
+  registry.registerEffect("piece.duplicate", (ctx, params) => {
+    const sourceId = pieceParam(ctx, params, "sourceId");
+    const tile = tileParam(ctx, params, "tile");
+    if (!ctx.engine.board.isEmpty(tile))
+      return fail("La case de duplication est occupée.");
+    const source = ctx.engine.board.getPiece(sourceId);
+    ctx.engine.board.spawnPiece(source.type, source.side, tile);
+    return true;
   });
 
-  reg.registerEffect("piece.setInvisible", (ctx, p) => {
-    if (p?.pieceId !== undefined) {
-      try {
-        const piece = ctx.engine.board.getPiece(p.pieceId);
-        piece.invisible = !!p.value;
-      } catch (error) {
-        console.warn('Failed to set invisibility:', error);
-      }
-    }
+  registry.registerEffect("piece.setInvisible", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    if (typeof params?.value !== "boolean")
+      return fail("Valeur d'invisibilité invalide.");
+    setPieceInvisible(ctx, pieceId, params.value);
+    return true;
   });
 
-  reg.registerEffect("piece.setStatus", (ctx, p: any) => {
-    if (p?.pieceId && p?.key) {
-      try {
-        const piece = ctx.engine.board.getPiece(p.pieceId);
-        piece.statuses = piece.statuses ?? {};
-        piece.statuses[p.key as string] = p.value;
-      } catch (error) {
-        console.warn('Failed to set status:', error);
-      }
-    }
+  registry.registerEffect("piece.setStatus", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    const key = statusKey(params);
+    if (params?.value === undefined) return fail("Valeur de statut absente.");
+    setPieceStatus(ctx, pieceId, key, params.value);
+    return true;
   });
 
-  reg.registerEffect("piece.clearStatus", (ctx, p) => {
-    if (p?.pieceId && p?.key) {
-      try {
-        const piece = ctx.engine.board.getPiece(p.pieceId);
-        if (piece.statuses) {
-          delete piece.statuses[p.key];
-        }
-      } catch (error) {
-        console.warn('Failed to clear status:', error);
-      }
-    }
+  registry.registerEffect("piece.clearStatus", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    clearPieceStatus(ctx, pieceId, statusKey(params));
+    return true;
   });
 
-  reg.registerEffect("tile.setTrap", (ctx, p) => {
-    if (p?.tile && p?.kind) {
-      const st = ctx.state;
-      st.traps = st.traps ?? {};
-      st.traps[p.tile] = {
-        kind: p.kind,
-        owner: p.owner ?? ctx.engine.match.get().turnSide,
-        data: p.data ?? {}
-      };
-      ctx.engine.board.setDecal(p.tile, p.sprite ?? "trap_icon");
-    }
+  registry.registerEffect("tile.setTrap", (ctx, params) => {
+    const tile = tileParam(ctx, params, "tile");
+    const kind = stringParam(params, "kind");
+    if (kind !== "quicksand") return fail("Type de piège non pris en charge.");
+    const owner = params?.owner ?? ctx.engine.match.get().turnSide;
+    if (owner !== "white" && owner !== "black")
+      return fail("Propriétaire de piège invalide.");
+    const traps = (ctx.state.traps ??= Object.create(null)) as Record<
+      string,
+      unknown
+    >;
+    if (typeof traps !== "object" || Array.isArray(traps))
+      return fail("État de pièges invalide.");
+    traps[tile] = { kind, owner };
+    ctx.engine.board.setDecal(
+      tile,
+      optionalString(params, "sprite") ?? "trap_icon",
+    );
+    return true;
   });
 
-  reg.registerEffect("tile.clearTrap", (ctx, p) => {
-    if (p?.tile) {
-      const st = ctx.state;
-      if (st.traps) {
-        delete st.traps[p.tile];
-      }
-      ctx.engine.board.clearDecal(p.tile);
+  registry.registerEffect("tile.clearTrap", (ctx, params) => {
+    const tile = tileParam(ctx, params, "tile");
+    const traps = ctx.state.traps;
+    if (traps && typeof traps === "object" && !Array.isArray(traps)) {
+      delete (traps as Record<string, unknown>)[tile];
     }
+    ctx.engine.board.clearDecal(tile);
+    return true;
   });
 
-  reg.registerEffect("tile.resolveTrap", (ctx, p) => {
-    if (!p?.tile) return;
+  registry.registerEffect("tile.resolveTrap", (ctx, params) => {
+    const tile = tileParam(ctx, params, "tile");
+    const traps = ctx.state.traps;
+    const trap =
+      traps && typeof traps === "object"
+        ? (traps as Record<string, { kind?: unknown }>)[tile]
+        : undefined;
+    if (!trap) return true;
+    if (trap.kind !== "quicksand") return fail("Piège non pris en charge.");
 
-    const st = ctx.state;
-    const t = st.traps?.[p.tile];
-    if (!t) return;
-
-    if (t.kind === "quicksand") {
-      const pid = ctx.engine.board.getPieceAt(p.tile);
-      if (pid) {
-        ctx.engine.capturePiece(pid, "quicksand");
-      }
-
-      if (!p.persistent) {
-        reg.runEffect({ action: "tile.clearTrap", params: { tile: p.tile } }, ctx);
-      }
-
-      ctx.engine.vfx.playAnimation("quicksand_splash", p.tile);
+    const pieceId = ctx.engine.board.getPieceAt(tile);
+    if (pieceId) {
+      ctx.engine.board.getPiece(pieceId);
+      ctx.engine.capturePiece(pieceId, "quicksand");
+    }
+    if (params?.persistent !== true) {
+      const cleared = registry.runEffect(
+        { action: "tile.clearTrap", params: { tile } },
+        ctx,
+      );
+      if (!cleared) return fail("Impossible de supprimer le piège résolu.");
+    }
+    afterCommit(ctx, () => {
+      ctx.engine.vfx.playAnimation("quicksand_splash", tile);
       ctx.engine.vfx.playAudio("sink");
-    }
-  });
-
-  reg.registerEffect("area.forEachTile", (ctx, p) => {
-    const tiles: Tile[] = p?.tiles ?? (p?.center ? [p.center] : []);
-    tiles.forEach((tile: Tile) => {
-      const effects = p?.effects ?? [];
-      effects.forEach((e: any) => {
-        reg.runEffect(e, { ...ctx, targetTile: tile });
-      });
     });
+    return true;
   });
 
-  reg.registerEffect("composite", (ctx, p) => {
-    const steps = p?.steps ?? [];
-    steps.forEach((s: any) => reg.runEffect(s, ctx));
+  registry.registerEffect("ui.toast", (ctx, params) => {
+    const message = stringParam(params, "message");
+    afterCommit(ctx, () => ctx.engine.ui.toast(message));
+    return true;
   });
 
-  reg.registerEffect("state.pushUndo", (ctx) => {
+  registry.registerEffect("status.add", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    const key = statusKey(params);
+    const duration =
+      params?.duration === undefined && !isRuleArchitectContext(ctx)
+        ? -1
+        : numberParam(params, "duration");
+    if (!Number.isInteger(duration) || duration < -1 || duration > 100) {
+      return fail("Durée de statut invalide.");
+    }
+    const metadata =
+      params?.metadata &&
+      typeof params.metadata === "object" &&
+      !Array.isArray(params.metadata)
+        ? structuredClone(params.metadata)
+        : {};
+    setPieceStatus(ctx, pieceId, key, {
+      active: true,
+      duration,
+      metadata,
+      appliedAt: ctx.engine.match.get().ply,
+    });
+    return true;
+  });
+
+  registry.registerEffect("status.remove", (ctx, params) => {
+    const pieceId = pieceParam(ctx, params, "pieceId");
+    clearPieceStatus(ctx, pieceId, statusKey(params));
+    return true;
+  });
+
+  registry.registerEffect("state.set", (ctx, params) => {
+    const path = stringParam(params, "path");
+    if (params?.value === undefined) return fail("Valeur d'état absente.");
+    const target = stateParent(ctx.state, path, true)!;
+    target.parent[target.key] = params.value;
+    return true;
+  });
+
+  registry.registerEffect("state.inc", (ctx, params) => {
+    const path = stringParam(params, "path");
+    const by = numberParam(params, "by", 1);
+    const fallback = numberParam(params, "default", 0);
+    if (!Number.isInteger(by) || !Number.isInteger(fallback)) {
+      return fail("Compteur d'état invalide.");
+    }
+    const target = stateParent(ctx.state, path, true)!;
+    const current = target.parent[target.key] ?? fallback;
+    if (typeof current !== "number" || !Number.isFinite(current)) {
+      return fail("La valeur d'état à incrémenter n'est pas numérique.");
+    }
+    target.parent[target.key] = current + by;
+    return true;
+  });
+
+  registry.registerEffect("state.delete", (ctx, params) => {
+    const path = stringParam(params, "path");
+    const target = stateParent(ctx.state, path, false);
+    if (target) delete target.parent[target.key];
+    return true;
+  });
+
+  // Legacy-only operations stay registered for old rules, but are absent from
+  // the V2 catalog. Recursive composites remain explicitly blocked by RuleEngine.
+  registry.registerEffect("state.pushUndo", (ctx) => {
     ctx.engine.state.pushUndo();
+    return true;
   });
-
-  // Alias pour compatibilité : board.capture → piece.capture
-  reg.registerEffect("board.capture", (ctx, p) => {
-    const pieceId = p?.pieceId || ctx.targetPieceId;
-    if (!pieceId) {
-      console.warn("[effect] board.capture: aucun pieceId fourni");
-      return;
-    }
-    
-    // Déléguer à piece.capture via runEffect
-    reg.runEffect({
-      action: "piece.capture",
-      params: { pieceId, reason: p?.reason }
-    }, ctx);
+  registry.registerEffect("board.capture", (ctx, params) => {
+    const pieceId = params?.pieceId ?? ctx.targetPieceId;
+    if (typeof pieceId !== "string") return fail("Pièce à capturer absente.");
+    return registry.runEffect(
+      { action: "piece.capture", params: { pieceId, reason: params?.reason } },
+      ctx,
+    );
   });
+  registry.registerEffect("area.forEachTile", () => false);
+  registry.registerEffect("composite", () => false);
+  registry.registerEffect("board.areaEffect", () => false);
+  registry.registerEffect("status.tickAll", (ctx) => {
+    const side = ctx.params?.side ?? ctx.engine.match.get().turnSide;
+    const board = ctx.engine.board;
+    const pieceIds = board
+      .tiles()
+      .map((tile: Tile) => board.getPieceAt(tile))
+      .filter((id: PieceID | null): id is PieceID => id !== null);
 
-  reg.registerEffect("ui.toast", (ctx, p) => {
-    if (p?.message) {
-      ctx.engine.ui.toast(p.message);
-    }
-  });
-
-  reg.registerEffect("board.areaEffect", (ctx, p) => {
-    if (!p?.center || p?.radius === undefined || !p?.action || !p?.actionParams) {
-      console.warn("[effect] board.areaEffect: paramètres manquants", p);
-      return;
-    }
-
-    try {
-      // Convertir center en position
-      const centerPos = ctx.engine.board.tileToPosition ? 
-        ctx.engine.board.tileToPosition(p.center) : 
-        null;
-      
-      if (!centerPos) {
-        console.warn("[effect] board.areaEffect: impossible de convertir la position", p.center);
-        return;
-      }
-
-      // Trouver toutes les pièces dans le rayon
-      const affectedPieces = ctx.engine.board.getPiecesInRadius(centerPos, p.radius);
-      console.log(`[effect] board.areaEffect: ${affectedPieces.length} pièces affectées dans rayon ${p.radius}`);
-
-      // Appliquer l'action à chaque pièce
-      affectedPieces.forEach(pieceId => {
-        if (p.action === "status.add") {
-          const statusId = p.actionParams.statusId || p.actionParams.key;
-          const duration = p.actionParams.duration || 1;
-          const icon = p.actionParams.icon || "⚠️";
-          
-          reg.runEffect({
-            action: "status.add",
-            params: {
+    for (const pieceId of new Set(pieceIds)) {
+      const piece = board.getPiece(pieceId) as Piece;
+      if (piece.side !== side || !piece.statuses) continue;
+      for (const [key, rawStatus] of Object.entries(piece.statuses)) {
+        if (!rawStatus || typeof rawStatus !== "object") continue;
+        const status = rawStatus as { active?: boolean; duration?: number };
+        if (
+          status.active !== true ||
+          typeof status.duration !== "number" ||
+          status.duration <= 0
+        ) {
+          continue;
+        }
+        const duration = status.duration - 1;
+        if (duration === 0) {
+          clearPieceStatus(ctx, pieceId, key);
+          afterCommit(ctx, () =>
+            ctx.engine.eventBus.emit("status.expired", {
               pieceId,
-              key: statusId,
-              duration,
-              metadata: { icon, ...p.actionParams.metadata }
-            }
-          }, ctx);
-        } else if (p.action === "piece.capture") {
-          reg.runEffect({
-            action: "piece.capture",
-            params: { pieceId, reason: p.actionParams.reason }
-          }, ctx);
+              statusKey: key,
+              tile: piece.tile,
+            }),
+          );
+        } else {
+          setPieceStatus(ctx, pieceId, key, { ...status, duration });
         }
-      });
-    } catch (error) {
-      console.error("[effect] board.areaEffect failed:", error);
-    }
-  });
-
-  // Phase 1: Status management effects
-  reg.registerEffect("status.add", (ctx, p) => {
-    if (p?.pieceId && p?.key) {
-      try {
-        const piece = ctx.engine.board.getPiece(p.pieceId);
-        piece.statuses = piece.statuses ?? {};
-        piece.statuses[p.key] = {
-          active: true,
-          duration: p.duration ?? -1, // -1 = permanent
-          metadata: p.metadata ?? {},
-          appliedAt: ctx.engine.match.get().ply
-        };
-      } catch (error) {
-        console.warn('Failed to add status:', error);
       }
     }
-  });
-
-  reg.registerEffect("status.remove", (ctx, p) => {
-    if (p?.pieceId && p?.key) {
-      try {
-        const piece = ctx.engine.board.getPiece(p.pieceId);
-        if (piece.statuses?.[p.key]) {
-          delete piece.statuses[p.key];
-        }
-      } catch (error) {
-        console.warn('Failed to remove status:', error);
-      }
-    }
-  });
-
-  reg.registerEffect("status.tickAll", (ctx) => {
-    // Décrémente tous les statuts temporisés du camp actif
-    const side = ctx.params?.side || ctx.engine.match.get().turnSide;
-    const allPieces = ctx.engine.board.tiles()
-      .map(t => ctx.engine.board.getPieceAt(t))
-      .filter(pid => pid !== null)
-      .map(pid => ctx.engine.board.getPiece(pid!))
-      .filter(p => p.side === side);
-
-    allPieces.forEach(piece => {
-      if (!piece.statuses) return;
-      
-      Object.entries(piece.statuses).forEach(([key, status]) => {
-        if (typeof status === 'object' && status !== null && 'active' in status && 'duration' in status) {
-          const typedStatus = status as { active: boolean; duration: number; metadata?: any; appliedAt?: number };
-          if (typedStatus.active && typedStatus.duration > 0) {
-            typedStatus.duration--;
-            
-            if (typedStatus.duration === 0) {
-              // Émettre événement d'expiration
-              ctx.engine.eventBus.emit('status.expired', {
-                pieceId: piece.id,
-                statusKey: key,
-                tile: piece.tile
-              });
-              delete piece.statuses![key];
-            }
-          }
-        }
-      });
-    });
-  });
-
-  // Phase 3: State management effects
-  reg.registerEffect("state.set", (ctx, p) => {
-    if (!p?.path || p?.value === undefined) return;
-    const keys = p.path.split('.');
-    let current = ctx.state;
-    
-    for (let i = 0; i < keys.length - 1; i++) {
-      current[keys[i]] = current[keys[i]] ?? {};
-      current = current[keys[i]];
-    }
-    
-    current[keys[keys.length - 1]] = p.value;
-  });
-
-  reg.registerEffect("state.inc", (ctx, p) => {
-    if (!p?.path) return;
-    const keys = p.path.split('.');
-    let current = ctx.state;
-    
-    for (let i = 0; i < keys.length - 1; i++) {
-      current[keys[i]] = current[keys[i]] ?? {};
-      current = current[keys[i]];
-    }
-    
-    const lastKey = keys[keys.length - 1];
-    current[lastKey] = (current[lastKey] ?? p.default ?? 0) + (p.by ?? 1);
-  });
-
-  reg.registerEffect("state.delete", (ctx, p) => {
-    if (!p?.path) return;
-    const keys = p.path.split('.');
-    let current = ctx.state;
-    
-    for (let i = 0; i < keys.length - 1; i++) {
-      if (!current[keys[i]]) return;
-      current = current[keys[i]];
-    }
-    
-    delete current[keys[keys.length - 1]];
+    return true;
   });
 }

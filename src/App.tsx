@@ -6,7 +6,9 @@ import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 import Index from "./pages/Index";
 import Generator from "./pages/Generator";
+import RuleArchitect from "./pages/RuleArchitect";
 import Lobby from "./pages/Lobby";
+import RuleLobby from "./pages/RuleLobby";
 import Play from "./pages/Play";
 import NotFound from "./pages/NotFound";
 import SignUp from "./pages/SignUp";
@@ -28,8 +30,10 @@ const router = createBrowserRouter(
       element: <AppLayout />,
       children: [
         { path: "/", element: <Index /> },
-        { path: "/generator", element: <Generator /> },
+        { path: "/generator", element: <RuleArchitect /> },
+        { path: "/generator-legacy", element: <Generator /> },
         { path: "/lobby", element: <Lobby /> },
+        { path: "/rule-lobby", element: <RuleLobby /> },
         { path: "/play", element: <Play /> },
         { path: "/play/:matchId", element: <Play /> },
         { path: "/leaderboard", element: <Leaderboard /> },

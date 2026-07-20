@@ -1,0 +1,88 @@
+name: Rule Architect V2
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level moderate
+
+      - name: Verify mirrored compiler and runtime invariants
+        run: node scripts/verify-rule-architect-v2.mjs
+
+      - name: Verify deployment and security invariants
+        run: node scripts/verify-rule-architect-v2-ops.mjs
+
+      - name: Test confirmed Supabase target guard
+        run: node --test scripts/utils/supabase-target.test.mjs
+
+      - name: Unit tests
+        run: >-
+          pnpm exec vitest run
+          src/rules-v2
+          src/engine/__tests__
+          src/features/rule-architect
+          src/integrations/supabase/client.test.ts
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit -p tsconfig.app.json
+
+      - name: Production build without remote writes
+        run: pnpm build
+
+  edge-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.3
+          cache: true
+
+      - name: Type-check four Edge entrypoints
+        run: |
+          deno check \
+            --import-map=supabase/functions/import_map.json \
+            supabase/functions/compile-chess-rule/index.ts \
+            supabase/functions/publish-rule-version/index.ts \
+            supabase/functions/create-rule-lobby-v2/index.ts \
+            supabase/functions/join-rule-lobby-v2/index.ts
+
+      - name: Test Edge replay and CORS guards
+        run: |
+          deno test --allow-env \
+            supabase/functions/_shared/cors-v2.test.ts \
+            supabase/functions/compile-chess-rule/replay-state.test.ts

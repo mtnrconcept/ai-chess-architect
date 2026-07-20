@@ -1,4 +1,4 @@
-import { Side } from '../types';
+import { Side } from "../types";
 
 export class MatchAdapter {
   private currentTurn: Side;
@@ -24,7 +24,7 @@ export class MatchAdapter {
   get() {
     return {
       ply: this.ply,
-      turnSide: this.currentTurn
+      turnSide: this.currentTurn,
     };
   }
 
@@ -37,5 +37,29 @@ export class MatchAdapter {
     if (this.turnEndCallback) {
       this.turnEndCallback();
     }
+  }
+
+  serialize(): string {
+    return JSON.stringify({
+      currentTurn: this.currentTurn,
+      ply: this.ply,
+    });
+  }
+
+  deserialize(payload: string): void {
+    const value = JSON.parse(payload) as {
+      currentTurn?: unknown;
+      ply?: unknown;
+    };
+    if (
+      (value.currentTurn !== "white" && value.currentTurn !== "black") ||
+      typeof value.ply !== "number" ||
+      !Number.isInteger(value.ply) ||
+      value.ply < 0
+    ) {
+      throw new Error("Invalid match snapshot.");
+    }
+    this.currentTurn = value.currentTurn;
+    this.ply = value.ply;
   }
 }

@@ -1,11 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL!;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: { persistSession: true, autoRefreshToken: true },
-});
+import { requireSupabaseClient } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 
 export type ChessRule = {
   rule_id: string;
@@ -16,18 +10,31 @@ export type ChessRule = {
 };
 
 export async function upsertRule(input: ChessRule) {
+  const supabase = requireSupabaseClient();
   const record = {
     rule_id: input.rule_id,
-    variant_id: input.variant_id ?? null,
-    name: input.name ?? null,
-    version: input.version ?? 1,
-    payload: input.payload ?? {},
+    rule_name: input.name ?? input.rule_id,
+    description:
+      typeof input.payload.description === "string"
+        ? input.payload.description
+        : (input.name ?? input.rule_id),
+    category:
+      typeof input.payload.category === "string"
+        ? input.payload.category
+        : "custom",
+    rule_json: {
+      ...input.payload,
+      compatibility: {
+        variantId: input.variant_id ?? null,
+        version: input.version ?? 1,
+      },
+    } as Json,
   };
 
   const { data, error } = await supabase
     .from("chess_rules")
     .upsert(record, {
-      onConflict: "rule_id,variant_id",
+      onConflict: "rule_id",
       ignoreDuplicates: false,
     })
     .select("*")
