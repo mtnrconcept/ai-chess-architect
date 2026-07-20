@@ -44,6 +44,97 @@ describe("Rule Architect API idempotency contract", () => {
     });
   });
 
+  it("prepares declared scene assets without accepting arbitrary URLs", async () => {
+    invoke
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            compilationId: "00000000-0000-4000-8000-000000000111",
+            ok: true,
+            compiledRule: {
+              logic: {
+                effects: [
+                  {
+                    do: [
+                      {
+                        action: "vfx.play",
+                        params: { sprite: "scene.dragon-carry-capture" },
+                      },
+                      {
+                        action: "vfx.play",
+                        params: { sprite: "https://attacker.invalid/a.svg" },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: { requested: 1, resolved: 1, fallback: 0 },
+        },
+        error: null,
+      });
+
+    await compileChessRule({
+      prompt: "Un dragon emporte chaque pièce capturée.",
+      premium: true,
+      requestKey: "00000000-0000-4000-8000-000000000004",
+    });
+
+    expect(invoke).toHaveBeenNthCalledWith(2, "resolve-rule-assets", {
+      body: {
+        action: "resolve",
+        compilationId: "00000000-0000-4000-8000-000000000111",
+      },
+    });
+  });
+
+  it("keeps a valid rule usable when external asset preparation fails", async () => {
+    invoke
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            compilationId: "00000000-0000-4000-8000-000000000112",
+            ok: true,
+            compiledRule: {
+              logic: {
+                effects: [
+                  {
+                    do: {
+                      action: "vfx.play",
+                      params: { sprite: "scene.phoenix-rebirth" },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: new Error("provider unavailable"),
+      });
+
+    const result = await compileChessRule({
+      prompt: "Un phénix renaît lorsqu'une tour est capturée.",
+      premium: false,
+      requestKey: "00000000-0000-4000-8000-000000000005",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
   it("forwards the stable request key and accepts a pending player seed", async () => {
     invoke.mockResolvedValue({
       data: {
