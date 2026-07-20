@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  Cooldown,
   createRuleEngine,
   EventBus,
-  Cooldown,
   StateStore,
   type RuleEngineOptions,
 } from "@/engine/bootstrap";
+import { ChessBoardAdapter } from "@/engine/adapters/chessBoardAdapter";
+import { MatchAdapter } from "@/engine/adapters/matchAdapter";
+import { UIAdapter } from "@/engine/adapters/uiAdapter";
+import { VFXAdapter } from "@/engine/adapters/vfxAdapter";
 import type {
   EngineContracts,
   EngineEventMap,
@@ -14,15 +18,15 @@ import type {
   Side,
   UIActionSpec,
 } from "@/engine/types";
-import { ChessBoardAdapter } from "@/engine/adapters/chessBoardAdapter";
-import { UIAdapter } from "@/engine/adapters/uiAdapter";
-import { VFXAdapter } from "@/engine/adapters/vfxAdapter";
-import { MatchAdapter } from "@/engine/adapters/matchAdapter";
-import type { GameState } from "@/types/chess";
+import { extractRulePresentationManifests } from "@/rule-presentation/manifest";
 import { createDeterministicIdGenerator } from "@/rules-v2";
+import type { GameState, Position } from "@/types/chess";
 import { useSoundEffects } from "./useSoundEffects";
 
 export type UseRuleEngineOptions = RuleEngineOptions;
+
+const positionToTile = (position: Position): string =>
+  `${"abcdefgh"[position.col] ?? "a"}${8 - position.row}`;
 
 export const useRuleEngine = (
   gameState: GameState,
@@ -33,9 +37,11 @@ export const useRuleEngine = (
   const engineRef = useRef<ReturnType<typeof createRuleEngine> | null>(null);
   const contractsRef = useRef<EngineContracts | null>(null);
   const rulesSignatureRef = useRef<string | null>(null);
+  const processedPresentationMovesRef = useRef(gameState.moveHistory.length);
+  const previousGameStatusRef = useRef(gameState.gameStatus);
 
-  // The adapters must survive normal board updates. The previous
-  // implementation recreated the engine whenever the board array changed.
+  // Adapters survive normal board updates. Recreating the engine for every board
+  // array would also replay visual and rule events.
   const boardAdapterRef = useRef<ChessBoardAdapter | null>(null);
   if (!boardAdapterRef.current) {
     boardAdapterRef.current = new ChessBoardAdapter(gameState.board);
@@ -53,6 +59,11 @@ export const useRuleEngine = (
   const maxEffectsPerRuleEvent = options.maxEffectsPerRuleEvent ?? 128;
   const maxNestedDepth = options.maxNestedDepth ?? 8;
 
+  const presentationManifests = useMemo(
+    () => extractRulePresentationManifests(rules),
+    [rules],
+  );
+
   const rulesSignature = useMemo(
     () =>
       JSON.stringify({
@@ -69,12 +80,85 @@ export const useRuleEngine = (
   }, [vfxAdapter, playSound]);
 
   useEffect(() => {
+    vfxAdapter.setPresentationManifests(presentationManifests);
+  }, [presentationManifests, vfxAdapter]);
+
+  useEffect(() => {
     boardAdapter.updateBoard(gameState.board);
   }, [boardAdapter, gameState.board]);
 
   useEffect(() => {
     matchAdapter.setCurrentTurn(gameState.currentPlayer);
   }, [gameState.currentPlayer, matchAdapter]);
+
+  useEffect(() => {
+    const currentCount = gameState.moveHistory.length;
+    const previousCount = processedPresentationMovesRef.current;
+
+    if (currentCount < previousCount) {
+      processedPresentationMovesRef.current = currentCount;
+      return;
+    }
+    if (currentCount === previousCount) return;
+
+    for (let index = previousCount; index < currentCount; index += 1) {
+      const move = gameState.moveHistory[index];
+      if (!move) continue;
+
+      const fromTile = positionToTile(move.from);
+      const toTile = positionToTile(move.to);
+      vfxAdapter.playPresentationEvent("move", {
+        tile: toTile,
+        fromTile,
+      });
+
+      if (move.captured) {
+        vfxAdapter.playPresentationEvent("capture", {
+          tile: toTile,
+          fromTile,
+          capturedPieceType: move.captured.type,
+          capturedPieceColor: move.captured.color,
+        });
+      }
+
+      for (const specialCapture of move.specialCaptures ?? []) {
+        vfxAdapter.playPresentationEvent("capture", {
+          tile: positionToTile(specialCapture.piece.position),
+          fromTile,
+          capturedPieceType: specialCapture.piece.type,
+          capturedPieceColor: specialCapture.piece.color,
+        });
+      }
+
+      if (move.promotion) {
+        vfxAdapter.playPresentationEvent("promotion", {
+          tile: toTile,
+          fromTile,
+          promotedPieceType: move.promotion,
+        });
+      }
+    }
+
+    processedPresentationMovesRef.current = currentCount;
+  }, [gameState.moveHistory, vfxAdapter]);
+
+  useEffect(() => {
+    const previousStatus = previousGameStatusRef.current;
+    previousGameStatusRef.current = gameState.gameStatus;
+    if (gameState.gameStatus !== "check" || previousStatus === "check") return;
+
+    const checkedKing = gameState.board
+      .flat()
+      .find(
+        (piece) =>
+          piece?.type === "king" && piece.color === gameState.currentPlayer,
+      );
+    if (!checkedKing) return;
+
+    vfxAdapter.playPresentationEvent("check", {
+      tile: positionToTile(checkedKing.position),
+    });
+  }, [gameState.board, gameState.currentPlayer, gameState.gameStatus, vfxAdapter]);
 
   const initializeEngine = useCallback(() => {
     const signature = rulesSignature;
