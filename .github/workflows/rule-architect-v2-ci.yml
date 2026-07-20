@@ -66,6 +66,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install npm dependencies for Deno npm imports
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Install pinned Deno
         uses: denoland/setup-deno@v2
         with:
@@ -74,8 +88,7 @@ jobs:
 
       - name: Type-check four Edge entrypoints
         run: |
-          deno check \
-            --import-map=supabase/functions/import_map.json \
+          deno check --node-modules-dir=manual \
             supabase/functions/compile-chess-rule/index.ts \
             supabase/functions/publish-rule-version/index.ts \
             supabase/functions/create-rule-lobby-v2/index.ts \
@@ -83,6 +96,6 @@ jobs:
 
       - name: Test Edge replay and CORS guards
         run: |
-          deno test --allow-env \
+          deno test --node-modules-dir=manual --allow-env \
             supabase/functions/_shared/cors-v2.test.ts \
             supabase/functions/compile-chess-rule/replay-state.test.ts

@@ -180,6 +180,11 @@ if (/^\s+paths:/m.test(validationWorkflow)) {
     "workflow CI V2: aucun filtre paths ne doit pouvoir éviter les contrôles.",
   );
 }
+requireText(
+  validationWorkflow,
+  "pnpm install --frozen-lockfile --ignore-scripts",
+  "workflow CI V2",
+);
 
 for (const forbiddenBootstrap of [
   ".rule-architect-v2",

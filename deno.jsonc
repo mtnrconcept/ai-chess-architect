@@ -4,7 +4,6 @@
   "compilerOptions": {
     "strict": true,
     "skipLibCheck": true,
-    "useDefineForClassFields": false,
     "lib": ["deno.ns", "dom", "dom.iterable"]
   },
   "lint": {
