@@ -1,0 +1,66 @@
+name: Apply Rule Architect V2 bootstrap
+
+on:
+  push:
+    branches:
+      - feat/rule-architect-v2
+    paths:
+      - ".rule-architect-v2/**"
+      - ".github/workflows/apply-rule-architect-v2-bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-rule-architect-v2-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/rule-architect-v2
+          fetch-depth: 0
+
+      - name: Rebuild and verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d .rule-architect-v2
+          mapfile -t chunks < <(find .rule-architect-v2 -maxdepth 1 -type f -name 'chunk-*.b64' | sort)
+          test "${#chunks[@]}" -gt 0
+          cat "${chunks[@]}" | base64 --decode > /tmp/rule-architect-v2.zip
+          unzip -t /tmp/rule-architect-v2.zip
+          rm -rf /tmp/rule-architect-v2
+          mkdir -p /tmp/rule-architect-v2
+          unzip -q /tmp/rule-architect-v2.zip -d /tmp/rule-architect-v2
+          installer="$(find /tmp/rule-architect-v2 -type f -path '*/scripts/apply-upgrade.mjs' -print -quit)"
+          test -n "$installer"
+          node "$installer" "$GITHUB_WORKSPACE"
+
+      - name: Remove bootstrap artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .rule-architect-v2
+          rm -f .github/workflows/apply-rule-architect-v2-bootstrap.yml
+
+      - name: Commit applied upgrade
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: add Rule Architect V2"
+          git push origin HEAD:feat/rule-architect-v2
