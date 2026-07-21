@@ -168,3 +168,19 @@ jobs:
           path: .artifacts/compile-chess-rule
           if-no-files-found: error
           retention-days: 1
+
+      - name: Smoke staging JWT gate
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 308
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint='https://hxlqmsutvhsxqydpcybj.supabase.co/functions/v1/compile-chess-rule'
+          status="$(curl --silent --show-error --output staging-edge-response.json --write-out '%{http_code}' \
+            --request POST "$endpoint" \
+            --header 'Content-Type: application/json' \
+            --data '{"prompt":"Lorsqu’une pièce est capturée, un dragon vient l’emporter dans une animation.","premium":false,"requestKey":"11111111-1111-4111-8111-111111111111"}')"
+          if [[ "$status" != '401' ]]; then
+            echo "Expected staging JWT rejection 401, got $status." >&2
+            cat staging-edge-response.json >&2 || true
+            exit 1
+          fi
