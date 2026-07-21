@@ -1,0 +1,100 @@
+name: Temporary Deploy Managed Assets to Staging
+
+on:
+  push:
+    branches:
+      - agent/rule-assets-cinematics
+
+permissions:
+  contents: write
+
+concurrency:
+  group: managed-assets-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'mtnrconcept/ai-chess-architect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging
+    env:
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      SUPABASE_CLI_VERSION: 2.109.1
+      EXPECTED_PROJECT_ID: hxlqmsutvhsxqydpcybj
+      IMPORT_MAP: supabase/functions/import_map.json
+
+    steps:
+      - name: Checkout exact branch commit
+        uses: actions/checkout@v4
+        with:
+          ref: agent/rule-assets-cinematics
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Refuse wrong staging target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SUPABASE_PROJECT_ID" || "$SUPABASE_PROJECT_ID" != "$EXPECTED_PROJECT_ID" ]]; then
+            echo "The protected staging project does not match the expected branch project." >&2
+            exit 1
+          fi
+          test -f "$IMPORT_MAP"
+          jq empty "$IMPORT_MAP"
+          test -f supabase/functions/compile-chess-rule/index.ts
+          test -f supabase/functions/_shared/rule-assets.ts
+          grep -F 'npm:@supabase/supabase-js@2.110.7' supabase/functions/_shared/rule-assets.ts
+          grep -F 'RULE_ASSET_BUCKET_CONFIGURATION_MISMATCH' supabase/migrations/20260720214500_rule_architect_managed_assets.sql
+
+      - name: Prime pinned Supabase CLI
+        shell: bash
+        run: npx --yes "supabase@${SUPABASE_CLI_VERSION}" --version
+
+      - name: Enable managed asset search in staging
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          npx --offline --yes "supabase@${SUPABASE_CLI_VERSION}" secrets set \
+            RULE_ASSET_SEARCH_ENABLED=true \
+            --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Deploy compile-chess-rule to staging
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --offline --yes "supabase@${SUPABASE_CLI_VERSION}" functions deploy compile-chess-rule \
+            --project-ref "$SUPABASE_PROJECT_ID" \
+            --import-map "$IMPORT_MAP"
+
+      - name: Verify JWT gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/compile-chess-rule"
+          status="$(curl --silent --show-error --output /tmp/edge-response.json --write-out '%{http_code}' \
+            --request POST "$endpoint" \
+            --header 'Content-Type: application/json' \
+            --data '{"prompt":"Lorsqu’une pièce est capturée, un dragon vient l’emporter dans une animation.","premium":false,"requestKey":"11111111-1111-4111-8111-111111111111"}')"
+          if [[ "$status" != "401" ]]; then
+            echo "Expected unauthenticated status 401, got $status." >&2
+            cat /tmp/edge-response.json >&2 || true
+            exit 1
+          fi
+
+      - name: Remove temporary deployment workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/temporary-deploy-managed-assets-staging.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/temporary-deploy-managed-assets-staging.yml
+          git commit -m 'chore: complete managed asset staging deployment'
+          git push origin HEAD:agent/rule-assets-cinematics
