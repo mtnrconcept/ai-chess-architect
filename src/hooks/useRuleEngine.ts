@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Cooldown,
   createRuleEngine,
   EventBus,
-  Cooldown,
   StateStore,
   type RuleEngineOptions,
 } from "@/engine/bootstrap";
@@ -10,20 +16,45 @@ import type {
   EngineContracts,
   EngineEventMap,
   EngineEventName,
+  PieceID,
   RuleJSON,
   Side,
+  Tile,
   UIActionSpec,
 } from "@/engine/types";
-import { ChessBoardAdapter } from "@/engine/adapters/chessBoardAdapter";
+import {
+  ChessBoardAdapter,
+  type ChessBoardSnapshot,
+} from "@/engine/adapters/chessBoardAdapter";
 import { UIAdapter } from "@/engine/adapters/uiAdapter";
 import { VFXAdapter } from "@/engine/adapters/vfxAdapter";
 import { MatchAdapter } from "@/engine/adapters/matchAdapter";
+import {
+  resolveCapturedTargetPieceId,
+  type MoveCommittedPayload,
+} from "@/engine/capture-context";
 import type { ChessMove, GameState } from "@/types/chess";
 import { createDeterministicIdGenerator } from "@/rules-v2";
-import { resolveCapturedTargetPieceId } from "@/engine/capture-context";
 import { useSoundEffects } from "./useSoundEffects";
 
-export type UseRuleEngineOptions = RuleEngineOptions;
+export interface UseRuleEngineOptions extends RuleEngineOptions {
+  onBoardChange?: (board: ChessBoardSnapshot) => void;
+  onRuntimeError?: (message: string) => void;
+  onTurnEnd?: () => void;
+}
+
+export interface RuleActionRunResult {
+  ok: boolean;
+  reason?: string;
+}
+
+const ACTION_LOCK_MS = 450;
+const TILE_PATTERN = /^[a-h][1-8]$/;
+
+const safeRuntimeMessage = (error: unknown): string =>
+  error instanceof Error && error.message.trim()
+    ? error.message.slice(0, 300)
+    : "La règle n’a pas pu être exécutée.";
 
 export const useRuleEngine = (
   gameState: GameState,
@@ -31,32 +62,44 @@ export const useRuleEngine = (
   options: UseRuleEngineOptions = {},
 ) => {
   const { playSound } = useSoundEffects();
+  const [engine, setEngine] = useState<ReturnType<typeof createRuleEngine> | null>(
+    null,
+  );
+  const [uiActions, setUiActions] = useState<UIActionSpec[]>([]);
+
   const engineRef = useRef<ReturnType<typeof createRuleEngine> | null>(null);
   const contractsRef = useRef<EngineContracts | null>(null);
-  const rulesSignatureRef = useRef<string | null>(null);
   const latestMoveRef = useRef<{
     move: ChessMove | undefined;
     moveNumber: number;
   }>({ move: undefined, moveNumber: 0 });
+  const actionLocksRef = useRef(new Map<string, number>());
+  const onBoardChangeRef = useRef(options.onBoardChange);
+  const onRuntimeErrorRef = useRef(options.onRuntimeError);
+  const onTurnEndRef = useRef(options.onTurnEnd);
+
+  const boardAdapter = useMemo(
+    () => new ChessBoardAdapter(gameState.board),
+    // Adapter identity must remain stable for the whole mounted match.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const uiAdapter = useMemo(() => new UIAdapter(), []);
+  const vfxAdapter = useMemo(() => new VFXAdapter(), []);
+  const matchAdapter = useMemo(
+    () => new MatchAdapter(gameState.currentPlayer),
+    // MatchAdapter is synchronized through setCurrentTurn below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   latestMoveRef.current = {
     move: gameState.moveHistory[gameState.moveHistory.length - 1],
     moveNumber: gameState.moveHistory.length,
   };
-
-  // The adapters must survive normal board updates. The previous
-  // implementation recreated the engine whenever the board array changed.
-  const boardAdapterRef = useRef<ChessBoardAdapter | null>(null);
-  if (!boardAdapterRef.current) {
-    boardAdapterRef.current = new ChessBoardAdapter(gameState.board);
-  }
-  const boardAdapter = boardAdapterRef.current;
-  const uiAdapter = useMemo(() => new UIAdapter(), []);
-  const vfxAdapter = useMemo(() => new VFXAdapter(), []);
-  const matchAdapterRef = useRef<MatchAdapter | null>(null);
-  if (!matchAdapterRef.current) {
-    matchAdapterRef.current = new MatchAdapter(gameState.currentPlayer);
-  }
-  const matchAdapter = matchAdapterRef.current;
+  onBoardChangeRef.current = options.onBoardChange;
+  onRuntimeErrorRef.current = options.onRuntimeError;
+  onTurnEndRef.current = options.onTurnEnd;
 
   const matchSeed = options.matchSeed ?? "local-match";
   const maxEffectsPerRuleEvent = options.maxEffectsPerRuleEvent ?? 128;
@@ -73,9 +116,19 @@ export const useRuleEngine = (
     [matchSeed, maxEffectsPerRuleEvent, maxNestedDepth, rules],
   );
 
+  useEffect(() => uiAdapter.subscribe(setUiActions), [uiAdapter]);
+
+  useEffect(() => {
+    boardAdapter.setBoardChangeListener((nextBoard) => {
+      onBoardChangeRef.current?.(nextBoard);
+    });
+    return () => boardAdapter.setBoardChangeListener(undefined);
+  }, [boardAdapter]);
+
   useEffect(() => {
     vfxAdapter.setPlaySoundCallback(playSound);
-  }, [vfxAdapter, playSound]);
+    return () => vfxAdapter.setPlaySoundCallback(undefined);
+  }, [playSound, vfxAdapter]);
 
   useEffect(() => {
     boardAdapter.updateBoard(gameState.board);
@@ -85,21 +138,19 @@ export const useRuleEngine = (
     matchAdapter.setCurrentTurn(gameState.currentPlayer);
   }, [gameState.currentPlayer, matchAdapter]);
 
-  const initializeEngine = useCallback(() => {
-    const signature = rulesSignature;
+  useEffect(() => {
+    matchAdapter.setTurnEndCallback(() => onTurnEndRef.current?.());
+    return () => matchAdapter.setTurnEndCallback(() => undefined);
+  }, [matchAdapter]);
 
-    if (engineRef.current && rulesSignatureRef.current === signature) {
-      return engineRef.current;
-    }
-
+  useEffect(() => {
     const eventBus = new EventBus();
     const cooldown = new Cooldown();
     const stateStore = new StateStore();
     const nextDeterministicId = createDeterministicIdGenerator(
       `${String(matchSeed)}|entities`,
     );
-
-    uiAdapter.clearActions();
+    uiAdapter.clearActions(false);
 
     const contracts: EngineContracts = {
       board: boardAdapter,
@@ -112,56 +163,76 @@ export const useRuleEngine = (
       util: {
         uuid: nextDeterministicId,
       },
-      capturePiece: (id: string, reason?: string) => {
-        console.log(`Capturing piece ${id} - ${reason || "rule effect"}`);
-        boardAdapter.removePiece(id);
+      capturePiece: (pieceId: PieceID, reason?: string) => {
+        try {
+          boardAdapter.removePiece(pieceId);
+        } catch (error) {
+          const message = safeRuntimeMessage(error);
+          console.warn("[rule-runtime] capture failed", {
+            pieceId,
+            reason: String(reason ?? "rule-effect").slice(0, 120),
+            message,
+          });
+          onRuntimeErrorRef.current?.(message);
+        }
       },
     };
 
     contractsRef.current = contracts;
-
-    const engine = createRuleEngine(contracts, rules, {
+    const nextEngine = createRuleEngine(contracts, rules, {
       matchSeed,
       maxEffectsPerRuleEvent,
       maxNestedDepth,
     });
+    engineRef.current = nextEngine;
+    setEngine(nextEngine);
+    uiAdapter.flush();
 
-    engineRef.current = engine;
-    rulesSignatureRef.current = signature;
-    return engine;
+    return () => {
+      if (contractsRef.current === contracts) contractsRef.current = null;
+      if (engineRef.current === nextEngine) engineRef.current = null;
+    };
+    // rulesSignature deliberately controls engine rebuilding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     boardAdapter,
     matchAdapter,
     matchSeed,
     maxEffectsPerRuleEvent,
     maxNestedDepth,
-    rules,
     rulesSignature,
     uiAdapter,
     vfxAdapter,
   ]);
 
-  const engine = useMemo(() => initializeEngine(), [initializeEngine]);
-
   const triggerLifecycleEvent = useCallback(
     <Event extends EngineEventName>(
       event: Event,
       payload: EngineEventMap[Event],
-    ) => {
-      contractsRef.current?.eventBus.emit(event, payload);
+    ): boolean => {
+      const contracts = contractsRef.current;
+      if (!contracts) return false;
+      try {
+        contracts.eventBus.emit(event, payload);
+        return true;
+      } catch (error) {
+        const message = safeRuntimeMessage(error);
+        console.warn("[rule-runtime] lifecycle event failed", { event, message });
+        onRuntimeErrorRef.current?.(message);
+        return false;
+      }
     },
     [],
   );
 
   const onEnterTile = useCallback(
-    (pieceId: string, to: string) => {
-      triggerLifecycleEvent("lifecycle.onEnterTile", { pieceId, to });
-    },
+    (pieceId: PieceID, to: Tile) =>
+      triggerLifecycleEvent("lifecycle.onEnterTile", { pieceId, to }),
     [triggerLifecycleEvent],
   );
 
   const onMoveCommitted = useCallback(
-    (payload: EngineEventMap["lifecycle.onMoveCommitted"]) => {
+    (payload: MoveCommittedPayload) => {
       const targetPieceId =
         payload.targetPieceId ??
         resolveCapturedTargetPieceId(
@@ -169,7 +240,7 @@ export const useRuleEngine = (
           latestMoveRef.current.moveNumber,
           payload,
         );
-      triggerLifecycleEvent("lifecycle.onMoveCommitted", {
+      return triggerLifecycleEvent("lifecycle.onMoveCommitted", {
         ...payload,
         targetPieceId,
       });
@@ -177,74 +248,116 @@ export const useRuleEngine = (
     [triggerLifecycleEvent],
   );
 
-  const onUndo = useCallback(() => {
-    triggerLifecycleEvent("lifecycle.onUndo", {});
-  }, [triggerLifecycleEvent]);
+  const onUndo = useCallback(
+    () => triggerLifecycleEvent("lifecycle.onUndo", {}),
+    [triggerLifecycleEvent],
+  );
 
   const onPromote = useCallback(
-    (pieceId: string, fromType: string, toType: string) => {
+    (pieceId: PieceID, fromType: string, toType: string) =>
       triggerLifecycleEvent("lifecycle.onPromote", {
         pieceId,
         fromType,
         toType,
-      });
-    },
+      }),
     [triggerLifecycleEvent],
   );
 
   const onTurnStart = useCallback(
-    (side: Side) => {
-      triggerLifecycleEvent("lifecycle.onTurnStart", { side });
-    },
+    (side: Side) =>
+      triggerLifecycleEvent("lifecycle.onTurnStart", { side }),
     [triggerLifecycleEvent],
   );
 
   const runUIAction = useCallback(
-    (actionId: string, pieceId?: string, targetTile?: string) => {
-      triggerLifecycleEvent("ui.runAction", {
-        actionId,
-        pieceId,
-        targetTile,
-      });
+    (
+      actionId: string,
+      pieceId?: PieceID,
+      targetTile?: Tile,
+    ): RuleActionRunResult => {
+      const contracts = contractsRef.current;
+      if (!contracts) return { ok: false, reason: "Moteur indisponible." };
+
+      const action = uiAdapter.getAction(actionId);
+      if (!action) return { ok: false, reason: "Action inconnue ou inactive." };
+
+      if (action.availability?.requiresSelection && !pieceId) {
+        return { ok: false, reason: "Sélectionne d’abord une pièce." };
+      }
+      if (pieceId) {
+        try {
+          boardAdapter.getPiece(pieceId);
+        } catch {
+          return { ok: false, reason: "La pièce sélectionnée n’existe plus." };
+        }
+      }
+
+      const targetMode = action.targeting?.mode ?? "none";
+      if (targetMode !== "none") {
+        if (!targetTile || !TILE_PATTERN.test(String(targetTile))) {
+          return { ok: false, reason: "Choisis une case valide." };
+        }
+        if (!boardAdapter.withinBoard(targetTile)) {
+          return { ok: false, reason: "Cette case est hors du plateau." };
+        }
+      }
+
+      const lockKey = `${actionId}:${pieceId ?? "none"}:${targetTile ?? "none"}`;
+      const now = Date.now();
+      const lockedUntil = actionLocksRef.current.get(lockKey) ?? 0;
+      if (lockedUntil > now) {
+        return { ok: false, reason: "Action déjà envoyée." };
+      }
+      actionLocksRef.current.set(lockKey, now + ACTION_LOCK_MS);
+
+      try {
+        contracts.eventBus.emit("ui.runAction", {
+          actionId,
+          pieceId,
+          targetTile: targetMode === "none" ? undefined : targetTile,
+        });
+        return { ok: true };
+      } catch (error) {
+        const message = safeRuntimeMessage(error);
+        onRuntimeErrorRef.current?.(message);
+        return { ok: false, reason: message };
+      } finally {
+        window.setTimeout(() => {
+          const value = actionLocksRef.current.get(lockKey);
+          if (value && value <= Date.now()) actionLocksRef.current.delete(lockKey);
+        }, ACTION_LOCK_MS + 25);
+      }
     },
-    [triggerLifecycleEvent],
+    [boardAdapter, uiAdapter],
   );
 
   const tickCooldowns = useCallback(() => {
     contractsRef.current?.cooldown.tickAll();
   }, []);
 
-  const getUIActions = useCallback((): UIActionSpec[] => {
-    return uiAdapter.getAllActions();
-  }, [uiAdapter]);
+  const getUIActions = useCallback(
+    (): UIActionSpec[] => uiAdapter.getAllActions(),
+    [uiAdapter],
+  );
 
   const serializeState = useCallback(() => {
-    if (!contractsRef.current) {
-      return null;
-    }
-
+    const contracts = contractsRef.current;
+    if (!contracts) return null;
     return {
-      rules: contractsRef.current.state.serialize(),
-      cooldowns: contractsRef.current.cooldown.serialize(),
+      rules: contracts.state.serialize(),
+      cooldowns: contracts.cooldown.serialize(),
     };
   }, []);
 
   const deserializeState = useCallback((state: unknown) => {
-    if (!contractsRef.current || !state || typeof state !== "object") {
-      return;
-    }
-
-    const payload = state as {
-      rules?: unknown;
-      cooldowns?: unknown;
-    };
-
+    const contracts = contractsRef.current;
+    if (!contracts || !state || typeof state !== "object") return;
+    const payload = state as { rules?: unknown; cooldowns?: unknown };
     if (typeof payload.rules === "string") {
-      contractsRef.current.state.deserialize(payload.rules);
+      contracts.state.deserialize(payload.rules);
     }
-
     if (typeof payload.cooldowns === "string") {
-      contractsRef.current.cooldown.deserialize(payload.cooldowns);
+      contracts.cooldown.deserialize(payload.cooldowns);
     }
   }, []);
 
@@ -258,6 +371,7 @@ export const useRuleEngine = (
     runUIAction,
     tickCooldowns,
     getUIActions,
+    uiActions,
     serializeState,
     deserializeState,
     boardAdapter,
