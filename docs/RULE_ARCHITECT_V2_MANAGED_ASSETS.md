@@ -72,7 +72,9 @@ secrets des Edge Functions. Aucune de ces valeurs ne doit être préfixée par
 Le courtier d'assets utilise la même version épinglée de Supabase JS que les
 autres fonctions Edge V2 : `npm:@supabase/supabase-js@2.110.7`. Ce pin commun
 évite les graphes de types Deno incompatibles entre `auth-v2.ts` et
-`rule-assets.ts`.
+`rule-assets.ts`. Le calcul SHA-256 copie aussi les octets dans un `ArrayBuffer`
+dédié avant l'appel WebCrypto afin de rester compatible avec les types stricts
+de Deno 2.9.3.
 
 ## Déploiement
 
