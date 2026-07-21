@@ -142,12 +142,12 @@ jobs:
               --platform=neutral \
               --target=es2022 \
               '--external:npm:*' \
-              --outfile=.artifacts/compile-chess-rule/index.ts
-            grep -F 'Deno.serve' .artifacts/compile-chess-rule/index.ts
-            grep -F 'RULE_ASSET_SEARCH_ENABLED' .artifacts/compile-chess-rule/index.ts
+              --outfile=.artifacts/compile-chess-rule/index.js
+            grep -F 'Deno.serve' .artifacts/compile-chess-rule/index.js
+            grep -F 'RULE_ASSET_SEARCH_ENABLED' .artifacts/compile-chess-rule/index.js
             grep -F 'RULE_ASSET_BUCKET_CONFIGURATION_MISMATCH' supabase/migrations/20260720214500_rule_architect_managed_assets.sql
-            deno check --node-modules-dir=manual .artifacts/compile-chess-rule/index.ts
-            sha256sum .artifacts/compile-chess-rule/index.ts > .artifacts/compile-chess-rule/SHA256SUMS
+            deno check --node-modules-dir=manual .artifacts/compile-chess-rule/index.js
+            sha256sum .artifacts/compile-chess-rule/index.js > .artifacts/compile-chess-rule/SHA256SUMS
           } 2>&1 | tee bundle-build.log
 
       - name: Upload bundle diagnostics on failure
