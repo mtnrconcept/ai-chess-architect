@@ -1,0 +1,39 @@
+name: Temporary Platform Finalization PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'agent/platform-finalization-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/platform-finalization-v1
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python3 scripts/platform-finalization-patch.py
+
+      - name: Remove temporary patch infrastructure
+        run: |
+          rm -f scripts/platform-finalization-patch.py
+          rm -f .github/workflows/temporary-platform-finalization-patcher.yml
+          rm -f .github/workflows/temporary-platform-finalization-pr.yml
+          rm -f docs/.platform-finalization-trigger
+
+      - name: Commit final patch
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: finalize guided rules, lobbies, and tournament recovery'
+          git push origin HEAD:agent/platform-finalization-v1
