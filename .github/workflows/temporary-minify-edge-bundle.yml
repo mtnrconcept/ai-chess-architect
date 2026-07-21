@@ -1,0 +1,55 @@
+name: Temporary Minify Edge Bundle
+
+on:
+  push:
+    branches:
+      - agent/rule-assets-cinematics
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.repository == 'mtnrconcept/ai-chess-architect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/rule-assets-cinematics
+          fetch-depth: 0
+
+      - name: Add pinned bundle minification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/rule-architect-v2-ci.yml')
+          source = path.read_text()
+          old = '''              --platform=neutral \\
+              --target=es2022 \\
+              '--external:npm:*' \\
+          '''
+          new = '''              --platform=neutral \\
+              --target=es2022 \\
+              --minify \\
+              '--external:npm:*' \\
+          '''
+          if old not in source:
+              raise SystemExit('Expected esbuild option block not found')
+          path.write_text(source.replace(old, new, 1))
+          PY
+          grep -F -- '--minify' .github/workflows/rule-architect-v2-ci.yml
+          rm -f .github/workflows/temporary-minify-edge-bundle.yml
+
+      - name: Commit correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/rule-architect-v2-ci.yml .github/workflows/temporary-minify-edge-bundle.yml
+          git commit -m 'ci: minify the connector deployment bundle'
+          git push origin HEAD:agent/rule-assets-cinematics
