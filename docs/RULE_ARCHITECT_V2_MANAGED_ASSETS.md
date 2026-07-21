@@ -56,14 +56,25 @@ le résultat du coup restent contrôlés par le moteur d'échecs.
 
 ## Variables serveur
 
-La recherche externe est volontairement désactivée par défaut. Elle nécessite :
+La recherche externe sûre est active par défaut pour les prompts qui demandent
+explicitement un élément visuel animé. Elle dépend des secrets Edge déjà requis
+par Rule Architect V2 :
 
 ```text
-RULE_ASSET_SEARCH_ENABLED=true
 OPENAI_API_KEY=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
+
+Un opérateur peut la désactiver immédiatement, sans redéploiement, avec :
+
+```text
+RULE_ASSET_SEARCH_ENABLED=false
+```
+
+Les valeurs `false`, `0`, `off` et `disabled` sont reconnues comme un opt-out.
+Toute absence de clé, erreur de modération, erreur réseau ou ressource non sûre
+produit un repli local sans asset externe.
 
 `OPENAI_API_KEY` et `SUPABASE_SERVICE_ROLE_KEY` restent exclusivement dans les
 secrets des Edge Functions. Aucune de ces valeurs ne doit être préfixée par
@@ -80,12 +91,13 @@ de Deno 2.9.3.
 
 1. appliquer `20260720214500_rule_architect_managed_assets.sql` ;
 2. déployer `compile-chess-rule` avec les fichiers `_shared` associés ;
-3. activer `RULE_ASSET_SEARCH_ENABLED=true` d'abord en staging ;
-4. compiler une règle de capture avec dragon et vérifier la ligne
+3. compiler une règle de capture avec dragon et vérifier la ligne
    `public.rule_assets`, le fichier Storage et la cinématique ;
-5. tester les rejets : URL utilisateur, faux bloc serveur, SVG, redirection,
+4. tester les rejets : URL utilisateur, faux bloc serveur, SVG, redirection,
    image signalée et réponse de modération indisponible ;
-6. déployer le frontend après réussite de la CI et des smoke tests.
+5. déployer le frontend après réussite de la CI et des smoke tests ;
+6. utiliser `RULE_ASSET_SEARCH_ENABLED=false` comme coupe-circuit opérationnel
+   en cas d'incident fournisseur.
 
 ## Extension future
 
