@@ -1,7 +1,12 @@
 name: Temporary Publish Vercel Static Assets
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - agent/vercel-static-release
+    paths:
+      - .github/workflows/temporary-publish-vercel-static-assets.yml
+      - ops/vercel-static-release-trigger/**
 
 permissions:
   contents: write
@@ -38,6 +43,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build immutable static release
+        env:
+          VITE_SUPABASE_URL: https://ucaqbhmyutlnitnedowk.supabase.co
+          VITE_SUPABASE_PROJECT_ID: ucaqbhmyutlnitnedowk
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_hOLHA7zjNCtCx1bSsvlGXA_aYKJivYg
         run: pnpm build
 
       - name: Validate static output
@@ -47,6 +56,8 @@ jobs:
           test -s dist/index.html
           test "$(find dist/assets -maxdepth 1 -type f -name 'index-*.js' | wc -l)" -eq 1
           test "$(find dist/assets -maxdepth 1 -type f -name 'index-*.css' | wc -l)" -eq 1
+          grep -R -F 'ucaqbhmyutlnitnedowk.supabase.co' dist/assets/index-*.js
+          grep -R -F 'sb_publishable_hOLHA7zjNCtCx1bSsvlGXA_aYKJivYg' dist/assets/index-*.js
 
       - name: Publish immutable branch
         shell: bash
