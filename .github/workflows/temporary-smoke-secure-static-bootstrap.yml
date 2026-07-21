@@ -1,0 +1,128 @@
+name: Temporary Smoke Secure Static Bootstrap
+
+on:
+  push:
+    branches:
+      - agent/vercel-static-release
+    paths:
+      - ops/vercel-static-bootstrap/**
+      - .github/workflows/temporary-smoke-secure-static-bootstrap.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temporary-smoke-secure-static-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+
+      - name: Verify immutable remote assets and CORS
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/mtnrconcept/ai-chess-architect/7920a871c94cc963c1a7a4e25dd0abb998ee3384/assets'
+          curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+            --dump-header /tmp/app-js.headers \
+            --output /tmp/app.js \
+            "$base/index-L7sMvx6V.js"
+          curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+            --dump-header /tmp/app-css.headers \
+            --output /tmp/app.css \
+            "$base/index-Cz276MiZ.css"
+
+          printf '%s  %s\n' \
+            '5b5732266c317dfc021185409577c1594e70c108ea0ccba5d262e2f0e8fa423f' \
+            '/tmp/app.js' | sha256sum --check
+          printf '%s  %s\n' \
+            '29e9dfa873ec8ceb445d2a0d89f87ef50899733230878fd0d004c2d0136b5b7d' \
+            '/tmp/app.css' | sha256sum --check
+
+          tr -d '\r' < /tmp/app-js.headers | grep -Eiq '^access-control-allow-origin: (\*|https?://)'
+          tr -d '\r' < /tmp/app-css.headers | grep -Eiq '^access-control-allow-origin: (\*|https?://)'
+
+      - name: Install Chromium smoke runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/browser-smoke
+          cd /tmp/browser-smoke
+          npm init --yes >/dev/null
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Start local SPA server
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ops/vercel-static-bootstrap
+          python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/static-bootstrap-server.log 2>&1 &
+          echo "$!" > /tmp/static-bootstrap-server.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/static-bootstrap-server.log >&2 || true
+          exit 1
+
+      - name: Boot application in Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/browser-smoke
+          node <<'NODE'
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const pageErrors = [];
+            page.on('pageerror', (error) => pageErrors.push(error.message));
+
+            const response = await page.goto('http://127.0.0.1:4173/', {
+              waitUntil: 'domcontentloaded',
+              timeout: 120000,
+            });
+
+            if (!response || response.status() !== 200) {
+              throw new Error(`Unexpected bootstrap HTTP status: ${response?.status()}`);
+            }
+
+            await page.waitForFunction(
+              () => {
+                const status = document.getElementById('boot-status');
+                const root = document.getElementById('root');
+                return Boolean(status?.hidden && root && root.childElementCount > 0);
+              },
+              undefined,
+              { timeout: 120000 },
+            );
+
+            const bootFailed = await page.locator('.boot-error').count();
+            const rootChildren = await page.locator('#root > *').count();
+            const title = await page.title();
+
+            if (bootFailed > 0 || rootChildren < 1) {
+              throw new Error('The secure bootstrap did not mount the React application.');
+            }
+
+            if (pageErrors.length > 0) {
+              throw new Error(`Browser page errors: ${pageErrors.join(' | ')}`);
+            }
+
+            console.log(JSON.stringify({ title, rootChildren, bootFailed }));
+            await browser.close();
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
