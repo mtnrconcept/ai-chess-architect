@@ -170,30 +170,3 @@ jobs:
             cat production-edge-response.json >&2 || true
             exit 1
           fi
-
-  wire-live-coach:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/platform-finalization-v1'
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/platform-finalization-v1
-          fetch-depth: 0
-
-      - name: Wire live coach avatar
-        run: python3 scripts/wire-live-coach.py
-
-      - name: Commit live coach wiring
-        env:
-          HUSKY: "0"
-        run: |
-          set -euo pipefail
-          if git diff --quiet; then exit 0; fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/pages/Play.tsx
-          git commit --no-verify -m 'feat: surface real-time coach avatar after every move'
-          git push origin HEAD:agent/platform-finalization-v1
