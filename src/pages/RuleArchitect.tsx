@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import NeonBackground from "@/components/layout/NeonBackground";
 import { useAuth } from "@/contexts/AuthContext";
-import RuleArchitectPanel from "@/features/rule-architect/RuleArchitectPanel";
+import GuidedRuleArchitectPanel from "@/features/rule-architect/GuidedRuleArchitectPanel";
 
 export default function RuleArchitect() {
   const { user, loading } = useAuth();
@@ -33,8 +33,8 @@ export default function RuleArchitect() {
             <CardHeader>
               <CardTitle>Connexion requise</CardTitle>
               <CardDescription>
-                Connecte-toi pour compiler, publier et enregistrer tes variantes
-                dans un lobby.
+                Connecte-toi pour concevoir, clarifier, compiler et publier tes
+                variantes dans un lobby sécurisé.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-3">
@@ -56,7 +56,7 @@ export default function RuleArchitect() {
 
   return (
     <NeonBackground>
-      <RuleArchitectPanel />
+      <GuidedRuleArchitectPanel />
     </NeonBackground>
   );
 }
