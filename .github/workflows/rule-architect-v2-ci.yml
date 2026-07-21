@@ -141,6 +141,7 @@ jobs:
               --format=esm \
               --platform=neutral \
               --target=es2022 \
+              --minify \
               '--external:npm:*' \
               --outfile=.artifacts/compile-chess-rule/index.js
             grep -F 'Deno.serve' .artifacts/compile-chess-rule/index.js
