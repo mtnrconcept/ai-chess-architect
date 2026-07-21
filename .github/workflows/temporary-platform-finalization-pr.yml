@@ -22,14 +22,6 @@ jobs:
       - name: Apply patch
         run: python3 scripts/platform-finalization-patch.py
 
-      - name: Remove temporary patch infrastructure
-        run: |
-          rm -f scripts/platform-finalization-patch.py
-          rm -f .github/workflows/temporary-platform-finalization-patcher.yml
-          rm -f .github/workflows/temporary-platform-finalization-pr.yml
-          rm -f .github/workflows/temporary-platform-finalization-artifact.yml
-          rm -f docs/.platform-finalization-trigger
-
       - name: Commit final patch
         env:
           HUSKY: "0"
@@ -37,6 +29,10 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add supabase/functions/compile-chess-rule/index.ts
+          git add .github/workflows/rule-architect-v2-ci.yml
+          git add src/pages/Lobby.tsx
+          git add src/pages/Tournaments.tsx
+          git add src/features/rule-architect/GuidedRuleArchitectPanel.tsx
           git commit --no-verify -m 'fix: finalize guided rules, lobbies, and tournament recovery'
           git push origin HEAD:agent/platform-finalization-v1
