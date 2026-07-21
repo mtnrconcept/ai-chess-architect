@@ -1,0 +1,108 @@
+name: Temporary Deploy Managed Assets Function to Staging
+
+on:
+  push:
+    branches:
+      - agent/rule-assets-cinematics
+
+permissions:
+  contents: write
+
+concurrency:
+  group: managed-assets-function-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'mtnrconcept/ai-chess-architect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_PROJECT_ID: hxlqmsutvhsxqydpcybj
+      SUPABASE_CLI_VERSION: 2.109.1
+      IMPORT_MAP: supabase/functions/import_map.json
+
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/rule-assets-cinematics
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Deploy function and verify JWT gate
+        id: deploy
+        continue-on-error: true
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set +e
+          result='unknown_failure'
+          code=1
+
+          if [[ -z "$SUPABASE_ACCESS_TOKEN" ]]; then
+            result='repository_access_token_missing'
+          elif [[ ! -f "$IMPORT_MAP" ]]; then
+            result='import_map_missing'
+          else
+            npx --yes "supabase@${SUPABASE_CLI_VERSION}" --version >/tmp/supabase-cli-version.txt 2>&1
+            prime_code=$?
+            if [[ $prime_code -ne 0 ]]; then
+              result='cli_prime_failed'
+            else
+              npx --offline --yes "supabase@${SUPABASE_CLI_VERSION}" functions deploy compile-chess-rule \
+                --project-ref "$SUPABASE_PROJECT_ID" \
+                --import-map "$IMPORT_MAP" >/tmp/supabase-deploy.txt 2>&1
+              deploy_code=$?
+              if [[ $deploy_code -ne 0 ]]; then
+                result='function_deploy_failed'
+              else
+                endpoint="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/compile-chess-rule"
+                status="$(curl --silent --show-error --output /tmp/edge-response.json --write-out '%{http_code}' \
+                  --request POST "$endpoint" \
+                  --header 'Content-Type: application/json' \
+                  --data '{"prompt":"Lorsqu’une pièce est capturée, un dragon vient l’emporter dans une animation.","premium":false,"requestKey":"11111111-1111-4111-8111-111111111111"}' 2>/tmp/curl-error.txt)"
+                curl_code=$?
+                if [[ $curl_code -ne 0 ]]; then
+                  result='jwt_smoke_request_failed'
+                elif [[ "$status" != '401' ]]; then
+                  result="jwt_smoke_unexpected_${status}"
+                else
+                  result='success'
+                  code=0
+                fi
+              fi
+            fi
+          fi
+
+          printf '%s\n' "$result" > /tmp/managed-assets-function-staging-result.txt
+          exit "$code"
+
+      - name: Record result and remove temporary workflow
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(cat /tmp/managed-assets-function-staging-result.txt 2>/dev/null || printf 'workflow_interrupted')"
+          rm -f .github/workflows/temporary-deploy-managed-assets-function-staging.yml
+
+          if [[ "$result" == 'success' ]]; then
+            rm -f docs/.managed-assets-staging-deploy-status
+          else
+            printf 'status=%s\ncommit=%s\n' "$result" "$GITHUB_SHA" > docs/.managed-assets-staging-deploy-status
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/temporary-deploy-managed-assets-function-staging.yml docs/.managed-assets-staging-deploy-status
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore: record managed asset function staging deploy (${result})"
+          git push origin HEAD:agent/rule-assets-cinematics
+
+      - name: Fail when deployment did not succeed
+        if: steps.deploy.outcome != 'success'
+        shell: bash
+        run: exit 1
