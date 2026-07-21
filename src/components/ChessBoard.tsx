@@ -120,6 +120,7 @@ const ChessBoard = ({
                   <button
                     type="button"
                     key={`${rowIndex}-${colIndex}`}
+                    data-chess-cell={`${String.fromCharCode(97 + colIndex)}${8 - rowIndex}`}
                     onClick={readOnly ? undefined : handleClick}
                     aria-disabled={readOnly}
                     className={cn(

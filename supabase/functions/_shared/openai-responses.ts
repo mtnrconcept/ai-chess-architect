@@ -1,3 +1,9 @@
+import {
+  assertManagedAssetReferences,
+  prepareRuleArchitectInput,
+  type PreparedRuleArchitectInput,
+} from "./rule-architect-input.ts";
+
 interface OpenAIUsage {
   input_tokens?: number;
   output_tokens?: number;
@@ -132,6 +138,19 @@ export async function createStructuredResponse(input: {
   reasoningEffort: "low" | "medium" | "high";
   timeoutMs?: number;
 }): Promise<StructuredResponseResult> {
+  const preparedInput:
+    | PreparedRuleArchitectInput
+    | {
+        systemPrompt: string;
+        userPrompt: string;
+      } =
+    input.schemaName === "rule_blueprint_v2"
+      ? await prepareRuleArchitectInput(input.systemPrompt, input.userPrompt)
+      : {
+          systemPrompt: input.systemPrompt,
+          userPrompt: input.userPrompt,
+        };
+
   const body = {
     model: input.model,
     input: [
@@ -140,7 +159,7 @@ export async function createStructuredResponse(input: {
         content: [
           {
             type: "input_text",
-            text: input.systemPrompt,
+            text: preparedInput.systemPrompt,
           },
         ],
       },
@@ -149,7 +168,7 @@ export async function createStructuredResponse(input: {
         content: [
           {
             type: "input_text",
-            text: input.userPrompt,
+            text: preparedInput.userPrompt,
           },
         ],
       },
@@ -226,6 +245,12 @@ export async function createStructuredResponse(input: {
         value = JSON.parse(outputText);
       } catch {
         throw new Error("La réponse structurée n'est pas un JSON valide.");
+      }
+
+      if (input.schemaName === "rule_blueprint_v2") {
+        const managedAsset =
+          "managedAsset" in preparedInput ? preparedInput.managedAsset : null;
+        assertManagedAssetReferences(value, managedAsset);
       }
 
       return {

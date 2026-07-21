@@ -73,7 +73,12 @@ export interface PersistenceAPI {
 
 export interface EngineEventMap {
   "lifecycle.onEnterTile": { pieceId: PieceID; to: Tile };
-  "lifecycle.onMoveCommitted": { pieceId: PieceID; from: Tile; to: Tile };
+  "lifecycle.onMoveCommitted": {
+    pieceId: PieceID;
+    from: Tile;
+    to: Tile;
+    targetPieceId?: PieceID;
+  };
   "lifecycle.onUndo": Record<string, never>;
   "lifecycle.onPromote": {
     pieceId: PieceID;

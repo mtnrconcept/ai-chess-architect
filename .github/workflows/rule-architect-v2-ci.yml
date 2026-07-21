@@ -94,21 +94,52 @@ jobs:
           cache: true
 
       - name: Type-check five Edge entrypoints
+        shell: bash
         run: |
+          set -o pipefail
           deno check --node-modules-dir=manual \
             supabase/functions/compile-chess-rule/index.ts \
             supabase/functions/publish-rule-version/index.ts \
             supabase/functions/create-rule-lobby-v2/index.ts \
             supabase/functions/join-rule-lobby-v2/index.ts \
-            supabase/functions/process-chess-move/index.ts
+            supabase/functions/process-chess-move/index.ts \
+            2>&1 | tee deno-check.log
 
-      - name: Test Edge replay, CORS, and STANDARD move guards
+      - name: Upload Deno diagnostics on failure
+        if: failure() && hashFiles('deno-check.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: deno-check-diagnostics
+          path: deno-check.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Test Edge replay, CORS, managed assets, and STANDARD move guards
         run: |
           deno test --node-modules-dir=manual --allow-env \
             supabase/functions/_shared/cors-v2.test.ts \
+            supabase/functions/_shared/prompt-security.test.ts \
+            supabase/functions/_shared/rule-architect-input.test.ts \
+            supabase/functions/_shared/rule-assets.test.ts \
             supabase/functions/compile-chess-rule/replay-state.test.ts \
             supabase/functions/process-chess-move/protocol.test.ts \
             supabase/functions/process-chess-move/clock.test.ts \
             supabase/functions/process-chess-move/standard-engine.test.ts \
             supabase/functions/process-chess-move/integrity.test.ts \
             supabase/functions/process-chess-move/handler.test.ts
+
+      - name: Smoke production JWT gate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint='https://ucaqbhmyutlnitnedowk.supabase.co/functions/v1/compile-chess-rule'
+          status="$(curl --silent --show-error --output production-edge-response.json --write-out '%{http_code}' \
+            --request POST "$endpoint" \
+            --header 'Content-Type: application/json' \
+            --data '{"prompt":"Lorsqu’une pièce est capturée, un dragon vient l’emporter dans une animation.","premium":false,"requestKey":"11111111-1111-4111-8111-111111111111"}')"
+          if [[ "$status" != '401' ]]; then
+            echo "Expected production JWT rejection 401, got $status." >&2
+            cat production-edge-response.json >&2 || true
+            exit 1
+          fi
