@@ -652,7 +652,8 @@ const moderateCandidate = async (
 };
 
 const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const digestInput = Uint8Array.from(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", digestInput.buffer);
   return [...new Uint8Array(digest)]
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
