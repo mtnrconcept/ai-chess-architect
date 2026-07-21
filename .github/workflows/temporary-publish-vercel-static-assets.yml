@@ -1,0 +1,72 @@
+name: Temporary Publish Vercel Static Assets
+
+on:
+  push:
+    branches:
+      - agent/vercel-static-release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-vercel-static-assets
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: github.repository == 'mtnrconcept/ai-chess-architect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/vercel-static-release
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build immutable static release
+        run: pnpm build
+
+      - name: Validate static output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          test "$(find dist/assets -maxdepth 1 -type f -name 'index-*.js' | wc -l)" -eq 1
+          test "$(find dist/assets -maxdepth 1 -type f -name 'index-*.css' | wc -l)" -eq 1
+
+      - name: Publish immutable branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/vercel-static-assets"
+          rm -rf "$release_dir"
+          mkdir -p "$release_dir"
+          cp -a dist/. "$release_dir/"
+          printf '%s\n' "$GITHUB_SHA" > "$release_dir/SOURCE_COMMIT"
+          touch "$release_dir/.nojekyll"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout --orphan vercel-static-assets-worktree
+          git rm -rf .
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "$release_dir"/. .
+          git add -A
+          git commit -m "deploy: immutable static release ${GITHUB_SHA}"
+          git push --force origin HEAD:refs/heads/vercel-static-assets
