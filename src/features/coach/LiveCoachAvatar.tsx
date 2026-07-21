@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, ChevronDown, ChevronUp, Loader2, Sparkles, X } from "lucide-react";
+import {
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -7,7 +14,7 @@ interface LiveCoachAvatarProps {
   enabled: boolean;
   loading: boolean;
   message: string | null;
-  error?: string | null;
+  remoteUnavailable?: boolean;
   moveCount: number;
   onOpen: () => void;
   onEnable: () => void;
@@ -20,7 +27,7 @@ export default function LiveCoachAvatar({
   enabled,
   loading,
   message,
-  error,
+  remoteUnavailable = false,
   moveCount,
   onOpen,
   onEnable,
@@ -38,10 +45,15 @@ export default function LiveCoachAvatar({
 
   const visibleMessage = useMemo(() => {
     if (loading) return "J’analyse le dernier coup…";
-    if (error) return "Je continue avec une analyse locale sécurisée.";
     if (message?.trim()) return trimMessage(message.trim());
+    if (remoteUnavailable) {
+      return "Analyse locale active. Le coach distant se reconnectera automatiquement.";
+    }
     return "Joue un coup : je commenterai immédiatement la position.";
-  }, [error, loading, message]);
+  }, [loading, message, remoteUnavailable]);
+
+  const bottomClass =
+    "bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+1rem)]";
 
   if (dismissed) {
     return (
@@ -49,7 +61,10 @@ export default function LiveCoachAvatar({
         type="button"
         size="icon"
         onClick={() => setDismissed(false)}
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+1rem)] right-4 z-50 h-14 w-14 rounded-full shadow-2xl lg:hidden"
+        className={cn(
+          "fixed right-4 z-40 h-14 w-14 rounded-full shadow-2xl lg:hidden",
+          bottomClass,
+        )}
         aria-label="Afficher le coach Voltus"
       >
         <Bot className="h-6 w-6" />
@@ -62,14 +77,19 @@ export default function LiveCoachAvatar({
       <button
         type="button"
         onClick={onEnable}
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+1rem)] right-4 z-50 flex items-center gap-3 rounded-full border border-cyan-300/30 bg-slate-950/95 px-4 py-3 text-left text-white shadow-2xl backdrop-blur lg:hidden"
+        className={cn(
+          "fixed right-4 z-40 flex items-center gap-3 rounded-full border border-cyan-300/30 bg-slate-950/95 px-4 py-3 text-left text-white shadow-2xl backdrop-blur lg:hidden",
+          bottomClass,
+        )}
       >
         <span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-cyan-400 to-violet-500">
           <Bot className="h-5 w-5" />
         </span>
         <span>
           <span className="block text-sm font-bold">Activer le coach</span>
-          <span className="block text-xs text-white/60">Commentaires après chaque coup</span>
+          <span className="block text-xs text-white/60">
+            Commentaires après chaque coup
+          </span>
         </span>
       </button>
     );
@@ -78,7 +98,8 @@ export default function LiveCoachAvatar({
   return (
     <section
       className={cn(
-        "fixed bottom-[calc(env(safe-area-inset-bottom)+1rem)] left-3 right-3 z-50 overflow-hidden rounded-3xl border border-cyan-300/25 bg-slate-950/95 text-white shadow-[0_24px_80px_rgba(8,145,178,0.35)] backdrop-blur-xl transition lg:hidden",
+        "fixed left-3 right-3 z-40 overflow-hidden rounded-3xl border border-cyan-300/25 bg-slate-950/95 text-white shadow-[0_24px_80px_rgba(8,145,178,0.35)] backdrop-blur-xl transition lg:hidden",
+        bottomClass,
         !expanded && "left-auto w-auto rounded-full",
       )}
       aria-live="polite"
@@ -100,7 +121,11 @@ export default function LiveCoachAvatar({
         </button>
 
         {expanded && (
-          <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+          <button
+            type="button"
+            onClick={onOpen}
+            className="min-w-0 flex-1 text-left"
+          >
             <span className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-200">
               Coach Voltus
               {moveCount > 0 && (
@@ -124,7 +149,11 @@ export default function LiveCoachAvatar({
             onClick={() => setExpanded((value) => !value)}
             aria-label={expanded ? "Réduire le coach" : "Déployer le coach"}
           >
-            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            {expanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
           </Button>
           {expanded && (
             <Button
