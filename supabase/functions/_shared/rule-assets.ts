@@ -1,7 +1,7 @@
 import {
   createClient,
   type SupabaseClient,
-} from "npm:@supabase/supabase-js@2.57.4";
+} from "npm:@supabase/supabase-js@2.110.7";
 
 const COMMONS_API_URL = "https://commons.wikimedia.org/w/api.php";
 const COMMONS_HOST = "commons.wikimedia.org";
