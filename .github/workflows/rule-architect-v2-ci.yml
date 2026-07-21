@@ -132,20 +132,32 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.number == 308
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p .artifacts/compile-chess-rule
-          pnpm exec esbuild supabase/functions/compile-chess-rule/index.ts \
-            --bundle \
-            --format=esm \
-            --platform=neutral \
-            --target=es2022 \
-            '--external:npm:*' \
-            --outfile=.artifacts/compile-chess-rule/index.ts
-          grep -F 'Deno.serve' .artifacts/compile-chess-rule/index.ts
-          grep -F 'RULE_ASSET_SEARCH_ENABLED' .artifacts/compile-chess-rule/index.ts
-          grep -F 'RULE_ASSET_BUCKET_CONFIGURATION_MISMATCH' supabase/migrations/20260720214500_rule_architect_managed_assets.sql
-          deno check --node-modules-dir=manual .artifacts/compile-chess-rule/index.ts
-          sha256sum .artifacts/compile-chess-rule/index.ts > .artifacts/compile-chess-rule/SHA256SUMS
+          set -o pipefail
+          {
+            set -euo pipefail
+            mkdir -p .artifacts/compile-chess-rule
+            npx --yes esbuild@0.25.0 supabase/functions/compile-chess-rule/index.ts \
+              --bundle \
+              --format=esm \
+              --platform=neutral \
+              --target=es2022 \
+              '--external:npm:*' \
+              --outfile=.artifacts/compile-chess-rule/index.ts
+            grep -F 'Deno.serve' .artifacts/compile-chess-rule/index.ts
+            grep -F 'RULE_ASSET_SEARCH_ENABLED' .artifacts/compile-chess-rule/index.ts
+            grep -F 'RULE_ASSET_BUCKET_CONFIGURATION_MISMATCH' supabase/migrations/20260720214500_rule_architect_managed_assets.sql
+            deno check --node-modules-dir=manual .artifacts/compile-chess-rule/index.ts
+            sha256sum .artifacts/compile-chess-rule/index.ts > .artifacts/compile-chess-rule/SHA256SUMS
+          } 2>&1 | tee bundle-build.log
+
+      - name: Upload bundle diagnostics on failure
+        if: failure() && hashFiles('bundle-build.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-chess-rule-bundle-diagnostics
+          path: bundle-build.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Upload the self-contained staging deployment bundle
         if: github.event_name == 'pull_request' && github.event.pull_request.number == 308
