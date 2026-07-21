@@ -127,3 +127,19 @@ jobs:
             supabase/functions/process-chess-move/standard-engine.test.ts \
             supabase/functions/process-chess-move/integrity.test.ts \
             supabase/functions/process-chess-move/handler.test.ts
+
+      - name: Smoke production JWT gate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint='https://ucaqbhmyutlnitnedowk.supabase.co/functions/v1/compile-chess-rule'
+          status="$(curl --silent --show-error --output production-edge-response.json --write-out '%{http_code}' \
+            --request POST "$endpoint" \
+            --header 'Content-Type: application/json' \
+            --data '{"prompt":"Lorsqu’une pièce est capturée, un dragon vient l’emporter dans une animation.","premium":false,"requestKey":"11111111-1111-4111-8111-111111111111"}')"
+          if [[ "$status" != '401' ]]; then
+            echo "Expected production JWT rejection 401, got $status." >&2
+            cat production-edge-response.json >&2 || true
+            exit 1
+          fi
