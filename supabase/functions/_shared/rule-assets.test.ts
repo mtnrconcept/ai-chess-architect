@@ -6,6 +6,7 @@ import {
   inspectRasterImage,
   isAllowedAssetLicense,
   isAllowedCommonsAssetUrl,
+  managedRuleAssetSearchEnabled,
   parseAssetModerationResponse,
 } from "./rule-assets.ts";
 
@@ -54,6 +55,14 @@ const webpBytes = (width: number, height: number, animated = false) => {
   bytes[29] = (h >>> 16) & 0xff;
   return bytes;
 };
+
+Deno.test("rule-assets: active le courtier par défaut et respecte l’opt-out", () => {
+  assertEquals(managedRuleAssetSearchEnabled(undefined), true);
+  assertEquals(managedRuleAssetSearchEnabled("true"), true);
+  assertEquals(managedRuleAssetSearchEnabled("false"), false);
+  assertEquals(managedRuleAssetSearchEnabled("0"), false);
+  assertEquals(managedRuleAssetSearchEnabled("OFF"), false);
+});
 
 Deno.test("rule-assets: extrait une requête visuelle bornée", () => {
   const query = extractAssetSearchQuery(

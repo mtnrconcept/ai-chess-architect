@@ -911,11 +911,18 @@ const getServiceClient = (): SupabaseClient | null => {
   });
 };
 
+export const managedRuleAssetSearchEnabled = (
+  rawValue: string | undefined = Deno.env.get("RULE_ASSET_SEARCH_ENABLED"),
+): boolean => {
+  const normalized = rawValue?.trim().toLowerCase();
+  return !["false", "0", "off", "disabled"].includes(normalized ?? "");
+};
+
 export async function resolveManagedRuleAsset(
   safePrompt: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ManagedRuleAsset | null> {
-  if (Deno.env.get("RULE_ASSET_SEARCH_ENABLED")?.trim() !== "true") {
+  if (!managedRuleAssetSearchEnabled()) {
     return null;
   }
 
