@@ -33,7 +33,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level moderate
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm audit --prod --audit-level moderate 2>&1 | tee pnpm-audit.log
+
+      - name: Upload audit diagnostics on failure
+        if: failure() && hashFiles('pnpm-audit.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-audit-diagnostics
+          path: pnpm-audit.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Verify mirrored compiler and runtime invariants
         run: node scripts/verify-rule-architect-v2.mjs
@@ -58,9 +70,22 @@ jobs:
           configs/deployment/supabaseBuildFallback.test.ts
 
       - name: Type check
+        shell: bash
         run: |
-          pnpm exec tsc --noEmit -p tsconfig.app.json
-          pnpm exec tsc --noEmit -p tsconfig.node.json
+          set -o pipefail
+          {
+            pnpm exec tsc --noEmit -p tsconfig.app.json
+            pnpm exec tsc --noEmit -p tsconfig.node.json
+          } 2>&1 | tee typecheck.log
+
+      - name: Upload TypeScript diagnostics on failure
+        if: failure() && hashFiles('typecheck.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-diagnostics
+          path: typecheck.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Production build without remote writes
         run: pnpm build
@@ -93,12 +118,14 @@ jobs:
           deno-version: v2.9.3
           cache: true
 
-      - name: Type-check five Edge entrypoints
+      - name: Type-check seven Edge entrypoints
         shell: bash
         run: |
           set -o pipefail
           deno check --node-modules-dir=manual \
             supabase/functions/compile-chess-rule/index.ts \
+            supabase/functions/generate-rule-questions/index.ts \
+            supabase/functions/ensure-ten-tournaments/index.ts \
             supabase/functions/publish-rule-version/index.ts \
             supabase/functions/create-rule-lobby-v2/index.ts \
             supabase/functions/join-rule-lobby-v2/index.ts \
@@ -114,13 +141,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-      - name: Test Edge replay, CORS, managed assets, and STANDARD move guards
+      - name: Test Edge replay, CORS, guidance, managed assets, and STANDARD move guards
         run: |
           deno test --node-modules-dir=manual --allow-env \
             supabase/functions/_shared/cors-v2.test.ts \
             supabase/functions/_shared/prompt-security.test.ts \
             supabase/functions/_shared/rule-architect-input.test.ts \
             supabase/functions/_shared/rule-assets.test.ts \
+            supabase/functions/_shared/rule-blueprint-normalizer.test.ts \
             supabase/functions/compile-chess-rule/replay-state.test.ts \
             supabase/functions/process-chess-move/protocol.test.ts \
             supabase/functions/process-chess-move/clock.test.ts \

@@ -74,7 +74,18 @@ interface MultiplayerLobby {
   opponent_name: string | null;
   created_at: string | null;
   updated_at: string | null;
+  rule_set_hash: string | null;
 }
+
+
+const describeSupabaseError = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return fallback;
+};
 
 type CombinedRuleEntry = {
   origin: "custom" | "preset";
@@ -258,7 +269,7 @@ const Lobby = () => {
       const { data, error } = await supabase
         .from("lobbies")
         .select(
-          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at",
+          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at, rule_set_hash",
         )
         .eq("mode", "player")
         .eq("status", "waiting")
@@ -293,7 +304,7 @@ const Lobby = () => {
       const { data, error } = await supabase
         .from("lobbies")
         .select(
-          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at",
+          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at, rule_set_hash",
         )
         .eq("creator_id", user.id)
         .in("status", ["waiting", "matched"])
@@ -449,10 +460,10 @@ const Lobby = () => {
         title: isActive ? "Règle activée" : "Règle désactivée",
       });
     } catch (error: unknown) {
-      const description =
-        error instanceof Error
-          ? error.message
-          : "Impossible de mettre à jour la règle";
+      const description = describeSupabaseError(
+        error,
+        "Impossible de mettre à jour la règle",
+      );
       toast({
         title: "Erreur",
         description,
@@ -1278,25 +1289,36 @@ const Lobby = () => {
     if (!user || !activeLobby) return;
 
     try {
-      const { error } = await supabase
-        .from("lobbies")
-        .update({ status: "cancelled", is_active: false })
-        .eq("id", activeLobby.id)
-        .eq("creator_id", user.id);
-
-      if (error) throw error;
+      if (activeLobby.rule_set_hash) {
+        const { data, error } = await supabase.rpc("cancel_rule_lobby_v2", {
+          p_lobby_id: activeLobby.id,
+        });
+        if (error) throw error;
+        if (data !== true) throw new Error("Ce lobby ne peut plus être annulé.");
+      } else {
+        const { error } = await supabase
+          .from("lobbies")
+          .update({ status: "cancelled", is_active: false })
+          .eq("id", activeLobby.id)
+          .eq("creator_id", user.id);
+        if (error) throw error;
+      }
 
       setActiveLobby(null);
-      toast({ title: "Partie annulée" });
-      fetchWaitingLobbies();
-    } catch (error: unknown) {
-      const description =
-        error instanceof Error
-          ? error.message
-          : "Impossible d'annuler la partie";
+      setWaitingDialogOpen(false);
+      setIsQuickPlayOnline(false);
       toast({
-        title: "Erreur",
-        description,
+        title: "Partie annulée",
+        description: "Les règles peuvent à nouveau être modifiées.",
+      });
+      await Promise.all([fetchWaitingLobbies(), fetchActiveLobby(), fetchRules()]);
+    } catch (error: unknown) {
+      toast({
+        title: "Impossible d'annuler la partie",
+        description: describeSupabaseError(
+          error,
+          "Actualisez la page puis réessayez.",
+        ),
         variant: "destructive",
       });
     }

@@ -231,6 +231,13 @@ const TournamentPage = () => {
   });
   const selectedDetailsError = selectedDetailsQuery.error;
 
+
+  useEffect(() => {
+    if (tournamentsQuery.isSuccess) {
+      setTournamentsUnavailable(false);
+    }
+  }, [tournamentsQuery.isSuccess]);
+
   useEffect(() => {
     if (
       tournamentsError instanceof TournamentFeatureUnavailableError ||

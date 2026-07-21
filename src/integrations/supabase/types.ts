@@ -207,6 +207,7 @@ export type Database = {
           name: string
           opponent_id: string | null
           opponent_name: string | null
+          rule_set_hash: string | null
           status: string | null
           updated_at: string
         }
@@ -222,6 +223,7 @@ export type Database = {
           name: string
           opponent_id?: string | null
           opponent_name?: string | null
+          rule_set_hash?: string | null
           status?: string | null
           updated_at?: string
         }
@@ -237,6 +239,7 @@ export type Database = {
           name?: string
           opponent_id?: string | null
           opponent_name?: string | null
+          rule_set_hash?: string | null
           status?: string | null
           updated_at?: string
         }
@@ -875,7 +878,10 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      cancel_rule_lobby_v2: {
+        Args: { p_lobby_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       rule_source: "preset" | "custom" | "ai_generated"

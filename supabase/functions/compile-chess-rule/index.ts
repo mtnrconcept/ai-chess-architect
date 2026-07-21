@@ -2,6 +2,7 @@ import { authenticateRequest } from "../_shared/auth-v2.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
 import { buildRuleArchitectSystemPrompt } from "../_shared/rule-architect-prompt.ts";
+import { normalizeRuleBlueprintCandidate } from "../_shared/rule-blueprint-normalizer.ts";
 import {
   compileRuleBlueprint,
   RULE_BLUEPRINT_JSON_SCHEMA,
@@ -398,7 +399,8 @@ Deno.serve(async (request) => {
       reasoningEffort: premium ? "high" : "medium",
     });
 
-    const result = compileRuleBlueprint(openAI.value);
+    const normalized = normalizeRuleBlueprintCandidate(openAI.value, prompt);
+    const result = compileRuleBlueprint(normalized.value);
     const contentHash =
       result.ok && result.compiledRule
         ? await sha256Hex({
@@ -413,13 +415,14 @@ Deno.serve(async (request) => {
       generationDurationMs,
       usage: openAI.usage,
       openAIResponseId: openAI.responseId,
+      normalizedFields: normalized.normalizedFields,
     };
 
     const { data: updated, error: updateError } = await serviceClient
       .from("rule_compilations")
       .update({
         status: result.ok ? "validated" : "rejected",
-        blueprint: result.blueprint ?? openAI.value,
+        blueprint: result.blueprint ?? normalized.value,
         compiled_rule: result.compiledRule,
         diagnostics: result.diagnostics,
         metrics,

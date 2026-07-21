@@ -103,6 +103,7 @@ import {
 import { useRuleEngine } from "@/hooks/useRuleEngine";
 import { FxProvider, useFxTrigger } from "@/fx/context";
 import type { RuleJSON } from "@/engine/types";
+import LiveCoachAvatar from "@/features/coach/LiveCoachAvatar";
 
 /* -------------------------------------------------------------------------- */
 /*                               Helpers locaux                               */
@@ -1775,6 +1776,21 @@ const Play = () => {
     void requestCoachUpdate("manual", trimmed, historyEntries);
   }, [chatInput, coachEnabled, requestCoachUpdate, safeToast]);
 
+  const latestCoachMessage = useMemo(
+    () =>
+      [...coachMessages]
+        .reverse()
+        .find((message) => message.role === "coach")?.content ?? null,
+    [coachMessages],
+  );
+
+  const openCoachPanel = useCallback(() => {
+    document.getElementById("coach-panel")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
+
   /* ------------------------------------------------------------------------ */
   /*                              Rendu de la page                             */
   /* ------------------------------------------------------------------------ */
@@ -1877,7 +1893,7 @@ const Play = () => {
           />
         </div>
 
-        <aside className="flex min-h-[420px] max-h-[75vh] flex-col rounded-lg border border-white/10 bg-black/25 p-4">
+        <aside id="coach-panel" className="flex min-h-[420px] max-h-[75vh] scroll-mt-24 flex-col rounded-lg border border-white/10 bg-black/25 p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-white">Coach IA</h2>
@@ -2129,6 +2145,16 @@ const Play = () => {
           </div>
         </div>
       </section>
+
+      <LiveCoachAvatar
+        enabled={coachEnabled}
+        loading={coachLoading}
+        message={latestCoachMessage}
+        error={coachError}
+        moveCount={gameState.moveHistory.length}
+        onOpen={openCoachPanel}
+        onEnable={() => setCoachEnabled(true)}
+      />
     </main>
   );
 };
