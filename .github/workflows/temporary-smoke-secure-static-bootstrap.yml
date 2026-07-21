@@ -9,7 +9,7 @@ on:
       - .github/workflows/temporary-smoke-secure-static-bootstrap.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: temporary-smoke-secure-static-bootstrap
@@ -126,3 +126,18 @@ jobs:
             process.exit(1);
           });
           NODE
+
+      - name: Record smoke result on the temporary branch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          status='${{ job.status }}'
+          printf 'status=%s\nsource=%s\nrun=%s\n' \
+            "$status" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            > docs/.secure-static-bootstrap-smoke-status
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/.secure-static-bootstrap-smoke-status
+          git commit -m "test: record secure static bootstrap smoke ($status)" || exit 0
+          git push origin HEAD:agent/vercel-static-release
