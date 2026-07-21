@@ -65,6 +65,15 @@ jobs:
       - name: Production build without remote writes
         run: pnpm build
 
+      - name: Upload exact production dist for static release
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/vercel-static-release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-static-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
   edge-typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15
