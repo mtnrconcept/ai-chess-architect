@@ -269,7 +269,7 @@ const Lobby = () => {
       const { data, error } = await supabase
         .from("lobbies")
         .select(
-          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at, rule_set_hash",
+          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at, rule_set_hash, rule_set_hash",
         )
         .eq("mode", "player")
         .eq("status", "waiting")
@@ -304,7 +304,7 @@ const Lobby = () => {
       const { data, error } = await supabase
         .from("lobbies")
         .select(
-          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at, rule_set_hash",
+          "id, name, creator_id, active_rules, max_players, is_active, mode, status, opponent_id, opponent_name, created_at, updated_at, rule_set_hash, rule_set_hash",
         )
         .eq("creator_id", user.id)
         .in("status", ["waiting", "matched"])
