@@ -677,8 +677,8 @@ export default function GuidedRuleArchitectPanel() {
         <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             [Swords, "Jouer", "/play-hub"],
-            [Puzzle, "Puzzle du jour", "/daily-puzzle"],
-            [GraduationCap, "Coach", "/coach"],
+            [Puzzle, "Puzzle du jour", "/play-hub"],
+            [GraduationCap, "Coach", "/analysis"],
             [Gauge, "Analyser", "/analysis"],
           ].map(([Icon, label, path]) => {
             const Component = Icon as typeof Swords;
