@@ -1,9 +1,7 @@
 name: Temporary Publish Vercel Static Assets
 
 on:
-  push:
-    branches:
-      - agent/vercel-static-release
+  workflow_dispatch:
 
 permissions:
   contents: write
