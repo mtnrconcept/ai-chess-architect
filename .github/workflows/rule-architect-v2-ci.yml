@@ -70,9 +70,22 @@ jobs:
           configs/deployment/supabaseBuildFallback.test.ts
 
       - name: Type check
+        shell: bash
         run: |
-          pnpm exec tsc --noEmit -p tsconfig.app.json
-          pnpm exec tsc --noEmit -p tsconfig.node.json
+          set -o pipefail
+          {
+            pnpm exec tsc --noEmit -p tsconfig.app.json
+            pnpm exec tsc --noEmit -p tsconfig.node.json
+          } 2>&1 | tee typecheck.log
+
+      - name: Upload TypeScript diagnostics on failure
+        if: failure() && hashFiles('typecheck.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-diagnostics
+          path: typecheck.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Production build without remote writes
         run: pnpm build
