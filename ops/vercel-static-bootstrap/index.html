@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Chess Architect</title>
+    <meta name="description" content="Créez et jouez des variantes d’échecs personnalisées avec l’intelligence artificielle." />
+    <meta name="author" content="AI Chess Architect" />
+    <meta property="og:title" content="AI Chess Architect" />
+    <meta property="og:description" content="Créez et jouez des variantes d’échecs personnalisées avec l’intelligence artificielle." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      html, body, #root { min-height: 100%; margin: 0; }
+      body { background: #070b14; color: #f8fafc; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      #boot-status { min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; text-align: center; }
+      #boot-status[hidden] { display: none; }
+      .boot-card { max-width: 640px; }
+      .boot-spinner { width: 42px; height: 42px; margin: 0 auto 18px; border: 3px solid rgba(248,250,252,.18); border-top-color: #f8fafc; border-radius: 999px; animation: spin .8s linear infinite; }
+      .boot-error { color: #fecaca; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="boot-status" role="status" aria-live="polite">
+      <div class="boot-card">
+        <div class="boot-spinner" aria-hidden="true"></div>
+        <strong>Chargement sécurisé d’AI Chess Architect…</strong>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module">
+      const RELEASE_COMMIT = "7920a871c94cc963c1a7a4e25dd0abb998ee3384";
+      const RELEASE_BASE = `https://raw.githubusercontent.com/mtnrconcept/ai-chess-architect/${RELEASE_COMMIT}`;
+      const ASSETS = Object.freeze({
+        css: Object.freeze({
+          url: `${RELEASE_BASE}/assets/index-Cz276MiZ.css`,
+          sha256: "29e9dfa873ec8ceb445d2a0d89f87ef50899733230878fd0d004c2d0136b5b7d",
+        }),
+        js: Object.freeze({
+          url: `${RELEASE_BASE}/assets/index-L7sMvx6V.js`,
+          sha256: "5b5732266c317dfc021185409577c1594e70c108ea0ccba5d262e2f0e8fa423f",
+        }),
+      });
+
+      const statusNode = document.getElementById("boot-status");
+
+      function bytesToHex(bytes) {
+        return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      }
+
+      async function fetchVerifiedAsset(asset) {
+        const response = await fetch(asset.url, {
+          method: "GET",
+          mode: "cors",
+          credentials: "omit",
+          cache: "force-cache",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+        });
+
+        if (!response.ok) {
+          throw new Error(`ASSET_HTTP_${response.status}`);
+        }
+
+        const buffer = await response.arrayBuffer();
+        const digest = bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", buffer)));
+
+        if (digest !== asset.sha256) {
+          throw new Error("ASSET_INTEGRITY_MISMATCH");
+        }
+
+        return buffer;
+      }
+
+      function showBootError(error) {
+        console.error("[secure-static-bootstrap]", error);
+        if (!statusNode) return;
+        statusNode.hidden = false;
+        statusNode.innerHTML = `
+          <div class="boot-card boot-error">
+            <strong>Le chargement sécurisé a échoué.</strong>
+            <p>Rechargez la page. Aucun code non vérifié n’a été exécuté.</p>
+          </div>
+        `;
+      }
+
+      try {
+        const [cssBuffer, jsBuffer] = await Promise.all([
+          fetchVerifiedAsset(ASSETS.css),
+          fetchVerifiedAsset(ASSETS.js),
+        ]);
+
+        const style = document.createElement("style");
+        style.dataset.releaseCommit = RELEASE_COMMIT;
+        style.textContent = new TextDecoder().decode(cssBuffer);
+        document.head.appendChild(style);
+
+        const moduleUrl = URL.createObjectURL(
+          new Blob([jsBuffer], { type: "application/javascript" }),
+        );
+
+        await import(moduleUrl);
+        if (statusNode) statusNode.hidden = true;
+      } catch (error) {
+        showBootError(error);
+      }
+    </script>
+  </body>
+</html>
