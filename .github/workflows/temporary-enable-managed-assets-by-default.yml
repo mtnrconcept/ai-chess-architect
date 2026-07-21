@@ -1,0 +1,103 @@
+name: Temporary Enable Managed Assets by Default
+
+on:
+  push:
+    branches:
+      - agent/rule-assets-cinematics
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.repository == 'mtnrconcept/ai-chess-architect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/rule-assets-cinematics
+          fetch-depth: 0
+
+      - name: Enable safe broker by default and add regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('supabase/functions/_shared/rule-assets.ts')
+          source = source_path.read_text()
+          old = '''export async function resolveManagedRuleAsset(
+            safePrompt: string,
+            fetchImpl: typeof fetch = fetch,
+          ): Promise<ManagedRuleAsset | null> {
+            if (Deno.env.get("RULE_ASSET_SEARCH_ENABLED")?.trim() !== "true") {
+              return null;
+            }
+          '''
+          new = '''export const managedRuleAssetSearchEnabled = (
+            rawValue: string | undefined = Deno.env.get("RULE_ASSET_SEARCH_ENABLED"),
+          ): boolean => {
+            const normalized = rawValue?.trim().toLowerCase();
+            return !["false", "0", "off", "disabled"].includes(normalized ?? "");
+          };
+
+          export async function resolveManagedRuleAsset(
+            safePrompt: string,
+            fetchImpl: typeof fetch = fetch,
+          ): Promise<ManagedRuleAsset | null> {
+            if (!managedRuleAssetSearchEnabled()) {
+              return null;
+            }
+          '''
+          if old not in source:
+              raise SystemExit('Expected managed asset feature gate block not found')
+          source_path.write_text(source.replace(old, new, 1))
+
+          test_path = Path('supabase/functions/_shared/rule-assets.test.ts')
+          tests = test_path.read_text()
+          old_import = '''  isAllowedAssetLicense,
+            isAllowedCommonsAssetUrl,
+            parseAssetModerationResponse,
+          } from "./rule-assets.ts";'''
+          new_import = '''  isAllowedAssetLicense,
+            isAllowedCommonsAssetUrl,
+            managedRuleAssetSearchEnabled,
+            parseAssetModerationResponse,
+          } from "./rule-assets.ts";'''
+          if old_import not in tests:
+              raise SystemExit('Expected rule-assets test import block not found')
+          tests = tests.replace(old_import, new_import, 1)
+          marker = '''Deno.test("rule-assets: extrait une requête visuelle bornée", () => {'''
+          addition = '''Deno.test("rule-assets: active le courtier par défaut et respecte l’opt-out", () => {
+            assertEquals(managedRuleAssetSearchEnabled(undefined), true);
+            assertEquals(managedRuleAssetSearchEnabled("true"), true);
+            assertEquals(managedRuleAssetSearchEnabled("false"), false);
+            assertEquals(managedRuleAssetSearchEnabled("0"), false);
+            assertEquals(managedRuleAssetSearchEnabled("OFF"), false);
+          });
+
+          '''
+          if marker not in tests:
+              raise SystemExit('Expected rule-assets test marker not found')
+          test_path.write_text(tests.replace(marker, addition + marker, 1))
+          PY
+
+          grep -F 'managedRuleAssetSearchEnabled' supabase/functions/_shared/rule-assets.ts
+          grep -F 'active le courtier par défaut' supabase/functions/_shared/rule-assets.test.ts
+          rm -f .github/workflows/temporary-enable-managed-assets-by-default.yml
+
+      - name: Commit correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            supabase/functions/_shared/rule-assets.ts \
+            supabase/functions/_shared/rule-assets.test.ts \
+            .github/workflows/temporary-enable-managed-assets-by-default.yml
+          git commit -m 'feat: enable the safe managed asset broker by default'
+          git push origin HEAD:agent/rule-assets-cinematics
