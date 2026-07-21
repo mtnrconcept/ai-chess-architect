@@ -1,0 +1,4 @@
+exit_code=1
+--- sanitized_cli_output ---
+[31munexpected list functions status 401: {"message":"Unauthorized"}[39m
+Try rerunning the command with --debug to troubleshoot the error.
