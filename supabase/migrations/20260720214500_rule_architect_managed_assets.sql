@@ -74,6 +74,9 @@ alter table public.rule_assets force row level security;
 revoke all on table public.rule_assets from anon, authenticated;
 grant select, insert, update, delete on table public.rule_assets to service_role;
 
+-- Never mutate an existing bucket into a public bucket. A pre-existing bucket
+-- with the same identifier may contain unrelated private objects. Create the
+-- expected bucket only when absent, then validate its complete configuration.
 insert into storage.buckets (
   id,
   name,
@@ -88,11 +91,44 @@ values (
   5242880,
   array['image/png', 'image/jpeg', 'image/webp']
 )
-on conflict (id) do update
-set
-  public = excluded.public,
-  file_size_limit = excluded.file_size_limit,
-  allowed_mime_types = excluded.allowed_mime_types;
+on conflict (id) do nothing;
+
+do $$
+declare
+  v_name text;
+  v_public boolean;
+  v_file_size_limit bigint;
+  v_allowed_mime_types text[];
+  v_expected_mime_types constant text[] :=
+    array['image/png', 'image/jpeg', 'image/webp'];
+begin
+  select
+    name,
+    public,
+    file_size_limit,
+    allowed_mime_types
+  into strict
+    v_name,
+    v_public,
+    v_file_size_limit,
+    v_allowed_mime_types
+  from storage.buckets
+  where id = 'rule-assets';
+
+  if v_name <> 'rule-assets'
+    or v_public is distinct from true
+    or v_file_size_limit is distinct from 5242880
+    or v_allowed_mime_types is null
+    or cardinality(v_allowed_mime_types) <> 3
+    or not (
+      v_allowed_mime_types @> v_expected_mime_types
+      and v_expected_mime_types @> v_allowed_mime_types
+    ) then
+    raise exception 'RULE_ASSET_BUCKET_CONFIGURATION_MISMATCH'
+      using errcode = '22023';
+  end if;
+end;
+$$;
 
 comment on table public.rule_assets is
   'Assets visuels externes copiés, modérés et contrôlés pour Rule Architect V2. Aucune URL utilisateur ni ressource exécutable.';
