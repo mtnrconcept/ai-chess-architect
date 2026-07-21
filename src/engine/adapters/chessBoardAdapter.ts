@@ -1,137 +1,206 @@
-import { BoardAPI, Tile, PieceID, Piece, Side, SpriteId } from "../types";
-import { ChessPiece, Position } from "@/types/chess";
+import type {
+  BoardAPI,
+  Piece,
+  PieceID,
+  Side,
+  SpriteId,
+  Tile,
+} from "../types";
+import type { ChessPiece, Position } from "@/types/chess";
 
-type ChessPieceWithId = ChessPiece & { __engineId?: PieceID };
-
-const PIECE_ID_PREFIX = "piece_";
-
-type ChessBoard = (ChessPiece | null)[][];
+type ChessPieceWithEngineId = ChessPiece & { __engineId?: PieceID };
+export type ChessBoardSnapshot = (ChessPiece | null)[][];
+export type BoardChangeListener = (board: ChessBoardSnapshot) => void;
+export type DecalChangeListener = (
+  tile: Tile,
+  spriteId: SpriteId | null,
+) => void;
 
 interface PieceEntry {
-  piece: ChessPiece;
+  piece: ChessPieceWithEngineId;
   position: Position;
 }
 
-export class ChessBoardAdapter implements BoardAPI {
-  private board: ChessBoard;
-  private pieceMap: Map<PieceID, PieceEntry>;
-  private positionMap: Map<string, PieceID>;
-  private nextId = 1;
-  private decals: Map<string, SpriteId | null>;
+const BOARD_SIZE = 8;
+const TILE_PATTERN = /^[a-h][1-8]$/;
+const PIECE_ID_PATTERN = /^piece_(\d+)$/;
 
-  constructor(board: ChessBoard) {
-    this.board = board;
-    this.pieceMap = new Map();
-    this.positionMap = new Map();
-    this.decals = new Map();
-    this.rebuildPieceMap();
+const clonePosition = (position: Position): Position => ({
+  row: position.row,
+  col: position.col,
+});
+
+const clonePiece = (piece: ChessPieceWithEngineId): ChessPieceWithEngineId => ({
+  ...piece,
+  position: clonePosition(piece.position),
+  specialState:
+    piece.specialState && typeof piece.specialState === "object"
+      ? structuredClone(piece.specialState)
+      : piece.specialState,
+});
+
+const cloneBoard = (board: ChessBoardSnapshot): ChessBoardSnapshot =>
+  Array.from({ length: BOARD_SIZE }, (_, rowIndex) =>
+    Array.from({ length: BOARD_SIZE }, (_, colIndex) => {
+      const piece = board[rowIndex]?.[colIndex] ?? null;
+      return piece ? clonePiece(piece as ChessPieceWithEngineId) : null;
+    }),
+  );
+
+/** Stable bridge between React state and the deterministic rule runtime. */
+export class ChessBoardAdapter implements BoardAPI {
+  private board: ChessBoardSnapshot;
+  private readonly pieceMap = new Map<PieceID, PieceEntry>();
+  private readonly positionMap = new Map<Tile, PieceID>();
+  private readonly decals = new Map<Tile, SpriteId>();
+  private nextId = 1;
+  private boardChangeListener?: BoardChangeListener;
+  private decalChangeListener?: DecalChangeListener;
+
+  constructor(board: ChessBoardSnapshot) {
+    this.board = cloneBoard(board);
+    this.rebuildPieceMap(board);
   }
 
-  private rebuildPieceMap() {
-    this.pieceMap.clear();
-    this.positionMap.clear();
-    this.board.forEach((row, rowIndex) => {
-      row.forEach((piece, colIndex) => {
-        if (piece) {
-          const position = { row: rowIndex, col: colIndex };
-          const id = this.getOrCreatePieceId(piece as ChessPieceWithId);
-          const tile = this.positionToTile(position);
-          this.pieceMap.set(id, { piece, position });
-          this.positionMap.set(this.getTileKey(tile), id);
-        }
-      });
-    });
+  setBoardChangeListener(listener?: BoardChangeListener): void {
+    this.boardChangeListener = listener;
+  }
+
+  setDecalChangeListener(listener?: DecalChangeListener): void {
+    this.decalChangeListener = listener;
+  }
+
+  notifyRuntimeMutation(): void {
+    this.emitBoardChange();
+  }
+
+  private emitBoardChange(): void {
+    this.boardChangeListener?.(cloneBoard(this.board));
   }
 
   private generatePieceId(): PieceID {
-    const id = `${PIECE_ID_PREFIX}${this.nextId++}` as PieceID;
+    const id = `piece_${this.nextId}` as PieceID;
+    this.nextId += 1;
     return id;
   }
 
-  private getOrCreatePieceId(piece: ChessPieceWithId): PieceID {
-    if (!piece.__engineId) {
-      piece.__engineId = this.generatePieceId();
-    } else {
-      this.syncNextId(piece.__engineId);
-    }
-    return piece.__engineId;
-  }
-
-  private syncNextId(id: PieceID) {
-    const match = typeof id === "string" ? id.match(/^piece_(\d+)$/) : null;
+  private syncNextId(id: PieceID): void {
+    const match = PIECE_ID_PATTERN.exec(String(id));
     if (!match) return;
-    const numericId = parseInt(match[1], 10);
-    if (!Number.isNaN(numericId) && numericId >= this.nextId) {
+    const numericId = Number(match[1]);
+    if (Number.isInteger(numericId) && numericId >= this.nextId) {
       this.nextId = numericId + 1;
     }
   }
 
-  private positionToTile(pos: Position): Tile {
-    const file = String.fromCharCode(97 + pos.col);
-    const rank = (8 - pos.row).toString();
+  private getOrCreatePieceId(
+    source: ChessPieceWithEngineId,
+    clonedPiece: ChessPieceWithEngineId,
+  ): PieceID {
+    const existing = source.__engineId ?? clonedPiece.__engineId;
+    const id = existing || this.generatePieceId();
+    source.__engineId = id;
+    clonedPiece.__engineId = id;
+    this.syncNextId(id);
+    return id;
+  }
+
+  private rebuildPieceMap(sourceBoard?: ChessBoardSnapshot): void {
+    this.pieceMap.clear();
+    this.positionMap.clear();
+
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      for (let col = 0; col < BOARD_SIZE; col += 1) {
+        const clonedPiece = this.board[row]?.[col] as
+          | ChessPieceWithEngineId
+          | null
+          | undefined;
+        if (!clonedPiece) continue;
+
+        const sourcePiece =
+          (sourceBoard?.[row]?.[col] as ChessPieceWithEngineId | null) ??
+          clonedPiece;
+        const position = { row, col };
+        clonedPiece.position = clonePosition(position);
+        const id = this.getOrCreatePieceId(sourcePiece, clonedPiece);
+        const tile = this.positionToTile(position);
+        this.pieceMap.set(id, { piece: clonedPiece, position });
+        this.positionMap.set(tile, id);
+      }
+    }
+  }
+
+  private assertTile(tile: Tile): Position {
+    if (!TILE_PATTERN.test(String(tile))) {
+      throw new Error(`Invalid board tile: ${String(tile)}`);
+    }
+    return this.tileToPosition(tile);
+  }
+
+  private positionToTile(position: Position): Tile {
+    const file = String.fromCharCode(97 + position.col);
+    const rank = String(BOARD_SIZE - position.row);
     return `${file}${rank}` as Tile;
   }
 
   tileToPosition(tile: Tile): Position {
-    const file = tile.charCodeAt(0) - 97;
-    const rank = 8 - parseInt(tile[1]);
-    return { row: rank, col: file };
+    if (!TILE_PATTERN.test(String(tile))) return { row: -1, col: -1 };
+    return {
+      row: BOARD_SIZE - Number(String(tile)[1]),
+      col: String(tile).charCodeAt(0) - 97,
+    };
   }
 
   getPiecesInRadius(center: Position, radius: number): PieceID[] {
+    const safeRadius = Math.max(0, Math.min(BOARD_SIZE, Math.floor(radius)));
     const result: PieceID[] = [];
-
-    for (let row = 0; row < 8; row++) {
-      for (let col = 0; col < 8; col++) {
-        const distance = Math.max(
-          Math.abs(row - center.row),
-          Math.abs(col - center.col),
-        );
-
-        if (distance <= radius) {
-          const tile = this.positionToTile({ row, col });
-          const pieceId = this.positionMap.get(this.getTileKey(tile));
-          if (pieceId) {
-            result.push(pieceId);
-          }
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      for (let col = 0; col < BOARD_SIZE; col += 1) {
+        if (
+          Math.max(Math.abs(row - center.row), Math.abs(col - center.col)) >
+          safeRadius
+        ) {
+          continue;
         }
+        const id = this.positionMap.get(this.positionToTile({ row, col }));
+        if (id) result.push(id);
       }
     }
-
     return result;
   }
 
-  private getTileKey(tile: Tile): string {
-    return tile;
-  }
-
   tiles(): Tile[] {
-    const tiles: Tile[] = [];
-    for (let row = 0; row < 8; row++) {
-      for (let col = 0; col < 8; col++) {
-        tiles.push(this.positionToTile({ row, col }));
+    const result: Tile[] = [];
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      for (let col = 0; col < BOARD_SIZE; col += 1) {
+        result.push(this.positionToTile({ row, col }));
       }
     }
-    return tiles;
+    return result;
+  }
+
+  withinBoard(tile: Tile): boolean {
+    return TILE_PATTERN.test(String(tile));
   }
 
   isEmpty(tile: Tile): boolean {
-    const pos = this.tileToPosition(tile);
-    return this.board[pos.row]?.[pos.col] === null;
+    const position = this.assertTile(tile);
+    return this.board[position.row]?.[position.col] == null;
   }
 
   getPieceAt(tile: Tile): PieceID | null {
-    return this.positionMap.get(this.getTileKey(tile)) ?? null;
+    this.assertTile(tile);
+    return this.positionMap.get(tile) ?? null;
   }
 
   getPiece(id: PieceID): Piece {
-    const entry = this.getOrResolvePiece(id);
-    if (!entry) {
-      throw new Error(`Piece not found: ${id}`);
+    const entry = this.pieceMap.get(id);
+    if (!entry) throw new Error(`Piece not found: ${id}`);
+    if (!entry.piece.specialState || typeof entry.piece.specialState !== "object") {
+      entry.piece.specialState = {};
     }
 
-    entry.piece.specialState ??= {};
-    return {
+    const view: Piece = {
       id,
       type: entry.piece.type,
       side: entry.piece.color as Side,
@@ -140,136 +209,148 @@ export class ChessBoardAdapter implements BoardAPI {
       invisible: entry.piece.isHidden === true,
       statuses: entry.piece.specialState,
     };
+
+    Object.defineProperty(view, "invisible", {
+      configurable: true,
+      enumerable: true,
+      get: () => entry.piece.isHidden === true,
+      set: (value: boolean) => this.setPieceInvisible(id, Boolean(value)),
+    });
+    return view;
   }
 
   setPieceTile(id: PieceID, tile: Tile): void {
-    const entry = this.getOrResolvePiece(id);
-    if (!entry) {
-      throw new Error(`Piece not found: ${id}`);
-    }
-    const chessPiece = entry.piece as ChessPieceWithId;
-    const oldPos = entry.position;
-    const newPos = this.tileToPosition(tile);
-    if (!this.withinBoard(tile)) {
-      throw new Error(`Tile outside board: ${tile}`);
-    }
-    const occupant = this.getPieceAt(tile);
+    const entry = this.pieceMap.get(id);
+    if (!entry) throw new Error(`Piece not found: ${id}`);
+    const destination = this.assertTile(tile);
+    const occupant = this.positionMap.get(tile);
     if (occupant && occupant !== id) {
-      throw new Error(`Tile already occupied: ${tile}`);
+      throw new Error(`Destination occupied: ${tile}`);
     }
 
-    this.board[oldPos.row][oldPos.col] = null;
-    chessPiece.position = newPos;
-    this.board[newPos.row][newPos.col] = chessPiece;
+    const source = clonePosition(entry.position);
+    const nextBoard = cloneBoard(this.board);
+    nextBoard[source.row][source.col] = null;
 
-    const oldTileKey = this.getTileKey(this.positionToTile(oldPos));
-    this.positionMap.delete(oldTileKey);
+    const movedPiece = clonePiece(entry.piece);
+    movedPiece.position = clonePosition(destination);
+    nextBoard[destination.row][destination.col] = movedPiece;
+    this.board = nextBoard;
 
-    entry.position = newPos;
-    this.pieceMap.set(id, entry);
-    const newTileKey = this.getTileKey(tile);
-    this.positionMap.set(newTileKey, id);
+    this.positionMap.delete(this.positionToTile(source));
+    this.positionMap.set(tile, id);
+    this.pieceMap.set(id, { piece: movedPiece, position: destination });
+    this.emitBoardChange();
   }
 
   removePiece(id: PieceID): void {
-    const entry = this.getOrResolvePiece(id, false);
-    if (!entry) {
-      return;
-    }
-
-    const pos = entry.position;
-    this.board[pos.row][pos.col] = null;
+    const entry = this.pieceMap.get(id);
+    if (!entry) return;
+    const nextBoard = cloneBoard(this.board);
+    nextBoard[entry.position.row][entry.position.col] = null;
+    this.board = nextBoard;
     this.pieceMap.delete(id);
-    this.positionMap.delete(this.getTileKey(this.positionToTile(pos)));
+    this.positionMap.delete(this.positionToTile(entry.position));
+    this.emitBoardChange();
   }
 
   spawnPiece(type: string, side: Side, tile: Tile): PieceID {
-    const pos = this.tileToPosition(tile);
-    if (!this.withinBoard(tile)) {
-      throw new Error(`Tile outside board: ${tile}`);
-    }
-    if (!this.isEmpty(tile)) {
-      throw new Error(`Tile already occupied: ${tile}`);
-    }
-    const newPiece: ChessPieceWithId = {
+    const position = this.assertTile(tile);
+    if (!this.isEmpty(tile)) throw new Error(`Destination occupied: ${tile}`);
+
+    const piece: ChessPieceWithEngineId = {
       type: type as ChessPiece["type"],
       color: side as ChessPiece["color"],
-      position: pos,
+      position: clonePosition(position),
       hasMoved: false,
       isHidden: false,
+      specialState: {},
     };
+    const id = this.generatePieceId();
+    piece.__engineId = id;
 
-    this.board[pos.row][pos.col] = newPiece;
-    const id = this.getOrCreatePieceId(newPiece);
-    this.pieceMap.set(id, { piece: newPiece, position: pos });
-    this.positionMap.set(this.getTileKey(tile), id);
-
+    const nextBoard = cloneBoard(this.board);
+    nextBoard[position.row][position.col] = piece;
+    this.board = nextBoard;
+    this.pieceMap.set(id, { piece, position });
+    this.positionMap.set(tile, id);
+    this.emitBoardChange();
     return id;
   }
 
-  setPieceInvisible(id: PieceID, value: boolean): void {
-    const entry = this.getOrResolvePiece(id);
+  setPieceInvisible(id: PieceID, invisible: boolean): void {
+    const entry = this.pieceMap.get(id);
     if (!entry) throw new Error(`Piece not found: ${id}`);
-    entry.piece.isHidden = value;
+    entry.piece.isHidden = invisible;
+    this.emitBoardChange();
   }
 
   setPieceStatus(id: PieceID, key: string, value: unknown): void {
-    const entry = this.getOrResolvePiece(id);
+    const entry = this.pieceMap.get(id);
     if (!entry) throw new Error(`Piece not found: ${id}`);
-    entry.piece.specialState ??= {};
-    entry.piece.specialState[key] = structuredClone(value);
+    const safeKey = String(key).trim().slice(0, 80);
+    if (!safeKey) throw new Error("Status key is required");
+    if (!entry.piece.specialState || typeof entry.piece.specialState !== "object") {
+      entry.piece.specialState = {};
+    }
+    (entry.piece.specialState as Record<string, unknown>)[safeKey] =
+      structuredClone(value);
+    this.emitBoardChange();
   }
 
   clearPieceStatus(id: PieceID, key: string): void {
-    const entry = this.getOrResolvePiece(id);
+    const entry = this.pieceMap.get(id);
     if (!entry) throw new Error(`Piece not found: ${id}`);
-    if (entry.piece.specialState) {
-      delete entry.piece.specialState[key];
+    if (entry.piece.specialState && typeof entry.piece.specialState === "object") {
+      delete (entry.piece.specialState as Record<string, unknown>)[key];
+      this.emitBoardChange();
     }
   }
 
-  withinBoard(tile: Tile): boolean {
-    const pos = this.tileToPosition(tile);
-    return pos.row >= 0 && pos.row < 8 && pos.col >= 0 && pos.col < 8;
-  }
-
-  neighbors(tile: Tile, radius: number = 1): Tile[] {
-    const pos = this.tileToPosition(tile);
-    const neighbors: Tile[] = [];
-
-    for (let dr = -radius; dr <= radius; dr++) {
-      for (let dc = -radius; dc <= radius; dc++) {
-        if (dr === 0 && dc === 0) continue;
-
-        const newPos = { row: pos.row + dr, col: pos.col + dc };
+  neighbors(tile: Tile, radius = 1): Tile[] {
+    const origin = this.assertTile(tile);
+    const safeRadius = Math.max(1, Math.min(BOARD_SIZE - 1, Math.floor(radius)));
+    const result: Tile[] = [];
+    for (let rowDelta = -safeRadius; rowDelta <= safeRadius; rowDelta += 1) {
+      for (let colDelta = -safeRadius; colDelta <= safeRadius; colDelta += 1) {
+        if (rowDelta === 0 && colDelta === 0) continue;
+        const candidate = {
+          row: origin.row + rowDelta,
+          col: origin.col + colDelta,
+        };
         if (
-          newPos.row >= 0 &&
-          newPos.row < 8 &&
-          newPos.col >= 0 &&
-          newPos.col < 8
+          candidate.row >= 0 &&
+          candidate.row < BOARD_SIZE &&
+          candidate.col >= 0 &&
+          candidate.col < BOARD_SIZE
         ) {
-          neighbors.push(this.positionToTile(newPos));
+          result.push(this.positionToTile(candidate));
         }
       }
     }
-
-    return neighbors;
+    return result;
   }
 
   setDecal(tile: Tile, spriteId: SpriteId | null): void {
-    this.decals.set(this.getTileKey(tile), spriteId);
+    this.assertTile(tile);
+    if (spriteId === null) this.decals.delete(tile);
+    else this.decals.set(tile, spriteId);
+    this.decalChangeListener?.(tile, spriteId);
   }
 
   clearDecal(tile: Tile): void {
-    this.decals.delete(this.getTileKey(tile));
+    this.assertTile(tile);
+    this.decals.delete(tile);
+    this.decalChangeListener?.(tile, null);
   }
 
   getDecal(tile: Tile): SpriteId | null {
-    return this.decals.get(this.getTileKey(tile)) ?? null;
+    this.assertTile(tile);
+    return this.decals.get(tile) ?? null;
   }
 
-  getBoard(): ChessBoard {
-    return this.board;
+  getBoard(): ChessBoardSnapshot {
+    return cloneBoard(this.board);
   }
 
   serialize(): string {
@@ -282,45 +363,42 @@ export class ChessBoardAdapter implements BoardAPI {
 
   deserialize(payload: string): void {
     const parsed = JSON.parse(payload) as {
-      board?: ChessBoard;
-      decals?: Array<[string, SpriteId | null]>;
+      board?: ChessBoardSnapshot;
+      decals?: Array<[Tile, SpriteId]>;
       nextId?: number;
     };
     if (
       !Array.isArray(parsed.board) ||
-      parsed.board.length !== 8 ||
-      parsed.board.some((row) => !Array.isArray(row) || row.length !== 8)
+      parsed.board.length !== BOARD_SIZE ||
+      parsed.board.some(
+        (row) => !Array.isArray(row) || row.length !== BOARD_SIZE,
+      )
     ) {
       throw new Error("Invalid board snapshot.");
     }
 
-    this.board.splice(0, this.board.length, ...parsed.board);
-    this.decals = new Map(parsed.decals ?? []);
+    this.board = cloneBoard(parsed.board);
+    this.decals.clear();
+    for (const entry of parsed.decals ?? []) {
+      if (
+        Array.isArray(entry) &&
+        entry.length === 2 &&
+        TILE_PATTERN.test(String(entry[0])) &&
+        typeof entry[1] === "string"
+      ) {
+        this.decals.set(entry[0], entry[1]);
+      }
+    }
     this.nextId =
-      Number.isInteger(parsed.nextId) && (parsed.nextId ?? 0) > 0
-        ? parsed.nextId!
+      Number.isInteger(parsed.nextId) && Number(parsed.nextId) > 0
+        ? Number(parsed.nextId)
         : 1;
     this.rebuildPieceMap();
+    this.emitBoardChange();
   }
 
-  updateBoard(newBoard: ChessBoard): void {
-    this.board = newBoard;
-    this.rebuildPieceMap();
-  }
-
-  private getOrResolvePiece(
-    id: PieceID,
-    throwIfMissing: boolean = true,
-  ): PieceEntry | null {
-    const cached = this.pieceMap.get(id);
-    if (cached) {
-      return cached;
-    }
-
-    if (throwIfMissing) {
-      throw new Error(`Piece not found: ${id}`);
-    }
-
-    return null;
+  updateBoard(newBoard: ChessBoardSnapshot): void {
+    this.board = cloneBoard(newBoard);
+    this.rebuildPieceMap(newBoard);
   }
 }
