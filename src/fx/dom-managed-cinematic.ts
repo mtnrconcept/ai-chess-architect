@@ -1,287 +1,259 @@
-import { parseManagedCinematicResourceId } from "./managed-asset-ids";
-import { resolveManagedAssetPublicUrl } from "./managed-assets";
+import { supabase, supabaseDiagnostics } from "@/integrations/supabase/client";
+import {
+  parseManagedCinematicResourceId,
+  RULE_ASSET_BUCKET,
+  type ManagedCinematicMotion,
+} from "./managed-asset-ids";
 
 const TILE_PATTERN = /^[a-h][1-8]$/;
-const MAX_ANIMATION_MS = 2_400;
-const MAX_CONCURRENT_CINEMATICS = 3;
-let activeCinematics = 0;
+const MAX_CONCURRENT = 3;
+let activeAnimations = 0;
 
-const waitForImage = (
-  image: HTMLImageElement,
-  timeoutMs: number,
-): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (image.complete) {
-      if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-        resolve();
-      } else {
-        reject(new Error("Impossible de charger l'asset géré."));
-      }
-      return;
-    }
-
-    const finish = (callback: () => void) => {
-      window.clearTimeout(timeout);
-      image.removeEventListener("load", onLoad);
-      image.removeEventListener("error", onError);
-      callback();
-    };
-    const onLoad = () => finish(resolve);
-    const onError = () =>
-      finish(() => reject(new Error("Impossible de charger l'asset géré.")));
-    const timeout = window.setTimeout(
-      () =>
-        finish(() =>
-          reject(new Error("Délai de chargement de l'asset dépassé.")),
-        ),
-      timeoutMs,
+const findCell = (tile: string): HTMLElement | null => {
+  const candidates = document.querySelectorAll<HTMLElement>(
+    `[data-chess-cell="${tile}"]`,
+  );
+  let winner: HTMLElement | null = null;
+  let winnerArea = 0;
+  for (const candidate of candidates) {
+    const rect = candidate.getBoundingClientRect();
+    const width = Math.max(
+      0,
+      Math.min(rect.right, window.innerWidth) - Math.max(0, rect.left),
     );
-
-    image.addEventListener("load", onLoad, { once: true });
-    image.addEventListener("error", onError, { once: true });
-  });
+    const height = Math.max(
+      0,
+      Math.min(rect.bottom, window.innerHeight) - Math.max(0, rect.top),
+    );
+    const area = width * height;
+    if (area > winnerArea) {
+      winner = candidate;
+      winnerArea = area;
+    }
+  }
+  return winner;
+};
 
 const finishAnimation = async (animation: Animation): Promise<void> => {
   try {
     await animation.finished;
   } catch {
-    // Une navigation ou un démontage peut annuler l'animation sans erreur métier.
+    // Navigation and component unmount may cancel an animation safely.
   }
 };
 
-const findVisibleCell = (tile: string): HTMLElement | null => {
-  const candidates = document.querySelectorAll<HTMLElement>(
-    `[data-chess-cell="${tile}"]`,
-  );
-  let best: { element: HTMLElement; area: number } | null = null;
-
-  for (const element of candidates) {
-    const rect = element.getBoundingClientRect();
-    const visibleWidth = Math.max(
-      0,
-      Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0),
-    );
-    const visibleHeight = Math.max(
-      0,
-      Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0),
-    );
-    const area = visibleWidth * visibleHeight;
-    if (area > 0 && (!best || area > best.area)) {
-      best = { element, area };
+const imageLoaded = (image: HTMLImageElement, timeoutMs: number): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (image.complete) {
+      image.naturalWidth > 0 ? resolve() : reject(new Error("IMAGE_LOAD_FAILED"));
+      return;
     }
-  }
+    const timeout = window.setTimeout(
+      () => cleanup(() => reject(new Error("IMAGE_TIMEOUT"))),
+      timeoutMs,
+    );
+    const onLoad = () => cleanup(resolve);
+    const onError = () => cleanup(() => reject(new Error("IMAGE_LOAD_FAILED")));
+    const cleanup = (done: () => void) => {
+      window.clearTimeout(timeout);
+      image.removeEventListener("load", onLoad);
+      image.removeEventListener("error", onError);
+      done();
+    };
+    image.addEventListener("load", onLoad, { once: true });
+    image.addEventListener("error", onError, { once: true });
+  });
 
-  return best?.element ?? null;
+const publicAssetUrl = (resourceId: string): string => {
+  const parsed = parseManagedCinematicResourceId(resourceId);
+  if (!parsed) throw new Error("INVALID_MANAGED_ASSET_ID");
+  const { data } = supabase.storage
+    .from(RULE_ASSET_BUCKET)
+    .getPublicUrl(parsed.storagePath);
+  const actual = new URL(data.publicUrl);
+  const configured = supabaseDiagnostics.resolvedUrl;
+  if (!configured) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const expectedOrigin = new URL(configured).origin;
+  const expectedPath = `/storage/v1/object/public/${RULE_ASSET_BUCKET}/${parsed.storagePath}`;
+  if (
+    actual.protocol !== "https:" ||
+    actual.origin !== expectedOrigin ||
+    actual.pathname !== expectedPath ||
+    actual.search ||
+    actual.hash ||
+    actual.username ||
+    actual.password
+  ) {
+    throw new Error("MANAGED_ASSET_URL_REJECTED");
+  }
+  return actual.toString();
 };
 
-export async function playManagedCinematicDom(
-  resourceId: string,
+const proceduralActor = (motion: ManagedCinematicMotion): HTMLElement => {
+  const actor = document.createElement("div");
+  actor.textContent = motion === "burst" ? "✦" : motion === "carry" ? "🐉" : "🦅";
+  Object.assign(actor.style, {
+    position: "absolute",
+    left: "-64px",
+    top: "-64px",
+    width: "128px",
+    height: "128px",
+    display: "grid",
+    placeItems: "center",
+    fontSize: "86px",
+    lineHeight: "1",
+    filter:
+      "drop-shadow(0 12px 20px rgba(2,6,23,.85)) drop-shadow(0 0 16px rgba(34,211,238,.55))",
+    userSelect: "none",
+  });
+  return actor;
+};
+
+async function runActor(
+  actor: HTMLElement,
+  target: DOMRect,
+  motion: ManagedCinematicMotion,
+): Promise<void> {
+  const centerX = target.left + target.width / 2;
+  const centerY = target.top + target.height / 2;
+  const fromLeft = centerX > window.innerWidth / 2;
+  const startX = fromLeft ? -150 : window.innerWidth + 150;
+  const exitX = fromLeft ? window.innerWidth + 150 : -150;
+  const direction = fromLeft ? 1 : -1;
+  const targetTransform = `translate(${centerX}px, ${centerY - 34}px) scaleX(${direction})`;
+  const frames: Keyframe[] =
+    motion === "burst"
+      ? [
+          {
+            opacity: 0,
+            transform: `translate(${centerX}px, ${centerY}px) scale(.1)`,
+          },
+          {
+            opacity: 1,
+            transform: `translate(${centerX}px, ${centerY}px) scale(1.15)`,
+            offset: 0.45,
+          },
+          {
+            opacity: 0,
+            transform: `translate(${centerX}px, ${centerY}px) scale(2.2)`,
+          },
+        ]
+      : [
+          {
+            opacity: 0,
+            transform: `translate(${startX}px, ${Math.max(80, centerY - 180)}px) rotate(${10 * direction}deg) scaleX(${direction})`,
+          },
+          { opacity: 1, transform: targetTransform, offset: 0.45 },
+          { opacity: 1, transform: targetTransform, offset: 0.58 },
+          {
+            opacity: 0,
+            transform: `translate(${exitX}px, -160px) rotate(${-8 * direction}deg) scaleX(${direction})`,
+          },
+        ];
+  await finishAnimation(
+    actor.animate(frames, {
+      duration: motion === "burst" ? 1100 : 1850,
+      easing: "cubic-bezier(.22,.8,.24,1)",
+      fill: "forwards",
+    }),
+  );
+}
+
+export async function playProceduralCinematicDom(
+  motion: ManagedCinematicMotion,
   tile: string,
 ): Promise<void> {
   if (
     typeof document === "undefined" ||
     typeof window === "undefined" ||
     !TILE_PATTERN.test(tile) ||
-    activeCinematics >= MAX_CONCURRENT_CINEMATICS
+    activeAnimations >= MAX_CONCURRENT
   ) {
     return;
   }
-
-  const resource = parseManagedCinematicResourceId(resourceId);
-  if (!resource) return;
-
-  const targetCell = findVisibleCell(tile);
-  if (!targetCell) return;
-
-  const targetRect = targetCell.getBoundingClientRect();
-  if (targetRect.width <= 0 || targetRect.height <= 0) return;
-
-  const publicUrl = resolveManagedAssetPublicUrl(resource.resourceId);
-  activeCinematics += 1;
-
+  const cell = findCell(tile);
+  if (!cell) return;
+  activeAnimations += 1;
   const root = document.createElement("div");
   root.setAttribute("aria-hidden", "true");
   Object.assign(root.style, {
     position: "fixed",
-    left: "0",
-    top: "0",
-    width: "1px",
-    height: "1px",
+    inset: "0",
     zIndex: "2147483000",
     pointerEvents: "none",
-    contain: "layout style",
-    overflow: "visible",
+    overflow: "hidden",
+  });
+  const actor = proceduralActor(motion);
+  root.append(actor);
+  document.body.append(root);
+  try {
+    await runActor(actor, cell.getBoundingClientRect(), motion);
+  } finally {
+    root.remove();
+    activeAnimations = Math.max(0, activeAnimations - 1);
+  }
+}
+
+export async function playManagedCinematicDom(
+  resourceId: string,
+  tile: string,
+): Promise<void> {
+  const parsed = parseManagedCinematicResourceId(resourceId);
+  if (!parsed) return;
+  if (
+    typeof document === "undefined" ||
+    typeof window === "undefined" ||
+    !TILE_PATTERN.test(tile) ||
+    activeAnimations >= MAX_CONCURRENT
+  ) {
+    return;
+  }
+  const cell = findCell(tile);
+  if (!cell) return;
+
+  activeAnimations += 1;
+  const root = document.createElement("div");
+  root.setAttribute("aria-hidden", "true");
+  Object.assign(root.style, {
+    position: "fixed",
+    inset: "0",
+    zIndex: "2147483000",
+    pointerEvents: "none",
+    overflow: "hidden",
   });
 
   const image = document.createElement("img");
   image.alt = "";
-  image.draggable = false;
   image.decoding = "async";
   image.referrerPolicy = "no-referrer";
-  image.src = publicUrl;
-
-  const actorSize = Math.min(
-    240,
-    Math.max(104, Math.round(targetRect.width * 3.1)),
-  );
+  image.draggable = false;
+  image.src = publicAssetUrl(resourceId);
   Object.assign(image.style, {
     position: "absolute",
-    left: `${-actorSize / 2}px`,
-    top: `${-actorSize / 2}px`,
-    width: `${actorSize}px`,
-    height: `${actorSize}px`,
+    left: "-100px",
+    top: "-100px",
+    width: "200px",
+    height: "200px",
     objectFit: "contain",
     filter:
-      "drop-shadow(0 18px 24px rgba(2,6,23,.72)) drop-shadow(0 0 18px rgba(56,189,248,.4))",
+      "drop-shadow(0 18px 24px rgba(2,6,23,.75)) drop-shadow(0 0 18px rgba(34,211,238,.45))",
     userSelect: "none",
   });
-
-  const carriedPiece = document.createElement("span");
-  carriedPiece.textContent = "♟";
-  Object.assign(carriedPiece.style, {
-    position: "absolute",
-    left: "50%",
-    top: `${Math.round(actorSize * 0.23)}px`,
-    transform: "translateX(-50%)",
-    color: "#f8fafc",
-    fontSize: `${Math.max(28, Math.round(targetRect.width * 0.78))}px`,
-    lineHeight: "1",
-    opacity: "0",
-    textShadow:
-      "0 4px 8px rgba(2,6,23,.95), 0 0 12px rgba(248,250,252,.9)",
-  });
-
-  root.append(image, carriedPiece);
-  document.body.appendChild(root);
+  root.append(image);
+  document.body.append(root);
 
   try {
-    await waitForImage(image, 4_000);
-
-    const targetX = targetRect.left + targetRect.width / 2;
-    const targetY = targetRect.top + targetRect.height / 2;
-    const enterFromLeft = targetX >= window.innerWidth / 2;
-    const direction = enterFromLeft ? 1 : -1;
-    const startX = enterFromLeft ? -actorSize : window.innerWidth + actorSize;
-    const exitX = enterFromLeft ? window.innerWidth + actorSize : -actorSize;
-    const reducedMotion =
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-
-    if (reducedMotion) {
-      carriedPiece.style.opacity = "1";
-      await finishAnimation(
-        root.animate(
-          [
-            {
-              opacity: 0,
-              transform: `translate(${targetX}px, ${targetY - 18}px)`,
-            },
-            {
-              opacity: 1,
-              transform: `translate(${targetX}px, ${targetY - 18}px)`,
-            },
-            {
-              opacity: 0,
-              transform: `translate(${targetX}px, ${targetY - 18}px)`,
-            },
-          ],
-          { duration: 900, easing: "ease-out" },
-        ),
-      );
-      return;
-    }
-
-    const commonTarget = `translate(${targetX}px, ${targetY - 30}px) scaleX(${direction})`;
-    const actorFrames: Keyframe[] =
-      resource.motion === "burst"
-        ? [
-            {
-              opacity: 0,
-              transform: `translate(${targetX}px, ${targetY}px) scale(.08) scaleX(${direction})`,
-              offset: 0,
-            },
-            {
-              opacity: 1,
-              transform: `${commonTarget} scale(.82)`,
-              offset: 0.28,
-            },
-            { opacity: 1, transform: commonTarget, offset: 0.48 },
-            {
-              opacity: 0,
-              transform: `translate(${exitX}px, ${-actorSize}px) rotate(${-10 * direction}deg) scaleX(${direction})`,
-              offset: 1,
-            },
-          ]
-        : resource.motion === "swoop"
-          ? [
-              {
-                opacity: 0,
-                transform: `translate(${startX}px, ${-actorSize}px) rotate(${12 * direction}deg) scaleX(${direction})`,
-                offset: 0,
-              },
-              { opacity: 1, transform: commonTarget, offset: 0.48 },
-              { opacity: 1, transform: commonTarget, offset: 0.58 },
-              {
-                opacity: 0,
-                transform: `translate(${exitX}px, ${window.innerHeight + actorSize}px) rotate(${-12 * direction}deg) scaleX(${direction})`,
-                offset: 1,
-              },
-            ]
-          : [
-              {
-                opacity: 0,
-                transform: `translate(${startX}px, ${Math.max(actorSize / 2, targetY - actorSize)}px) rotate(${7 * direction}deg) scaleX(${direction})`,
-                offset: 0,
-              },
-              { opacity: 1, transform: commonTarget, offset: 0.45 },
-              { opacity: 1, transform: commonTarget, offset: 0.58 },
-              {
-                opacity: 0,
-                transform: `translate(${exitX}px, ${-actorSize}px) rotate(${-9 * direction}deg) scaleX(${direction})`,
-                offset: 1,
-              },
-            ];
-
-    const duration = resource.motion === "burst" ? 1_450 : 1_900;
-    const actorAnimation = root.animate(actorFrames, {
-      duration: Math.min(duration, MAX_ANIMATION_MS),
-      easing: "cubic-bezier(.22,.8,.24,1)",
-      fill: "forwards",
-    });
-    const pieceAnimation = carriedPiece.animate(
-      [
-        {
-          opacity: 0,
-          transform: "translateX(-50%) translateY(12px) scale(.75)",
-        },
-        {
-          opacity: 0,
-          transform: "translateX(-50%) translateY(12px) scale(.75)",
-          offset: 0.38,
-        },
-        {
-          opacity: 1,
-          transform: "translateX(-50%) translateY(0) scale(1)",
-          offset: 0.5,
-        },
-        {
-          opacity: 1,
-          transform: "translateX(-50%) translateY(0) scale(1)",
-          offset: 0.86,
-        },
-        {
-          opacity: 0,
-          transform: "translateX(-50%) translateY(-8px) scale(.9)",
-        },
-      ],
-      { duration, easing: "ease-out", fill: "forwards" },
-    );
-
-    await Promise.all([
-      finishAnimation(actorAnimation),
-      finishAnimation(pieceAnimation),
-    ]);
-  } finally {
+    await imageLoaded(image, 4000);
+    await runActor(image, cell.getBoundingClientRect(), parsed.motion);
+  } catch {
     root.remove();
-    activeCinematics = Math.max(0, activeCinematics - 1);
+    activeAnimations = Math.max(0, activeAnimations - 1);
+    await playProceduralCinematicDom(parsed.motion, tile);
+    return;
+  } finally {
+    if (root.isConnected) {
+      root.remove();
+      activeAnimations = Math.max(0, activeAnimations - 1);
+    }
   }
 }
