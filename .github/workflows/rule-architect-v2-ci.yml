@@ -153,6 +153,7 @@ jobs:
             supabase/functions/_shared/cors.test.ts \
             supabase/functions/_shared/cors-v2.test.ts \
             supabase/functions/_shared/guidance-token.test.ts \
+            supabase/functions/_shared/legacy-guidance-compat.test.ts \
             supabase/functions/_shared/prompt-security.test.ts \
             supabase/functions/_shared/rule-guidance-validation.test.ts \
             supabase/functions/_shared/rule-coverage.test.ts \
