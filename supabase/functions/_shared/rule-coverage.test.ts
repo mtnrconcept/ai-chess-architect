@@ -249,7 +249,7 @@ Deno.test(
     ]);
 
     const prompt = buildRuleCoverageAuditPrompt({
-      contract: contract(),
+      contract: typedContract("logic", []),
       blueprint,
     });
     for (const path of manifest) assert(prompt.includes(path), path);
@@ -1007,6 +1007,55 @@ Deno.test(
         }),
       Error,
       "SIGNED_GUIDANCE_CHOICE_SCOPE_MISMATCH",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: v1 masque et refuse la preuve de portée racine",
+  () => {
+    const legacyManifest = buildRuleCoverageEvidencePathManifest(blueprint, 1);
+    assert(!legacyManifest.includes("$.sides"));
+
+    const legacyContract: RuleIntentContract = {
+      ...contract(),
+      requirements: [contract().requirements[0]],
+    };
+    const prompt = buildRuleCoverageAuditPrompt({
+      contract: legacyContract,
+      blueprint,
+    });
+    assert(
+      prompt.includes(
+        `<CHEMINS_PREUVE_AUTORISES>\n${JSON.stringify(
+          legacyManifest,
+        )}\n</CHEMINS_PREUVE_AUTORISES>`,
+      ),
+    );
+
+    const result = evaluateRuleCoverage({
+      contract: legacyContract,
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "Une portée racine est proposée pour un contrat historique.",
+        requirements: [
+          {
+            id: "freeze-enemy",
+            status: "implemented",
+            evidencePaths: ["$.sides"],
+            explanation: "Le champ racine sides est présenté comme preuve.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assert(!result.assessment.complete);
+    assertEquals(
+      result.diagnostics[0]?.code,
+      "COVERAGE_LEGACY_SIDE_SCOPE_UNSUPPORTED",
     );
   },
 );

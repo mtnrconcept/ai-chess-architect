@@ -598,7 +598,10 @@ export function buildRuleCoverageAuditPrompt(input: {
   contract: RuleIntentContract;
   blueprint: RuleBlueprintV2;
 }): string {
-  const evidencePaths = buildRuleCoverageEvidencePathManifest(input.blueprint);
+  const evidencePaths = buildRuleCoverageEvidencePathManifest(
+    input.blueprint,
+    input.contract.version,
+  );
 
   return [
     "<CONTRAT_INTENTION_UTILISATEUR>",
@@ -619,10 +622,11 @@ export function buildRuleCoverageAuditPrompt(input: {
 
 export function buildRuleCoverageEvidencePathManifest(
   blueprint: RuleBlueprintV2,
+  contractVersion: RuleIntentContract["version"] = 2,
 ): string[] {
   const paths: string[] = [];
 
-  if (hasValidSideScope(blueprint.sides)) {
+  if (contractVersion === 2 && hasValidSideScope(blueprint.sides)) {
     paths.push("$.sides");
   }
 
@@ -771,7 +775,11 @@ const typedEvidenceFailure = (input: {
   blueprint: RuleBlueprintV2;
   evidencePaths: string[];
 }): string | null => {
-  if (input.contract.version !== 2) return null;
+  if (input.contract.version === 1) {
+    return input.evidencePaths.includes("$.sides")
+      ? "COVERAGE_LEGACY_SIDE_SCOPE_UNSUPPORTED"
+      : null;
+  }
 
   const evidenceContract = parseV2EvidenceContract({
     evidenceKind: input.requirement.evidenceKind,
