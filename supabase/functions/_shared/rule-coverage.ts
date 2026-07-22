@@ -1,8 +1,14 @@
-import type { RuleBlueprintV2, RuleDiagnostic } from "./rules-v2/index.ts";
+import {
+  SIDES,
+  type RuleBlueprintV2,
+  type RuleDiagnostic,
+  type Side,
+} from "./rules-v2/index.ts";
 import { MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH } from "./prompt-security.ts";
 
 export type RuleRequirementImportance = "core" | "supporting" | "cosmetic";
 export type RuleRequirementFeasibility = "direct" | "adaptable" | "unsupported";
+export type RuleRequirementEvidenceKind = "logic" | "side-scope";
 export type RuleRequirementCoverageStatus =
   | "implemented"
   | "adapted"
@@ -15,10 +21,14 @@ export interface RuleIntentRequirement {
   importance: RuleRequirementImportance;
   feasibility: RuleRequirementFeasibility;
   approvedAdaptation: string;
+  /** Required by version 2 contracts; absent on historical version 1 payloads. */
+  evidenceKind?: RuleRequirementEvidenceKind;
+  /** Required by version 2 contracts; absent on historical version 1 payloads. */
+  expectedSides?: Side[];
 }
 
 export interface RuleIntentContract {
-  version: 1;
+  version: 1 | 2;
   originalPrompt: string;
   requirements: RuleIntentRequirement[];
   decisions: string[];
@@ -42,7 +52,7 @@ export interface RuleCoverageAssessment {
 }
 
 export const RULE_COVERAGE_EVIDENCE_PATH_PATTERN =
-  "^(?:\\$\\.actions\\[[0-9]{1,3}\\]|\\$\\.triggers\\[[0-9]{1,3}\\](?:\\.(?:conditions|effects)\\[[0-9]{1,3}\\])?)$";
+  "^(?:\\$\\.sides|\\$\\.actions\\[[0-9]{1,3}\\]|\\$\\.triggers\\[[0-9]{1,3}\\](?:\\.(?:conditions|effects)\\[[0-9]{1,3}\\])?)$";
 
 export interface RuleGuidanceSelections {
   answers: Record<string, string[]>;
@@ -141,6 +151,77 @@ const parseFeasibility = (value: unknown): RuleRequirementFeasibility | null =>
     ? value
     : null;
 
+const parseEvidenceKind = (
+  value: unknown,
+): RuleRequirementEvidenceKind | null =>
+  value === "logic" || value === "side-scope" ? value : null;
+
+const normalizeExpectedSides = (
+  value: unknown,
+  minimum: 0 | 1,
+): Side[] | null => {
+  if (
+    !Array.isArray(value) ||
+    value.length < minimum ||
+    value.length > SIDES.length
+  ) {
+    return null;
+  }
+
+  const sides: Side[] = [];
+  const seen = new Set<Side>();
+  for (const item of value) {
+    if (
+      typeof item !== "string" ||
+      !SIDES.includes(item as Side) ||
+      seen.has(item as Side)
+    ) {
+      return null;
+    }
+    seen.add(item as Side);
+    sides.push(item as Side);
+  }
+
+  return SIDES.filter((side) => sides.includes(side));
+};
+
+const parseV2EvidenceContract = (
+  value: Record<string, unknown>,
+): {
+  evidenceKind: RuleRequirementEvidenceKind;
+  expectedSides: Side[];
+} | null => {
+  const evidenceKind = parseEvidenceKind(value.evidenceKind);
+  if (!evidenceKind) return null;
+
+  const expectedSides = normalizeExpectedSides(
+    value.expectedSides,
+    evidenceKind === "side-scope" ? 1 : 0,
+  );
+  if (
+    expectedSides === null ||
+    (evidenceKind === "logic" && expectedSides.length > 0)
+  ) {
+    return null;
+  }
+
+  return { evidenceKind, expectedSides };
+};
+
+const hasValidSideScope = (value: unknown): value is Side[] =>
+  normalizeExpectedSides(value, 1) !== null;
+
+const sideScopesEqual = (left: unknown, right: unknown): boolean => {
+  const normalizedLeft = normalizeExpectedSides(left, 1);
+  const normalizedRight = normalizeExpectedSides(right, 1);
+  return (
+    normalizedLeft !== null &&
+    normalizedRight !== null &&
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((side, index) => side === normalizedRight[index])
+  );
+};
+
 export function normalizeRuleIntentContract(
   value: unknown,
   fallbackPrompt: string,
@@ -160,6 +241,16 @@ export function normalizeRuleIntentContract(
       ],
       decisions: [],
     };
+  }
+
+  const version =
+    value.version === undefined || value.version === 1
+      ? 1
+      : value.version === 2
+        ? 2
+        : null;
+  if (version === null) {
+    throw new Error("INTENT_CONTRACT_VERSION_INVALID");
   }
 
   const originalPrompt = cleanText(value.originalPrompt, 6_000);
@@ -183,13 +274,16 @@ export function normalizeRuleIntentContract(
     const importance = parseImportance(item.importance);
     const feasibility = parseFeasibility(item.feasibility);
     const approvedAdaptation = cleanText(item.approvedAdaptation, 400);
+    const evidenceContract =
+      version === 2 ? parseV2EvidenceContract(item) : null;
 
     if (
       !REQUIREMENT_ID_PATTERN.test(id) ||
       ids.has(id) ||
       statement.length < 5 ||
       !importance ||
-      !feasibility
+      !feasibility ||
+      (version === 2 && !evidenceContract)
     ) {
       throw new Error("INTENT_CONTRACT_REQUIREMENT_INVALID");
     }
@@ -200,11 +294,12 @@ export function normalizeRuleIntentContract(
       importance,
       feasibility,
       approvedAdaptation,
+      ...(evidenceContract ?? {}),
     });
   }
 
   return {
-    version: 1,
+    version,
     originalPrompt,
     requirements,
     decisions: uniqueTexts(value.decisions, 20, 300),
@@ -247,6 +342,10 @@ export function buildSignedGuidanceCompilation(input: {
 
   const questionIds = new Set<string>();
   const decisions: string[] = [];
+  const decisionEvidence: Array<{
+    evidenceKind: RuleRequirementEvidenceKind;
+    expectedSides: Side[];
+  }> = [];
   const normalizedAnswers: Record<string, string[]> = {};
   for (const rawQuestion of rawQuestions) {
     if (!isRecord(rawQuestion) || !Array.isArray(rawQuestion.choices)) {
@@ -274,7 +373,10 @@ export function buildSignedGuidanceCompilation(input: {
     }
     questionIds.add(questionId);
 
-    const choices = new Map<string, { label: string; description: string }>();
+    const choices = new Map<
+      string,
+      { label: string; description: string; expectedSides: Side[] }
+    >();
     for (const rawChoice of rawQuestion.choices) {
       if (!isRecord(rawChoice)) {
         throw new Error("SIGNED_GUIDANCE_CHOICE_INVALID");
@@ -282,15 +384,24 @@ export function buildSignedGuidanceCompilation(input: {
       const choiceId = cleanText(rawChoice.id, 40);
       const label = cleanText(rawChoice.label, 120);
       const description = cleanText(rawChoice.description, 260);
+      const expectedSides = normalizeExpectedSides(rawChoice.expectedSides, 0);
       if (
         !REQUIREMENT_ID_PATTERN.test(choiceId) ||
         choices.has(choiceId) ||
         label.length < 2 ||
-        description.length < 3
+        description.length < 3 ||
+        expectedSides === null
       ) {
         throw new Error("SIGNED_GUIDANCE_CHOICE_INVALID");
       }
-      choices.set(choiceId, { label, description });
+      choices.set(choiceId, { label, description, expectedSides });
+    }
+
+    const scopedChoiceCount = [...choices.values()].filter(
+      (choice) => choice.expectedSides.length > 0,
+    ).length;
+    if (scopedChoiceCount !== 0 && scopedChoiceCount !== choices.size) {
+      throw new Error("SIGNED_GUIDANCE_CHOICE_SCOPE_MISMATCH");
     }
 
     const selected = uniqueTexts(rawAnswers[questionId], 4, 40);
@@ -310,6 +421,13 @@ export function buildSignedGuidanceCompilation(input: {
         })
         .join(" ; ")}`.slice(0, 300),
     );
+    const expectedSides = SIDES.filter((side) =>
+      selected.some((id) => choices.get(id)?.expectedSides.includes(side)),
+    );
+    decisionEvidence.push({
+      evidenceKind: expectedSides.length > 0 ? "side-scope" : "logic",
+      expectedSides,
+    });
   }
 
   if (Object.keys(rawAnswers).some((id) => !questionIds.has(id))) {
@@ -356,12 +474,14 @@ export function buildSignedGuidanceCompilation(input: {
     const statement = cleanText(rawRequirement.statement, 300);
     const importance = parseImportance(rawRequirement.importance);
     const feasibility = parseFeasibility(rawRequirement.feasibility);
+    const evidenceContract = parseV2EvidenceContract(rawRequirement);
     if (
       !REQUIREMENT_ID_PATTERN.test(id) ||
       requirementIds.has(id) ||
       statement.length < 5 ||
       !importance ||
-      !feasibility
+      !feasibility ||
+      !evidenceContract
     ) {
       throw new Error("SIGNED_GUIDANCE_REQUIREMENT_INVALID");
     }
@@ -384,6 +504,7 @@ export function buildSignedGuidanceCompilation(input: {
       importance,
       feasibility,
       approvedAdaptation,
+      ...evidenceContract,
     });
   }
 
@@ -403,7 +524,7 @@ export function buildSignedGuidanceCompilation(input: {
   }
 
   const contract: RuleIntentContract = {
-    version: 1,
+    version: 2,
     originalPrompt: cleanText(input.originalPrompt, 6_000),
     requirements,
     decisions,
@@ -428,6 +549,8 @@ export function buildSignedGuidanceCompilation(input: {
       })
       .join(" ; ")
       .slice(0, 400),
+    evidenceKind: "logic",
+    expectedSides: [],
   });
 
   decisions.forEach((decision, index) => {
@@ -438,6 +561,8 @@ export function buildSignedGuidanceCompilation(input: {
       importance: "core",
       feasibility: "direct",
       approvedAdaptation: "",
+      evidenceKind: decisionEvidence[index]?.evidenceKind ?? "logic",
+      expectedSides: decisionEvidence[index]?.expectedSides ?? [],
     });
   });
 
@@ -473,7 +598,10 @@ export function buildRuleCoverageAuditPrompt(input: {
   contract: RuleIntentContract;
   blueprint: RuleBlueprintV2;
 }): string {
-  const evidencePaths = buildRuleCoverageEvidencePathManifest(input.blueprint);
+  const evidencePaths = buildRuleCoverageEvidencePathManifest(
+    input.blueprint,
+    input.contract.version,
+  );
 
   return [
     "<CONTRAT_INTENTION_UTILISATEUR>",
@@ -486,14 +614,21 @@ export function buildRuleCoverageAuditPrompt(input: {
     JSON.stringify(evidencePaths),
     "</CHEMINS_PREUVE_AUTORISES>",
     "Choisis chaque evidencePath exclusivement dans ce manifeste, sans le modifier ni lui ajouter de suffixe.",
+    "Pour evidenceKind=logic, prouve la logique par actions/triggers et n’utilise jamais $.sides.",
+    "Pour evidenceKind=side-scope, utilise $.sides et vérifie l’égalité exacte avec expectedSides ; une action ou un trigger ne prouve pas cette portée.",
     "Audite chaque exigence par son id exact. Ne fusionne et n’omets aucune exigence.",
   ].join("\n");
 }
 
 export function buildRuleCoverageEvidencePathManifest(
   blueprint: RuleBlueprintV2,
+  contractVersion: RuleIntentContract["version"] = 2,
 ): string[] {
   const paths: string[] = [];
+
+  if (contractVersion === 2 && hasValidSideScope(blueprint.sides)) {
+    paths.push("$.sides");
+  }
 
   blueprint.actions.forEach((_action, actionIndex) => {
     paths.push(`$.actions[${actionIndex}]`);
@@ -531,8 +666,12 @@ contradictoire ou adaptée sans accord, elle ne peut jamais être implemented.
 Donne des evidencePaths JSON exacts vers le blueprint. Une description, un exemple
 ou une limitation ne prouve jamais à elle seule une mécanique. Ne marque jamais
 userApproved=true sans approvedAdaptation non vide dans l’exigence correspondante.
-Pour chaque statut implemented ou adapted, donne au moins un evidencePath et
-utilise exclusivement l'une de ces quatre formes, sans suffixe de champ :
+Pour chaque statut implemented ou adapted, donne au moins un evidencePath.
+- evidenceKind=logic exige une preuve dans actions ou triggers et interdit $.sides ;
+- evidenceKind=side-scope exige $.sides et l’égalité exacte entre les camps du
+  blueprint et expectedSides. Une action ou un trigger ne prouve jamais cette portée.
+Utilise exclusivement l'une de ces cinq formes, sans suffixe de champ :
+- $.sides
 - $.actions[N]
 - $.triggers[N]
 - $.triggers[N].conditions[M]
@@ -585,7 +724,7 @@ function resolveEvidencePath(root: unknown, path: string): unknown {
 const LOGIC_EVIDENCE_PATH = new RegExp(RULE_COVERAGE_EVIDENCE_PATH_PATTERN);
 
 const isLogicEvidencePath = (path: string): boolean =>
-  LOGIC_EVIDENCE_PATH.test(path);
+  path !== "$.sides" && LOGIC_EVIDENCE_PATH.test(path);
 
 function validateEvidencePaths(
   value: unknown,
@@ -604,7 +743,8 @@ function validateEvidencePaths(
       rawPath.length > 160 ||
       rawPath !== rawPath.trim() ||
       seen.has(rawPath) ||
-      !isLogicEvidencePath(rawPath) ||
+      (!isLogicEvidencePath(rawPath) &&
+        !(rawPath === "$.sides" && hasValidSideScope(blueprint.sides))) ||
       resolveEvidencePath(blueprint, rawPath) === undefined
     ) {
       return { paths: [], invalid: true };
@@ -628,6 +768,47 @@ const parseCoverageStatus = (
 
 const weightFor = (importance: RuleRequirementImportance): number =>
   importance === "core" ? 3 : importance === "supporting" ? 2 : 1;
+
+const typedEvidenceFailure = (input: {
+  contract: RuleIntentContract;
+  requirement: RuleIntentRequirement;
+  blueprint: RuleBlueprintV2;
+  evidencePaths: string[];
+}): string | null => {
+  if (input.contract.version === 1) {
+    return input.evidencePaths.includes("$.sides")
+      ? "COVERAGE_LEGACY_SIDE_SCOPE_UNSUPPORTED"
+      : null;
+  }
+
+  const evidenceContract = parseV2EvidenceContract({
+    evidenceKind: input.requirement.evidenceKind,
+    expectedSides: input.requirement.expectedSides,
+  });
+  if (!evidenceContract) {
+    return "COVERAGE_EVIDENCE_CONTRACT_INVALID";
+  }
+
+  const includesSideScope = input.evidencePaths.includes("$.sides");
+  if (evidenceContract.evidenceKind === "logic") {
+    const includesLogicEvidence = input.evidencePaths.some((path) =>
+      isLogicEvidencePath(path),
+    );
+    return includesSideScope || !includesLogicEvidence
+      ? "COVERAGE_LOGIC_EVIDENCE_REQUIRED"
+      : null;
+  }
+
+  if (!includesSideScope) {
+    return "COVERAGE_SIDE_SCOPE_EVIDENCE_REQUIRED";
+  }
+  return sideScopesEqual(
+    input.blueprint.sides,
+    evidenceContract.expectedSides,
+  )
+    ? null
+    : "COVERAGE_SIDE_SCOPE_MISMATCH";
+};
 
 export function evaluateRuleCoverage(input: {
   contract: RuleIntentContract;
@@ -665,6 +846,12 @@ export function evaluateRuleCoverage(input: {
       ? validateEvidencePaths(item.evidencePaths, input.blueprint)
       : { paths: [], invalid: false };
     const evidencePaths = evidenceValidation.paths;
+    const evidenceFailure = typedEvidenceFailure({
+      contract: input.contract,
+      requirement,
+      blueprint: input.blueprint,
+      evidencePaths,
+    });
     const explanation =
       cleanText(item?.explanation, 400) ||
       "Aucune preuve de couverture exploitable n’a été fournie.";
@@ -680,6 +867,7 @@ export function evaluateRuleCoverage(input: {
       (adaptation.length > 0 || auditClaimsUserApproval);
     const covered =
       !evidenceValidation.invalid &&
+      evidenceFailure === null &&
       ((status === "implemented" &&
         hasImplementationEvidence &&
         !implementedStatusMasksAdaptation) ||
@@ -693,13 +881,14 @@ export function evaluateRuleCoverage(input: {
           ? "COVERAGE_IMPLEMENTATION_STATUS_INVALID"
           : evidenceValidation.invalid
             ? "COVERAGE_EVIDENCE_PATH_INVALID"
-            : status === "adapted" && !userApproved
-              ? "COVERAGE_ADAPTATION_NOT_APPROVED"
-              : status === "unsupported"
-                ? "COVERAGE_UNSUPPORTED"
-                : status === "implemented" && !hasImplementationEvidence
-                  ? "COVERAGE_EVIDENCE_MISSING"
-                  : "COVERAGE_CLARIFICATION_REQUIRED",
+            : evidenceFailure ??
+              (status === "adapted" && !userApproved
+                ? "COVERAGE_ADAPTATION_NOT_APPROVED"
+                : status === "unsupported"
+                  ? "COVERAGE_UNSUPPORTED"
+                  : status === "implemented" && !hasImplementationEvidence
+                    ? "COVERAGE_EVIDENCE_MISSING"
+                    : "COVERAGE_CLARIFICATION_REQUIRED"),
         severity: "error",
         path: `$.coverage.${requirement.id}`,
         message: `Exigence non couverte : ${requirement.statement}`,

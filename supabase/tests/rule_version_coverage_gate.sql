@@ -10,20 +10,27 @@ declare
     'd0000000-0000-4000-8000-000000000011';
   v_legacy_compilation_id constant uuid :=
     'd0000000-0000-4000-8000-000000000012';
+  v_v1_compilation_id constant uuid :=
+    'd0000000-0000-4000-8000-000000000013';
   v_blueprint_id constant uuid :=
     'd0000000-0000-4000-8000-000000000020';
   v_adapted_blueprint_id constant uuid :=
     'd0000000-0000-4000-8000-000000000021';
+  v_v1_blueprint_id constant uuid :=
+    'd0000000-0000-4000-8000-000000000022';
   v_version_id constant uuid :=
     'd0000000-0000-4000-8000-000000000030';
   v_adapted_version_id constant uuid :=
     'd0000000-0000-4000-8000-000000000031';
   v_legacy_version_id constant uuid :=
     'd0000000-0000-4000-8000-000000000032';
+  v_v1_version_id constant uuid :=
+    'd0000000-0000-4000-8000-000000000033';
   v_blueprint constant jsonb := $json$
     {
       "ruleKey": "coverage-gate-test",
       "stateNamespace": "rules.coverageGateTest",
+      "sides": ["white", "black"],
       "actions": [
         {
           "id": "freeze-target",
@@ -46,9 +53,9 @@ declare
   v_valid_validation constant jsonb := $json$
     {
       "metrics": {
-        "coverageContractVersion": 1,
+        "coverageContractVersion": 2,
         "intentContract": {
-          "version": 1,
+          "version": 2,
           "originalPrompt": "[redacted]",
           "originalPromptHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "requirements": [
@@ -57,14 +64,27 @@ declare
               "statement": "The bishop freezes one enemy piece.",
               "importance": "core",
               "feasibility": "direct",
-              "approvedAdaptation": ""
+              "approvedAdaptation": "",
+              "evidenceKind": "logic",
+              "expectedSides": []
             },
             {
               "id": "request-fidelity",
               "statement": "Every signed clause is represented by compiled logic.",
               "importance": "core",
               "feasibility": "direct",
-              "approvedAdaptation": ""
+              "approvedAdaptation": "",
+              "evidenceKind": "logic",
+              "expectedSides": []
+            },
+            {
+              "id": "both-sides",
+              "statement": "The rule is available to both sides.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": "",
+              "evidenceKind": "side-scope",
+              "expectedSides": ["white", "black"]
             }
           ],
           "decisions": []
@@ -90,6 +110,14 @@ declare
               "explanation": "The compiled action represents every signed clause.",
               "adaptation": "",
               "userApproved": false
+            },
+            {
+              "id": "both-sides",
+              "status": "implemented",
+              "evidencePaths": ["$.sides"],
+              "explanation": "The root scope includes both sides.",
+              "adaptation": "",
+              "userApproved": false
             }
           ]
         }
@@ -99,9 +127,9 @@ declare
   v_valid_adapted_validation constant jsonb := $json$
     {
       "metrics": {
-        "coverageContractVersion": 1,
+        "coverageContractVersion": 2,
         "intentContract": {
-          "version": 1,
+          "version": 2,
           "originalPrompt": "[redacted]",
           "originalPromptHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "requirements": [
@@ -110,14 +138,18 @@ declare
               "statement": "The bishop freezes one enemy piece.",
               "importance": "core",
               "feasibility": "adaptable",
-              "approvedAdaptation": "Use the managed freeze effect."
+              "approvedAdaptation": "Use the managed freeze effect.",
+              "evidenceKind": "logic",
+              "expectedSides": []
             },
             {
               "id": "request-fidelity",
               "statement": "Every signed clause is represented by compiled logic.",
               "importance": "core",
               "feasibility": "adaptable",
-              "approvedAdaptation": "Use the managed freeze effect."
+              "approvedAdaptation": "Use the managed freeze effect.",
+              "evidenceKind": "logic",
+              "expectedSides": []
             }
           ],
           "decisions": ["Use the managed freeze effect."]
@@ -143,6 +175,59 @@ declare
               "explanation": "The trigger implements the approved managed freeze effect.",
               "adaptation": "Use the managed freeze effect.",
               "userApproved": true
+            }
+          ]
+        }
+      }
+    }
+  $json$::jsonb;
+  v_valid_v1_validation constant jsonb := $json$
+    {
+      "metrics": {
+        "coverageContractVersion": 1,
+        "intentContract": {
+          "version": 1,
+          "originalPrompt": "[redacted]",
+          "originalPromptHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "requirements": [
+            {
+              "id": "freeze-enemy",
+              "statement": "The bishop freezes one enemy piece.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": ""
+            },
+            {
+              "id": "request-fidelity",
+              "statement": "Every signed clause is represented by compiled logic.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": ""
+            }
+          ],
+          "decisions": []
+        },
+        "coverage": {
+          "complete": true,
+          "exactIntentPreserved": true,
+          "score": 100,
+          "summary": "The historical v1 freeze behavior remains certified.",
+          "requirements": [
+            {
+              "id": "freeze-enemy",
+              "status": "implemented",
+              "evidencePaths": ["$.triggers[0].effects[0]"],
+              "explanation": "The trigger applies the freeze status.",
+              "adaptation": "",
+              "userApproved": false
+            },
+            {
+              "id": "request-fidelity",
+              "status": "implemented",
+              "evidencePaths": ["$.actions[0]"],
+              "explanation": "The compiled action represents every signed clause.",
+              "adaptation": "",
+              "userApproved": false
             }
           ]
         }
@@ -213,6 +298,19 @@ begin
       v_legacy_validation -> 'metrics',
       repeat('f', 64),
       'd0000000-0000-4000-8000-000000000042'
+    ),
+    (
+      v_v1_compilation_id,
+      v_user_id,
+      'Coverage gate historical v1 compatibility test',
+      repeat('1', 64),
+      'test-model',
+      'validated',
+      v_blueprint,
+      '{}'::jsonb,
+      v_valid_v1_validation -> 'metrics',
+      repeat('1', 64),
+      'd0000000-0000-4000-8000-000000000043'
     );
 
   insert into public.rule_blueprints (
@@ -239,6 +337,15 @@ begin
       'coverage-gate-adapted-test',
       'Coverage gate adapted test',
       'Synthetic rule used to verify an approved adaptation.',
+      'test',
+      'private'
+    ),
+    (
+      v_v1_blueprint_id,
+      v_user_id,
+      'coverage-gate-v1-test',
+      'Coverage gate v1 compatibility test',
+      'Synthetic rule used to replay the historical v1 contract.',
       'test',
       'private'
     );
@@ -299,6 +406,232 @@ begin
   exception
     when check_violation then
       if sqlerrm not like '%RULE_VERSION_COVERAGE_INCOMPLETE%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,intentContract,version}',
+    '1'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'MISMATCHED_CONTRACT_VERSIONS_WERE_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_INCOMPLETE%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := v_valid_validation
+    #- '{metrics,intentContract,requirements,0,evidenceKind}';
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'MISSING_V2_EVIDENCE_KIND_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_CONTRACT_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,intentContract,requirements,0,expectedSides}',
+    '["white"]'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'LOGIC_REQUIREMENT_WITH_SIDES_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_CONTRACT_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,intentContract,requirements,2,expectedSides}',
+    '["white", "white"]'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'DUPLICATE_EXPECTED_SIDES_WERE_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_CONTRACT_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,coverage,requirements,0,evidencePaths}',
+    '["$.sides"]'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'LOGIC_REQUIREMENT_USED_SIDE_SCOPE_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_SCOPE_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_v1_validation,
+    '{metrics,coverage,requirements,0,evidencePaths}',
+    '["$.sides"]'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_v1_version_id, v_v1_blueprint_id, v_v1_compilation_id,
+      1, '2.0.0', '2.0.0', 'coverage-gate-v1@test-v1',
+      v_blueprint, '{}'::jsonb, repeat('1', 64), 'private',
+      v_invalid, v_user_id
+    );
+    raise exception 'V1_SIDE_SCOPE_EVIDENCE_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_SCOPE_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,coverage,requirements,0,evidencePaths,0}',
+    '"$.triggers"'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'TRIGGER_COLLECTION_EVIDENCE_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_EVIDENCE_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,coverage,requirements,0,evidencePaths,0}',
+    '" $.actions[0]"'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'PADDED_EVIDENCE_PATH_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_EVIDENCE_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1',
+      jsonb_set(v_blueprint, '{sides}', '["white"]'::jsonb),
+      '{}'::jsonb, repeat('c', 64), 'private',
+      v_valid_validation, v_user_id
+    );
+    raise exception 'SINGLE_SIDE_ROOT_EVIDENCE_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_SCOPE_INVALID%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,coverage,requirements,2,evidencePaths}',
+    '["$.actions[0]"]'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1',
+      jsonb_set(v_blueprint, '{sides}', '["white"]'::jsonb),
+      '{}'::jsonb, repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'SIDE_SCOPE_ACTION_PATH_BYPASS_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_SCOPE_INVALID%' then
         raise;
       end if;
   end;
@@ -766,6 +1099,17 @@ begin
     repeat('d', 64), 'private', v_valid_adapted_validation, v_user_id
   );
 
+  insert into public.rule_versions (
+    id, blueprint_id, compilation_id, version_number, schema_version,
+    engine_version, legacy_rule_id, blueprint_json, rule_json,
+    content_hash, visibility, validation, created_by
+  ) values (
+    v_v1_version_id, v_v1_blueprint_id, v_v1_compilation_id,
+    1, '2.0.0', '2.0.0', 'coverage-gate-v1@test-v1',
+    v_blueprint, '{}'::jsonb, repeat('1', 64), 'private',
+    v_valid_v1_validation, v_user_id
+  );
+
   if not exists (
     select 1
     from public.rule_versions
@@ -782,9 +1126,21 @@ begin
     raise exception 'VALID_ADAPTED_COVERAGE_WAS_REJECTED';
   end if;
 
+  if not exists (
+    select 1
+    from public.rule_versions
+    where id = v_v1_version_id
+  ) then
+    raise exception 'VALID_V1_COVERAGE_WAS_REJECTED';
+  end if;
+
   update public.rule_compilations
   set status = 'published'
-  where id in (v_compilation_id, v_adapted_compilation_id);
+  where id in (
+    v_compilation_id,
+    v_adapted_compilation_id,
+    v_v1_compilation_id
+  );
 
   create temporary table rule_versions_coverage_history_source
     (like public.rule_versions including defaults)
@@ -793,7 +1149,7 @@ begin
   insert into rule_versions_coverage_history_source
   select *
   from public.rule_versions
-  where id in (v_version_id, v_adapted_version_id);
+  where id in (v_version_id, v_adapted_version_id, v_v1_version_id);
 
   insert into rule_versions_coverage_history_source (
     id, blueprint_id, compilation_id, version_number, schema_version,
@@ -836,12 +1192,12 @@ begin
   select *
   from rule_versions_coverage_history_source as version
   where version.validation #> '{metrics,coverageContractVersion}'
-    is not distinct from '1'::jsonb;
+    in ('1'::jsonb, '2'::jsonb);
 
   if (
     select count(*)
     from rule_versions_coverage_replay_test
-  ) <> 2 then
+  ) <> 3 then
     raise exception 'VALID_HISTORICAL_REPLAY_WAS_REJECTED';
   end if;
 
@@ -870,13 +1226,13 @@ begin
 
   update rule_versions_coverage_history_source
   set validation = validation #- '{metrics,coverage,complete}'
-  where id = v_version_id;
+  where id = v_v1_version_id;
 
   begin
     insert into rule_versions_coverage_replay_test
     select *
     from rule_versions_coverage_history_source
-    where id = v_version_id;
+    where id = v_v1_version_id;
     raise exception 'INVALID_V1_HISTORICAL_REPLAY_WAS_ACCEPTED';
   exception
     when check_violation then
@@ -886,8 +1242,8 @@ begin
   end;
 
   update rule_versions_coverage_history_source
-  set validation = v_valid_validation
-  where id = v_version_id;
+  set validation = v_valid_v1_validation
+  where id = v_v1_version_id;
 
   update public.rule_compilations
   set content_hash = repeat('0', 64)
@@ -923,13 +1279,13 @@ begin
 
   update public.rule_compilations
   set metrics = '{}'::jsonb
-  where id = v_compilation_id;
+  where id = v_v1_compilation_id;
 
   begin
     insert into rule_versions_coverage_replay_test
     select *
     from rule_versions_coverage_history_source
-    where id = v_version_id;
+    where id = v_v1_version_id;
     raise exception 'V1_PROOF_MISMATCH_WAS_ACCEPTED';
   exception
     when check_violation then

@@ -671,7 +671,7 @@ Deno.serve(async (request) => {
             contract: intentContract,
             blueprint: result.blueprint,
           }),
-          schemaName: "rule_coverage_audit_v1",
+          schemaName: "rule_coverage_audit_v2",
           schema: RULE_COVERAGE_AUDIT_SCHEMA as unknown as Record<
             string,
             unknown
@@ -724,7 +724,7 @@ Deno.serve(async (request) => {
       openAIResponseId: openAI.responseId,
       coverage,
       intentContract: intentContractProof,
-      coverageContractVersion: 1,
+      coverageContractVersion: intentContract.version,
       coverageUsage,
       coverageResponseId,
       coverageRequestId,

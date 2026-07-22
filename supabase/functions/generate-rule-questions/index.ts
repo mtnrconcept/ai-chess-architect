@@ -17,6 +17,7 @@ import {
   EFFECT_OPS,
   PROVIDERS,
   RULE_EVENTS,
+  SIDES,
 } from "../_shared/rules-v2/index.ts";
 
 const GUIDANCE_SCHEMA = {
@@ -51,6 +52,8 @@ const GUIDANCE_SCHEMA = {
           "importance",
           "feasibility",
           "adaptation",
+          "evidenceKind",
+          "expectedSides",
         ],
         properties: {
           id: { type: "string", pattern: "^[a-z][a-z0-9-]{1,39}$" },
@@ -64,6 +67,16 @@ const GUIDANCE_SCHEMA = {
             enum: ["direct", "adaptable", "unsupported"],
           },
           adaptation: { type: "string", maxLength: 400 },
+          evidenceKind: {
+            type: "string",
+            enum: ["logic", "side-scope"],
+          },
+          expectedSides: {
+            type: "array",
+            minItems: 0,
+            maxItems: 2,
+            items: { type: "string", enum: SIDES },
+          },
         },
       },
     },
@@ -97,7 +110,13 @@ const GUIDANCE_SCHEMA = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["id", "label", "description", "recommended"],
+              required: [
+                "id",
+                "label",
+                "description",
+                "recommended",
+                "expectedSides",
+              ],
               properties: {
                 id: {
                   type: "string",
@@ -110,6 +129,12 @@ const GUIDANCE_SCHEMA = {
                   maxLength: 260,
                 },
                 recommended: { type: "boolean" },
+                expectedSides: {
+                  type: "array",
+                  minItems: 0,
+                  maxItems: 2,
+                  items: { type: "string", enum: SIDES },
+                },
               },
             },
           },
@@ -180,8 +205,16 @@ OBJECTIF PRODUIT
 - Ne fusionne pas deux clauses qui pourraient réussir ou échouer séparément.
 - Pour chaque exigence, indique si elle est directe, adaptable ou non prise en
   charge. Une adaptation doit être écrite explicitement dans adaptation.
+- Type chaque exigence avec evidenceKind. Utilise "logic" avec expectedSides=[]
+  lorsqu’elle doit être prouvée par une action ou un trigger. Utilise
+  "side-scope" avec expectedSides contenant exactement un ou deux camps lorsqu’elle
+  exige une portée de camps précise.
 - Pose entre 2 et 6 questions réellement utiles.
 - Une question peut autoriser un choix unique ou plusieurs choix compatibles.
+- Chaque choix contient expectedSides. Dans une même question, tous les choix ont
+  une portée non vide ou tous ont expectedSides=[]. Une portée choisie sera
+  propagée exactement dans le contrat signé ; n’utilise une portée non vide que
+  si la réponse décide réellement quels camps sont concernés.
 - Propose 3 à 5 réponses distinctes, concrètes et compréhensibles.
 - Marque comme recommandée la solution la plus proche de l’intention et la plus
   équilibrée.
@@ -258,7 +291,7 @@ Deno.serve(async (request) => {
       model,
       systemPrompt: buildGuidanceSystemPrompt(),
       userPrompt,
-      schemaName: "rule_guidance_v1",
+      schemaName: "rule_guidance_v2",
       schema: GUIDANCE_SCHEMA as unknown as Record<string, unknown>,
       reasoningEffort: "medium",
       timeoutMs: 85_000,

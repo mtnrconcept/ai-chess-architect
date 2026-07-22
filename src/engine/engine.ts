@@ -72,6 +72,9 @@ const cloneRule = (rule: RuleJSON): RuleJSON =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+const isSide = (value: unknown): value is Side =>
+  value === "white" || value === "black";
+
 const isRuleArchitectRule = (rule: RuleJSON): boolean =>
   rule.integration?.ruleArchitect?.source === "ai-blueprint";
 
@@ -237,6 +240,17 @@ export class RuleEngine {
       !/^[a-zA-Z0-9._@:-]+$/.test(ownerId)
     ) {
       console.error("[RuleEngine] ruleId Rule Architect invalide.");
+      return null;
+    }
+
+    const rootSides = rule.scope?.sides;
+    if (
+      !Array.isArray(rootSides) ||
+      rootSides.length === 0 ||
+      rootSides.some((side) => !isSide(side)) ||
+      new Set(rootSides).size !== rootSides.length
+    ) {
+      console.error(`[RuleEngine] Scope de camp invalide dans ${ownerId}.`);
       return null;
     }
 
@@ -435,10 +449,16 @@ export class RuleEngine {
       return this.rejectUIAction(`Action inconnue: ${actionId}`);
     }
 
+    const effectivePieceId =
+      isRuleArchitectRule(rule) &&
+      action.availability?.requiresSelection !== true
+        ? undefined
+        : pieceId;
+
     let piece: Piece | null = null;
-    if (pieceId) {
+    if (effectivePieceId) {
       try {
-        piece = this.engine.board.getPiece(pieceId);
+        piece = this.engine.board.getPiece(effectivePieceId);
       } catch {
         return this.rejectUIAction("La pièce sélectionnée n'existe plus.");
       }
@@ -460,11 +480,11 @@ export class RuleEngine {
       );
     }
 
+    const actionSide = piece?.side ?? this.engine.match.get().turnSide;
     const allowedSides = rule.scope?.sides ?? [];
     if (
-      piece &&
       allowedSides.length > 0 &&
-      !allowedSides.includes(piece.side)
+      (!isSide(actionSide) || !allowedSides.includes(actionSide))
     ) {
       return this.rejectUIAction("Cette règle ne s'applique pas à ce camp.");
     }
@@ -495,7 +515,8 @@ export class RuleEngine {
     const context = this.buildContext(
       {
         event: `ui.${actionId}`,
-        pieceId,
+        pieceId: effectivePieceId,
+        side: actionSide,
         targetTile,
         targetPieceId,
         baseActionId: actionId,
@@ -529,19 +550,20 @@ export class RuleEngine {
     }
 
     if (
-      pieceId &&
+      effectivePieceId &&
       action.cooldown?.perPiece &&
       action.cooldown.perPiece > 0 &&
-      !this.engine.cooldown.isReady(pieceId, actionId)
+      !this.engine.cooldown.isReady(effectivePieceId, actionId)
     ) {
       return this.rejectUIAction("Cette action est encore en recharge.");
     }
 
     if (
-      pieceId &&
+      effectivePieceId &&
       action.maxPerPiece &&
       action.maxPerPiece > 0 &&
-      this.getActionUsage(rule, pieceId, actionId) >= action.maxPerPiece
+      this.getActionUsage(rule, effectivePieceId, actionId) >=
+        action.maxPerPiece
     ) {
       return this.rejectUIAction(
         "La limite d'utilisation est atteinte pour cette pièce.",
@@ -555,11 +577,15 @@ export class RuleEngine {
       context,
       rule.logic?.effects,
       () => {
-        if (pieceId) {
-          this.incrementActionUsage(rule, pieceId, actionId);
+        if (effectivePieceId) {
+          this.incrementActionUsage(rule, effectivePieceId, actionId);
           const cooldownTurns = action.cooldown?.perPiece ?? 0;
           if (cooldownTurns > 0) {
-            this.engine.cooldown.set(pieceId, actionId, cooldownTurns);
+            this.engine.cooldown.set(
+              effectivePieceId,
+              actionId,
+              cooldownTurns,
+            );
           }
         }
         if (action.consumesTurn) context.turnEnded = true;
