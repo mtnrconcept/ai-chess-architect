@@ -30,6 +30,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import ChessBoard from "@/components/ChessBoard";
 import { ChessEngine } from "@/lib/chessEngine";
+import { chooseAiMove } from "@/lib/aiOpponent";
+import { applyMoveToGameState } from "@/lib/gameMoveState";
 import {
   GameState,
   Position,
@@ -101,9 +103,11 @@ import {
   convertRuleJsonToChessRule,
 } from "@/lib/presetRulesAdapter";
 import { useRuleEngine } from "@/hooks/useRuleEngine";
-import { FxProvider, useFxTrigger } from "@/fx/context";
+import { FxProvider } from "@/fx/context";
 import type { RuleJSON } from "@/engine/types";
 import LiveCoachAvatar from "@/features/coach/LiveCoachAvatar";
+import RuleActionDock from "@/features/play/RuleActionDock";
+import RuleRuntimeBridge from "@/features/play/RuleRuntimeBridge";
 
 /* -------------------------------------------------------------------------- */
 /*                               Helpers locaux                               */
@@ -842,6 +846,8 @@ const Play = () => {
   });
   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
+  const [aiThinking, setAiThinking] = useState(false);
+  const aiMoveGenerationRef = useRef(0);
 
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
@@ -995,12 +1001,57 @@ const Play = () => {
     return jsons;
   }, [combinedActiveRules]);
 
+  const handleRuleBoardChange = useCallback(
+    (nextBoard: (ChessPiece | null)[][]) => {
+      setGameState((previous) => {
+        if (previous.board === nextBoard) return previous;
+        return { ...previous, board: nextBoard };
+      });
+    },
+    [],
+  );
+
+  const handleRuleRuntimeError = useCallback(
+    (message: string) => {
+      safeToast({
+        title: "Règle interrompue",
+        description: message,
+        variant: "destructive",
+      });
+    },
+    [safeToast],
+  );
+
+  const handleRuleTurnEnd = useCallback(() => {
+    setGameState((previous) => {
+      if (previous.gameStatus !== "active" && previous.gameStatus !== "check") {
+        return previous;
+      }
+      const nextPlayer: PieceColor =
+        previous.currentPlayer === "white" ? "black" : "white";
+      return {
+        ...previous,
+        currentPlayer: nextPlayer,
+        turnNumber:
+          previous.currentPlayer === "black"
+            ? previous.turnNumber + 1
+            : previous.turnNumber,
+        movesThisTurn: 0,
+        selectedPiece: null,
+        validMoves: [],
+      };
+    });
+  }, []);
+
   const {
     onEnterTile,
     onMoveCommitted,
     onTurnStart,
     runUIAction,
+    tickCooldowns,
     boardAdapter,
+    uiActions,
+    vfxAdapter,
   } = useRuleEngine(gameState, activeRuleJsons, {
     matchSeed:
       locationState?.ruleArchitectMatchSeed ??
@@ -1008,13 +1059,18 @@ const Play = () => {
       "local-match",
     maxEffectsPerRuleEvent: 128,
     maxNestedDepth: 8,
+    onBoardChange: handleRuleBoardChange,
+    onRuntimeError: handleRuleRuntimeError,
+    onTurnEnd: handleRuleTurnEnd,
   });
 
-  // Déclenche l'événement de début de tour au montage
+  const lastRuleTurnSideRef = useRef<PieceColor | null>(null);
   useEffect(() => {
+    if (lastRuleTurnSideRef.current === gameState.currentPlayer) return;
+    if (lastRuleTurnSideRef.current !== null) tickCooldowns();
+    lastRuleTurnSideRef.current = gameState.currentPlayer;
     onTurnStart(gameState.currentPlayer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [gameState.currentPlayer, onTurnStart, tickCooldowns]);
 
   // À chaque nouveau coup, informer le moteur de règles et démarrer le tour suivant
   useEffect(() => {
@@ -1035,15 +1091,7 @@ const Play = () => {
 
     onMoveCommitted({ pieceId: movedPieceId, from: fromTile, to: toTile });
     onEnterTile(movedPieceId, toTile);
-    onTurnStart(gameState.currentPlayer);
-  }, [
-    boardAdapter,
-    gameState.moveHistory,
-    gameState.currentPlayer,
-    onEnterTile,
-    onMoveCommitted,
-    onTurnStart,
-  ]);
+  }, [boardAdapter, gameState.moveHistory, onEnterTile, onMoveCommitted]);
 
   const specialAbilities = useMemo<SpecialAbilityOption[]>(() => {
     const options: SpecialAbilityOption[] = [];
@@ -1404,6 +1452,13 @@ const Play = () => {
 
   const handleSquareClick = useCallback(
     (position: Position) => {
+      if (
+        opponentType === "ai" &&
+        latestGameStateRef.current.currentPlayer === "black"
+      ) {
+        return;
+      }
+
       if (pendingAbility) {
         const outcome = deploySpecialAttack(pendingAbility, position);
         if (outcome.success) setPendingAbility(null);
@@ -1449,92 +1504,117 @@ const Play = () => {
               : null;
           selectionTimestampRef.current = null;
 
-          const move = ChessEngine.createMove(
-            prev.board,
+          const applied = applyMoveToGameState(
+            prev,
             prev.selectedPiece,
             position,
-            prev,
+            selectionDuration ?? undefined,
           );
-          move.timestamp = new Date().toISOString();
-          if (selectionDuration != null) {
-            move.durationMs = Math.round(selectionDuration);
+          if (!applied) {
+            return { ...prev, selectedPiece: null, validMoves: [] };
           }
-
-          const updatedBoard = ChessEngine.executeMove(prev.board, move, prev);
-          const capturedPieces = move.captured
-            ? [...prev.capturedPieces, move.captured]
-            : prev.capturedPieces;
-
-          const nextPlayer: PieceColor =
-            prev.currentPlayer === "white" ? "black" : "white";
-          const signature = ChessEngine.getBoardSignature(updatedBoard);
-          const updatedHistory = {
-            ...prev.positionHistory,
-            [signature]: (prev.positionHistory[signature] ?? 0) + 1,
-          };
-
-          const baseState: GameState = {
-            ...prev,
-            board: updatedBoard,
-            capturedPieces,
-            moveHistory: [...prev.moveHistory, move],
-            currentPlayer: nextPlayer,
-            turnNumber:
-              prev.currentPlayer === "black"
-                ? prev.turnNumber + 1
-                : prev.turnNumber,
-            movesThisTurn: 0,
-            selectedPiece: null,
-            validMoves: [],
-            lastMoveByColor: {
-              ...prev.lastMoveByColor,
-              [prev.currentPlayer]: move,
-            },
-            positionHistory: updatedHistory,
-          };
-
-          const stateForStatus: GameState = {
-            ...baseState,
-            board: updatedBoard,
-            currentPlayer: nextPlayer,
-            selectedPiece: null,
-            validMoves: [],
-          };
-
-          const inCheck = ChessEngine.isInCheck(
-            updatedBoard,
-            nextPlayer,
-            stateForStatus,
-          );
-          const hasMoves = ChessEngine.hasAnyLegalMoves(
-            updatedBoard,
-            nextPlayer,
-            stateForStatus,
-          );
-
-          let gameStatus: GameState["gameStatus"] = "active";
-          if (inCheck && !hasMoves) gameStatus = "checkmate";
-          else if (!inCheck && !hasMoves) gameStatus = "stalemate";
-          else if (inCheck) gameStatus = "check";
-
-          const nextState: GameState = {
-            ...baseState,
-            gameStatus,
-          };
 
           queueMicrotask(() => {
             if (!soundEnabled) return;
-            playSfx(move.captured ? "capture" : "move");
+            playSfx(applied.move.captured ? "capture" : "move");
           });
 
-          return nextState;
+          return applied.state;
         }
 
         return prev;
       });
     },
-    [deploySpecialAttack, pendingAbility, playSfx, soundEnabled],
+    [deploySpecialAttack, opponentType, pendingAbility, playSfx, soundEnabled],
   );
+
+  useEffect(() => {
+    if (
+      opponentType !== "ai" ||
+      waitingForOpponent ||
+      pendingAbility ||
+      gameState.currentPlayer !== "black" ||
+      (gameState.gameStatus !== "active" && gameState.gameStatus !== "check")
+    ) {
+      setAiThinking(false);
+      return;
+    }
+
+    const generation = ++aiMoveGenerationRef.current;
+    const expectedMoveCount = gameState.moveHistory.length;
+    const range = AI_MOVE_DELAY_RANGES[timeControl];
+    const span = Math.max(1, range.max - range.min + 1);
+    const deterministicOffset =
+      (expectedMoveCount * 7919 + gameState.turnNumber * 104729) % span;
+    const delayMs = range.min + deterministicOffset;
+    setAiThinking(true);
+
+    const timeoutId = window.setTimeout(() => {
+      if (aiMoveGenerationRef.current !== generation) return;
+      const snapshot = latestGameStateRef.current;
+      if (
+        snapshot.currentPlayer !== "black" ||
+        snapshot.moveHistory.length !== expectedMoveCount ||
+        (snapshot.gameStatus !== "active" && snapshot.gameStatus !== "check")
+      ) {
+        setAiThinking(false);
+        return;
+      }
+
+      const choice = chooseAiMove(
+        snapshot,
+        aiSearchDepth,
+        aiDifficultyMeta.selectionRange,
+      );
+      if (!choice) {
+        setAiThinking(false);
+        return;
+      }
+
+      setGameState((previous) => {
+        if (
+          aiMoveGenerationRef.current !== generation ||
+          previous.currentPlayer !== "black" ||
+          previous.moveHistory.length !== expectedMoveCount
+        ) {
+          return previous;
+        }
+        const livePiece = ChessEngine.getPieceAt(
+          previous.board,
+          choice.piece.position,
+        );
+        if (!livePiece || livePiece.color !== "black") return previous;
+        const applied = applyMoveToGameState(previous, livePiece, choice.to);
+        if (!applied) return previous;
+        queueMicrotask(() => {
+          if (!soundEnabled) return;
+          playSfx(applied.move.captured ? "capture" : "move");
+        });
+        return applied.state;
+      });
+      if (aiMoveGenerationRef.current === generation) setAiThinking(false);
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (aiMoveGenerationRef.current === generation) {
+        aiMoveGenerationRef.current += 1;
+      }
+    };
+  }, [
+    aiDifficultyMeta.selectionRange,
+    aiSearchDepth,
+    gameState.currentPlayer,
+    gameState.gameStatus,
+    gameState.moveHistory.length,
+    gameState.turnNumber,
+    opponentType,
+    pendingAbility,
+    playSfx,
+    soundEnabled,
+    timeControl,
+    waitingForOpponent,
+  ]);
 
   const serializeBoardForAi = useCallback(
     (board: (ChessPiece | null)[][]) =>
@@ -1678,11 +1758,13 @@ const Play = () => {
           "Le coach IA est indisponible pour le moment",
         );
         setCoachError(fallbackReason);
-        safeToast({
-          title: "Coach IA indisponible",
-          description: fallbackReason,
-          variant: "destructive",
-        });
+        if (trigger === "manual") {
+          safeToast({
+            title: "Analyse locale activée",
+            description:
+              "Le coach distant est temporairement indisponible. Voltus poursuit avec l’analyse embarquée.",
+          });
+        }
 
         const fallbackMessage = buildCoachFallbackMessage({
           board,
@@ -1778,9 +1860,8 @@ const Play = () => {
 
   const latestCoachMessage = useMemo(
     () =>
-      [...coachMessages]
-        .reverse()
-        .find((message) => message.role === "coach")?.content ?? null,
+      [...coachMessages].reverse().find((message) => message.role === "coach")
+        ?.content ?? null,
     [coachMessages],
   );
 
@@ -1791,371 +1872,423 @@ const Play = () => {
     });
   }, []);
 
+  const boardFxRef = useRef<HTMLDivElement>(null);
+  const toFxCellPosition = useCallback((cell: string) => {
+    const boardElement = boardFxRef.current;
+    const cellElement = boardElement?.querySelector<HTMLElement>(
+      `[data-chess-cell="${cell}"]`,
+    );
+    if (!boardElement || !cellElement) return { x: 0, y: 0 };
+    const boardRect = boardElement.getBoundingClientRect();
+    const cellRect = cellElement.getBoundingClientRect();
+    return {
+      x: cellRect.left - boardRect.left + cellRect.width / 2,
+      y: cellRect.top - boardRect.top + cellRect.height / 2,
+    };
+  }, []);
+
   /* ------------------------------------------------------------------------ */
   /*                              Rendu de la page                             */
   /* ------------------------------------------------------------------------ */
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-6">
-      <div className="mb-4 flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => navigate(-1)}
-          aria-label="Retour"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="text-xl font-semibold">
-          Partie • <span className="text-primary">{variantName}</span>
-        </h1>
-        <div className="ml-auto flex items-center gap-2">
+    <FxProvider boardRef={boardFxRef} toCellPos={toFxCellPosition}>
+      <RuleRuntimeBridge vfxAdapter={vfxAdapter} />
+      <main className="mx-auto w-full max-w-7xl px-4 py-6">
+        <div className="mb-4 flex items-center gap-3">
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSoundEnabled((v) => !v)}
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            aria-label="Retour"
           >
-            {soundEnabled ? (
-              <Volume2 className="mr-2 h-4 w-4" />
-            ) : (
-              <VolumeX className="mr-2 h-4 w-4" />
-            )}
-            Son
+            <ArrowLeft className="h-5 w-5" />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCoachEnabled((v) => !v)}
-          >
-            <MessageSquareText className="mr-2 h-4 w-4" />
-            Coach {coachEnabled ? "on" : "off"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Zone supérieure : infos joueurs */}
-      <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-white/10 p-4">
-          <div className="flex items-center gap-3">
-            <User className="h-5 w-5 opacity-80" />
-            <div>
-              <div className="font-medium">{playerDisplayName}</div>
-              <div className="text-sm opacity-70">{playerElo} Elo</div>
-            </div>
-            <Badge variant="outline" className="ml-auto">
-              Blancs
-            </Badge>
+          <h1 className="text-xl font-semibold">
+            Partie • <span className="text-primary">{variantName}</span>
+          </h1>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSoundEnabled((v) => !v)}
+            >
+              {soundEnabled ? (
+                <Volume2 className="mr-2 h-4 w-4" />
+              ) : (
+                <VolumeX className="mr-2 h-4 w-4" />
+              )}
+              Son
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCoachEnabled((v) => !v)}
+            >
+              <MessageSquareText className="mr-2 h-4 w-4" />
+              Coach {coachEnabled ? "on" : "off"}
+            </Button>
           </div>
         </div>
 
-        <div className="rounded-lg border border-white/10 p-4">
-          <div className="flex items-center gap-3">
-            <Bot className="h-5 w-5 opacity-80" />
-            <div>
-              <div className="font-medium">{opponentDisplayName}</div>
-              <div className="text-sm opacity-70">{opponentElo} Elo</div>
+        {/* Zone supérieure : infos joueurs */}
+        <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-lg border border-white/10 p-4">
+            <div className="flex items-center gap-3">
+              <User className="h-5 w-5 opacity-80" />
+              <div>
+                <div className="font-medium">{playerDisplayName}</div>
+                <div className="text-sm opacity-70">{playerElo} Elo</div>
+              </div>
+              <Badge variant="outline" className="ml-auto">
+                Blancs
+              </Badge>
             </div>
-            <Badge variant="outline" className="ml-auto">
-              Noirs
-            </Badge>
           </div>
-        </div>
 
-        <div className="rounded-lg border border-white/10 p-4">
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-5 w-5 opacity-80" />
-            <div>
-              <div className="font-medium">Règles actives</div>
-              <div className="text-sm opacity-70">
-                {activeCustomRulesCount > 0
-                  ? `${activeCustomRulesCount} règle${activeCustomRulesCount > 1 ? "s" : ""} perso`
-                  : appliedPresetRuleIds.size > 0
-                    ? `${appliedPresetRuleIds.size} préréglage(s)`
-                    : "Standard"}
+          <div className="rounded-lg border border-white/10 p-4">
+            <div className="flex items-center gap-3">
+              <Bot className="h-5 w-5 opacity-80" />
+              <div>
+                <div className="font-medium">{opponentDisplayName}</div>
+                <div className="text-sm opacity-70">{opponentElo} Elo</div>
+              </div>
+              <Badge variant="outline" className="ml-auto">
+                Noirs
+              </Badge>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/10 p-4">
+            <div className="flex items-center gap-3">
+              <Sparkles className="h-5 w-5 opacity-80" />
+              <div>
+                <div className="font-medium">Règles actives</div>
+                <div className="text-sm opacity-70">
+                  {activeCustomRulesCount > 0
+                    ? `${activeCustomRulesCount} règle${activeCustomRulesCount > 1 ? "s" : ""} perso`
+                    : appliedPresetRuleIds.size > 0
+                      ? `${appliedPresetRuleIds.size} préréglage(s)`
+                      : "Standard"}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Echiquier + Coach */}
-      <section className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-          <ChessBoard
-            board={gameState.board}
-            selected={gameState.selectedPiece?.position || null}
-            validMoves={gameState.validMoves}
-            visualEffects={gameState.visualEffects}
-            specialAttacks={gameState.specialAttacks}
-            lastMove={gameState.moveHistory[gameState.moveHistory.length - 1]}
-            currentPlayer={gameState.currentPlayer}
-            onSquareClick={handleSquareClick}
-          />
-        </div>
-
-        <aside id="coach-panel" className="flex min-h-[420px] max-h-[75vh] scroll-mt-24 flex-col rounded-lg border border-white/10 bg-black/25 p-4">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-white">Coach IA</h2>
-              <p className="text-xs text-white/60">
-                Analyse contextuelle et réponses à vos questions.
-              </p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!coachEnabled || coachLoading}
-              onClick={() => {
-                void requestCoachUpdate(
-                  "manual",
-                  "Peux-tu analyser la position actuelle ?",
-                );
-              }}
-            >
-              {coachLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
-              )}
-              {coachLoading ? "Analyse…" : "Actualiser"}
-            </Button>
-          </div>
-
-          <div className="flex-1 overflow-hidden">
-            <div
-              ref={chatContainerRef}
-              className="flex h-full flex-col justify-end gap-3 overflow-y-auto rounded-md border border-white/5 bg-black/20 p-3"
-            >
-              <AnimatePresence initial={false}>
-                {coachMessages.map((message) => {
-                  const isCoach = message.role === "coach";
-                  const isPlayer = message.role === "player";
-                  const bubbleClass = isCoach
-                    ? "self-start rounded-2xl bg-fuchsia-500/20 text-fuchsia-100"
-                    : isPlayer
-                      ? "self-end rounded-2xl bg-cyan-500/20 text-cyan-100"
-                      : "self-center rounded-2xl bg-slate-500/20 text-slate-100";
-
-                  const label =
-                    message.role === "coach"
-                      ? "Coach"
-                      : message.role === "player"
-                        ? "Vous"
-                        : "Système";
-
-                  return (
-                    <motion.div
-                      key={message.id}
-                      layout
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-                      className={cn(
-                        "flex w-full flex-col gap-1 text-xs",
-                        isPlayer ? "items-end" : "items-start",
-                      )}
-                    >
-                      <span className="text-[0.65rem] uppercase tracking-[0.25em] text-white/60">
-                        {label}
-                      </span>
-                      <motion.p
-                        layout
-                        className={cn(
-                          "w-full whitespace-pre-wrap px-4 py-3",
-                          bubbleClass,
-                        )}
-                        transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-                      >
-                        {message.content}
-                      </motion.p>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-
-              {coachLoading && (
-                <p className="text-center text-xs text-white/60">
-                  Le coach réfléchit à votre position…
-                </p>
-              )}
-            </div>
-          </div>
-
-          {coachError && (
-            <p className="mt-3 rounded-md border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-              {coachError}
-            </p>
-          )}
-
-          <form
-            className="mt-3 flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              handleSendCoachMessage();
-            }}
+        {/* Echiquier + Coach */}
+        <section className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div
+            ref={boardFxRef}
+            className="relative rounded-lg border border-white/10 bg-black/20 p-4"
           >
-            <Textarea
-              value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
-              placeholder={
-                coachEnabled
-                  ? "Posez une question au coach…"
-                  : "Activez le coach pour discuter."
-              }
-              disabled={!coachEnabled || coachLoading}
-              className="min-h-[80px] resize-none bg-black/30 text-sm"
+            {aiThinking && (
+              <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex justify-center">
+                <div className="flex items-center gap-2 rounded-full border border-cyan-300/30 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-xl backdrop-blur">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Voltus réfléchit…
+                </div>
+              </div>
+            )}
+            <ChessBoard
+              board={gameState.board}
+              selected={gameState.selectedPiece?.position || null}
+              validMoves={gameState.validMoves}
+              visualEffects={gameState.visualEffects}
+              specialAttacks={gameState.specialAttacks}
+              lastMove={gameState.moveHistory[gameState.moveHistory.length - 1]}
+              currentPlayer={gameState.currentPlayer}
+              onSquareClick={handleSquareClick}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="mt-4">
+              <RuleActionDock
+                actions={uiActions}
+                boardAdapter={boardAdapter}
+                selectedPiecePosition={
+                  gameState.selectedPiece?.position ?? null
+                }
+                currentPlayer={gameState.currentPlayer}
+                disabled={
+                  (gameState.gameStatus !== "active" &&
+                    gameState.gameStatus !== "check") ||
+                  waitingForOpponent ||
+                  aiThinking
+                }
+                runAction={runUIAction}
+              />
+            </div>
+          </div>
+
+          <aside
+            id="coach-panel"
+            className="flex min-h-[420px] max-h-[75vh] scroll-mt-24 flex-col rounded-lg border border-white/10 bg-black/25 p-4"
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-white">Coach IA</h2>
+                <p className="text-xs text-white/60">
+                  Analyse contextuelle et réponses à vos questions.
+                </p>
+              </div>
               <Button
                 type="button"
-                variant="ghost"
                 size="sm"
+                variant="outline"
+                disabled={!coachEnabled || coachLoading}
                 onClick={() => {
-                  if (!coachEnabled) {
-                    safeToast({
-                      title: "Coach désactivé",
-                      description:
-                        "Activez le coach pour déclencher une analyse.",
-                    });
-                    return;
-                  }
                   void requestCoachUpdate(
                     "manual",
-                    "Peux-tu me donner un plan de jeu ?",
+                    "Peux-tu analyser la position actuelle ?",
                   );
                 }}
-                disabled={!coachEnabled || coachLoading}
               >
-                <Sparkles className="mr-2 h-4 w-4" />
-                Analyse rapide
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={
-                  !coachEnabled || coachLoading || chatInput.trim().length === 0
-                }
-              >
-                Envoyer
+                {coachLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                {coachLoading ? "Analyse…" : "Actualiser"}
               </Button>
             </div>
-          </form>
-        </aside>
-      </section>
 
-      {/* Barre d’actions */}
-      <section className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-        <div className="rounded-lg border border-white/10 p-4">
-          <div className="mb-3 font-medium">Actions spéciales</div>
-          <div className="grid grid-cols-2 gap-2">
-            {specialAbilities.length === 0 && (
-              <div className="col-span-2 text-sm opacity-70">
-                Aucune aptitude disponible.
+            <div className="flex-1 overflow-hidden">
+              <div
+                ref={chatContainerRef}
+                className="flex h-full flex-col justify-end gap-3 overflow-y-auto rounded-md border border-white/5 bg-black/20 p-3"
+              >
+                <AnimatePresence initial={false}>
+                  {coachMessages.map((message) => {
+                    const isCoach = message.role === "coach";
+                    const isPlayer = message.role === "player";
+                    const bubbleClass = isCoach
+                      ? "self-start rounded-2xl bg-fuchsia-500/20 text-fuchsia-100"
+                      : isPlayer
+                        ? "self-end rounded-2xl bg-cyan-500/20 text-cyan-100"
+                        : "self-center rounded-2xl bg-slate-500/20 text-slate-100";
+
+                    const label =
+                      message.role === "coach"
+                        ? "Coach"
+                        : message.role === "player"
+                          ? "Vous"
+                          : "Système";
+
+                    return (
+                      <motion.div
+                        key={message.id}
+                        layout
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+                        className={cn(
+                          "flex w-full flex-col gap-1 text-xs",
+                          isPlayer ? "items-end" : "items-start",
+                        )}
+                      >
+                        <span className="text-[0.65rem] uppercase tracking-[0.25em] text-white/60">
+                          {label}
+                        </span>
+                        <motion.p
+                          layout
+                          className={cn(
+                            "w-full whitespace-pre-wrap px-4 py-3",
+                            bubbleClass,
+                          )}
+                          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+                        >
+                          {message.content}
+                        </motion.p>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+
+                {coachLoading && (
+                  <p className="text-center text-xs text-white/60">
+                    Le coach réfléchit à votre position…
+                  </p>
+                )}
               </div>
+            </div>
+
+            {coachError && (
+              <p className="mt-3 rounded-md border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                {coachError}
+              </p>
             )}
-            {specialAbilities.map((opt) => {
-              const Icon = ABILITY_ICON_MAP[opt.icon] ?? Target;
-              return (
-                <Button
-                  key={opt.id}
-                  variant="secondary"
-                  className="justify-start"
-                  onClick={() => handleAbilitySelect(opt)}
-                >
-                  <Icon className="mr-2 h-4 w-4" />
-                  {opt.buttonLabel ?? opt.label}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
 
-        <div className="rounded-lg border border-white/10 p-4">
-          <div className="mb-3 font-medium">Générateur de règle</div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const fd = new FormData(e.currentTarget as HTMLFormElement);
-              const prompt = String(fd.get("prompt") ?? "");
-              void generateRule({ prompt, locale: "fr", temperature: 0.4 });
-            }}
-            className="flex gap-2"
-          >
-            <Input name="prompt" placeholder="Décrivez votre règle..." />
-            <Button type="submit">
-              <Send className="mr-2 h-4 w-4" />
-              Générer
-            </Button>
-          </form>
-        </div>
-
-        <div className="rounded-lg border border-white/10 p-4">
-          <div className="mb-3 font-medium">Partie</div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                const newBoard = ChessEngine.initializeBoard();
-                setGameState({
-                  board: newBoard,
-                  currentPlayer: "white",
-                  turnNumber: 1,
-                  movesThisTurn: 0,
-                  selectedPiece: null,
-                  validMoves: [],
-                  gameStatus: "active",
-                  capturedPieces: [],
-                  moveHistory: [],
-                  activeRules: [],
-                  extraMoves: 0,
-                  pendingExtraMoves: { white: 0, black: 0 },
-                  freezeEffects: [],
-                  freezeUsage: { white: false, black: false },
-                  positionHistory: {
-                    [ChessEngine.getBoardSignature(newBoard)]: 1,
-                  },
-                  pendingTransformations: { white: false, black: false },
-                  lastMoveByColor: {},
-                  replayOpportunities: {},
-                  vipTokens: { white: 0, black: 0 },
-                  forcedMirrorResponse: null,
-                  secretSetupApplied: false,
-                  blindOpeningRevealed: { white: false, black: false },
-                  specialAttacks: [],
-                  visualEffects: [],
-                });
-                initialBoardSnapshotRef.current = serializeBoardState(newBoard);
-                safeToast({
-                  title: "Nouvelle partie",
-                  description: "La partie a été réinitialisée.",
-                });
+            <form
+              className="mt-3 flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleSendCoachMessage();
               }}
             >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Réinitialiser
-            </Button>
-            {tournamentId && (
-              <Button variant="outline" onClick={triggerAiFallback}>
-                <Rocket className="mr-2 h-4 w-4" />
-                Forcer IA
-              </Button>
-            )}
-          </div>
-        </div>
-      </section>
+              <Textarea
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                placeholder={
+                  coachEnabled
+                    ? "Posez une question au coach…"
+                    : "Activez le coach pour discuter."
+                }
+                disabled={!coachEnabled || coachLoading}
+                className="min-h-[80px] resize-none bg-black/30 text-sm"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (!coachEnabled) {
+                      safeToast({
+                        title: "Coach désactivé",
+                        description:
+                          "Activez le coach pour déclencher une analyse.",
+                      });
+                      return;
+                    }
+                    void requestCoachUpdate(
+                      "manual",
+                      "Peux-tu me donner un plan de jeu ?",
+                    );
+                  }}
+                  disabled={!coachEnabled || coachLoading}
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Analyse rapide
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={
+                    !coachEnabled ||
+                    coachLoading ||
+                    chatInput.trim().length === 0
+                  }
+                >
+                  Envoyer
+                </Button>
+              </div>
+            </form>
+          </aside>
+        </section>
 
-      <LiveCoachAvatar
-        enabled={coachEnabled}
-        loading={coachLoading}
-        message={latestCoachMessage}
-        error={coachError}
-        moveCount={gameState.moveHistory.length}
-        onOpen={openCoachPanel}
-        onEnable={() => setCoachEnabled(true)}
-      />
-    </main>
+        {/* Barre d’actions */}
+        <section className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+          <div className="rounded-lg border border-white/10 p-4">
+            <div className="mb-3 font-medium">Actions spéciales</div>
+            <div className="grid grid-cols-2 gap-2">
+              {specialAbilities.length === 0 && (
+                <div className="col-span-2 text-sm opacity-70">
+                  Aucune aptitude disponible.
+                </div>
+              )}
+              {specialAbilities.map((opt) => {
+                const Icon = ABILITY_ICON_MAP[opt.icon] ?? Target;
+                return (
+                  <Button
+                    key={opt.id}
+                    variant="secondary"
+                    className="justify-start"
+                    onClick={() => handleAbilitySelect(opt)}
+                  >
+                    <Icon className="mr-2 h-4 w-4" />
+                    {opt.buttonLabel ?? opt.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/10 p-4">
+            <div className="mb-3 font-medium">Générateur de règle</div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget as HTMLFormElement);
+                const prompt = String(fd.get("prompt") ?? "");
+                void generateRule({ prompt, locale: "fr", temperature: 0.4 });
+              }}
+              className="flex gap-2"
+            >
+              <Input name="prompt" placeholder="Décrivez votre règle..." />
+              <Button type="submit">
+                <Send className="mr-2 h-4 w-4" />
+                Générer
+              </Button>
+            </form>
+          </div>
+
+          <div className="rounded-lg border border-white/10 p-4">
+            <div className="mb-3 font-medium">Partie</div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const newBoard = ChessEngine.initializeBoard();
+                  setGameState({
+                    board: newBoard,
+                    currentPlayer: "white",
+                    turnNumber: 1,
+                    movesThisTurn: 0,
+                    selectedPiece: null,
+                    validMoves: [],
+                    gameStatus: "active",
+                    capturedPieces: [],
+                    moveHistory: [],
+                    activeRules: [],
+                    extraMoves: 0,
+                    pendingExtraMoves: { white: 0, black: 0 },
+                    freezeEffects: [],
+                    freezeUsage: { white: false, black: false },
+                    positionHistory: {
+                      [ChessEngine.getBoardSignature(newBoard)]: 1,
+                    },
+                    pendingTransformations: { white: false, black: false },
+                    lastMoveByColor: {},
+                    replayOpportunities: {},
+                    vipTokens: { white: 0, black: 0 },
+                    forcedMirrorResponse: null,
+                    secretSetupApplied: false,
+                    blindOpeningRevealed: { white: false, black: false },
+                    specialAttacks: [],
+                    visualEffects: [],
+                  });
+                  initialBoardSnapshotRef.current =
+                    serializeBoardState(newBoard);
+                  safeToast({
+                    title: "Nouvelle partie",
+                    description: "La partie a été réinitialisée.",
+                  });
+                }}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Réinitialiser
+              </Button>
+              {tournamentId && (
+                <Button variant="outline" onClick={triggerAiFallback}>
+                  <Rocket className="mr-2 h-4 w-4" />
+                  Forcer IA
+                </Button>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <LiveCoachAvatar
+          enabled={coachEnabled}
+          loading={coachLoading}
+          message={latestCoachMessage}
+          remoteUnavailable={Boolean(coachError)}
+          moveCount={gameState.moveHistory.length}
+          onOpen={openCoachPanel}
+          onEnable={() => setCoachEnabled(true)}
+        />
+      </main>
+    </FxProvider>
   );
 };
 

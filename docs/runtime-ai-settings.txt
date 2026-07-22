@@ -1,0 +1,281 @@
+NOT FOUND: type AiDifficulty
+
+## AI_MOVE_DELAY_RANGES
+0302:   return affected;
+0303: };
+0304: 
+0305: const mergeFreezeEffects = (
+0306:   current: GameState["freezeEffects"],
+0307:   board: (ChessPiece | null)[][],
+0308:   applications: FreezeApplication[],
+0309: ): GameState["freezeEffects"] => {
+0310:   if (applications.length === 0) return current;
+0311:   const updated = current.map((e) => ({ ...e }));
+0312:   applications.forEach(({ color, positions, turns }) => {
+0313:     positions.forEach((position) => {
+0314:       const target = ChessEngine.getPieceAt(board, position);
+0315:       if (!target || target.color !== color) return;
+0316:       const idx = updated.findIndex(
+0317:         (e) =>
+0318:           e.color === color &&
+0319:           e.position.row === position.row &&
+0320:           e.position.col === position.col,
+0321:       );
+0322:       if (idx >= 0) {
+0323:         if (updated[idx].remainingTurns < turns)
+0324:           updated[idx] = { ...updated[idx], remainingTurns: turns };
+0325:       } else {
+0326:         updated.push({
+0327:           color,
+0328:           position: { ...position },
+0329:           remainingTurns: turns,
+0330:         });
+0331:       }
+0332:     });
+0333:   });
+0334:   return updated;
+0335: };
+0336: 
+0337: const AI_MOVE_DELAY_RANGES: Record<
+0338:   TimeControlOption,
+0339:   { min: number; max: number }
+0340: > = {
+0341:   bullet: { min: 500, max: 3000 },
+0342:   blitz: { min: 2000, max: 5000 },
+0343:   long: { min: 1000, max: 10000 },
+0344:   untimed: { min: 1000, max: 10000 },
+0345: };
+0346: 
+0347: type AIDifficulty = "novice" | "standard" | "expert";
+0348: const AI_DIFFICULTY_LEVELS: Record<
+0349:   AIDifficulty,
+0350:   { depth: number; label: string; description: string; selectionRange: number }
+0351: > = {
+0352:   novice: {
+0353:     depth: 1,
+0354:     label: "Débutant",
+0355:     description:
+0356:       "Vision limitée et choix parfois aventureux pour un entraînement détendu.",
+0357:     selectionRange: 3,
+0358:   },
+0359:   standard: {
+0360:     depth: 2,
+0361:     label: "Intermédiaire",
+0362:     description: "Équilibre entre temps de réflexion et précision stratégique.",
+0363:     selectionRange: 2,
+0364:   },
+0365:   expert: {
+0366:     depth: 3,
+0367:     label: "Maître",
+0368:     description: "Recherche profonde et coups optimisés pour un vrai défi.",
+0369:     selectionRange: 1,
+0370:   },
+0371: };
+0372: const isAIDifficulty = (v: string): v is AIDifficulty =>
+0373:   v in AI_DIFFICULTY_LEVELS;
+0374: 
+0375: type AiMoveResolver = (
+0376:   state: GameState,
+0377: ) => { from: Position; to: Position } | null;
+0378: 
+0379: const CAPTURED_PIECE_SYMBOLS: Record<
+0380:   ChessPiece["type"],
+0381:   { white: string; black: string }
+0382: > = {
+0383:   king: { white: "♔", black: "♚" },
+0384:   queen: { white: "♕", black: "♛" },
+0385:   rook: { white: "♖", black: "♜" },
+0386:   bishop: { white: "♗", black: "♝" },
+0387:   knight: { white: "♘", black: "♞" },
+0388:   pawn: { white: "♙", black: "♟" },
+0389: };
+0390: 
+0391: const ABILITY_ICON_MAP: Record<string, LucideIcon> = {
+
+## aiSearchDepth
+0811:   const appliedPresetRuleIds = useMemo(
+0812:     () => new Set(initialPresetRuleIds),
+0813:     [initialPresetRuleIds],
+0814:   );
+0815:   const primaryRule = customRules[0] ?? activePresetRule ?? null;
+0816:   const variantName = primaryRule?.ruleName ?? "Standard";
+0817:   const activeCustomRulesCount = customRules.length;
+0818: 
+0819:   const selectedPresetRules = useMemo(() => {
+0820:     if (!dbRulesLoaded || appliedPresetRuleIds.size === 0)
+0821:       return [] as ChessRule[];
+0822:     return dbLoadedRules.filter((rule) =>
+0823:       appliedPresetRuleIds.has(rule.ruleId),
+0824:     );
+0825:   }, [appliedPresetRuleIds, dbLoadedRules, dbRulesLoaded]);
+0826: 
+0827:   const combinedActiveRules = useMemo(() => {
+0828:     const dedup = new Map<string, ChessRule>();
+0829:     [...selectedPresetRules, ...customRules].forEach((rule) => {
+0830:       if (!rule) return;
+0831:       if (!dedup.has(rule.ruleId)) {
+0832:         dedup.set(rule.ruleId, rule);
+0833:       }
+0834:     });
+0835:     return Array.from(dedup.values());
+0836:   }, [customRules, selectedPresetRules]);
+0837: 
+0838:   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(() => {
+0839:     if (typeof window !== "undefined") {
+0840:       const stored = window.localStorage.getItem("ai-difficulty");
+0841:       if (stored && isAIDifficulty(stored)) return stored;
+0842:     }
+0843:     return "standard";
+0844:   });
+0845:   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
+0846:   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
+0847: 
+0848:   const [isDesktop, setIsDesktop] = useState(() =>
+0849:     typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
+0850:   );
+0851:   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+0852:   const [soundEnabled, setSoundEnabled] = useState(true);
+0853:   const [coachEnabled, setCoachEnabled] = useState(true);
+0854:   const [coachMessages, setCoachMessages] = useState<CoachChatMessage[]>(() => [
+0855:     createWelcomeMessage(),
+0856:   ]);
+0857:   const [coachLoading, setCoachLoading] = useState(false);
+0858:   const [coachError, setCoachError] = useState<string | null>(null);
+0859:   const [chatInput, setChatInput] = useState("");
+0860:   const coachMessagesRef = useRef<CoachChatMessage[]>(coachMessages);
+0861:   const coachAbortControllerRef = useRef<AbortController | null>(null);
+0862:   const chatContainerRef = useRef<HTMLDivElement | null>(null);
+0863:   const lastDiscussedMoveRef = useRef(0);
+0864:   const initialCoachAnalysisRef = useRef(false);
+0865:   const [pendingAbility, setPendingAbility] = useState<PendingAbility | null>(
+0866:     null,
+0867:   );
+0868: 
+0869:   useEffect(() => {
+0870:     if (typeof window === "undefined") return;
+0871:     const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
+0872:     window.addEventListener("resize", handleResize);
+0873:     return () => window.removeEventListener("resize", handleResize);
+0874:   }, []);
+0875: 
+0876:   const aiFallbackTriggeredRef = useRef(false);
+0877:   const aiFallbackTimeoutRef = useRef<number | null>(null);
+0878:   const selectionTimestampRef = useRef<number | null>(null);
+0879:   const gameSavedRef = useRef(false);
+0880:   const gameStartTimeRef = useRef<number>(Date.now());
+0881: 
+0882:   const [gameState, setGameState] = useState<GameState>(() => {
+0883:     const initialBoard = ChessEngine.initializeBoard();
+0884:     return {
+0885:       board: initialBoard,
+0886:       currentPlayer: "white",
+0887:       turnNumber: 1,
+0888:       movesThisTurn: 0,
+0889:       selectedPiece: null,
+0890:       validMoves: [],
+0891:       gameStatus: "active",
+0892:       capturedPieces: [],
+0893:       moveHistory: [],
+0894:       activeRules: [],
+0895:       extraMoves: 0,
+0896:       pendingExtraMoves: { white: 0, black: 0 },
+0897:       freezeEffects: [],
+0898:       freezeUsage: { white: false, black: false },
+0899:       positionHistory: { [ChessEngine.getBoardSignature(initialBoard)]: 1 },
+0900:       pendingTransformations: { white: false, black: false },
+
+NOT FOUND: const [opponentType
+
+## const [aiDifficulty
+0803:     }
+0804:   }, [urlLoadedRule, dbRulesLoaded]);
+0805: 
+0806:   const activePresetRule = useMemo(() => {
+0807:     if (initialPresetRuleIds.length === 0 || !dbRulesLoaded) return null;
+0808:     const [firstRuleId] = initialPresetRuleIds;
+0809:     return dbLoadedRules.find((rule) => rule.ruleId === firstRuleId) ?? null;
+0810:   }, [initialPresetRuleIds, dbLoadedRules, dbRulesLoaded]);
+0811:   const appliedPresetRuleIds = useMemo(
+0812:     () => new Set(initialPresetRuleIds),
+0813:     [initialPresetRuleIds],
+0814:   );
+0815:   const primaryRule = customRules[0] ?? activePresetRule ?? null;
+0816:   const variantName = primaryRule?.ruleName ?? "Standard";
+0817:   const activeCustomRulesCount = customRules.length;
+0818: 
+0819:   const selectedPresetRules = useMemo(() => {
+0820:     if (!dbRulesLoaded || appliedPresetRuleIds.size === 0)
+0821:       return [] as ChessRule[];
+0822:     return dbLoadedRules.filter((rule) =>
+0823:       appliedPresetRuleIds.has(rule.ruleId),
+0824:     );
+0825:   }, [appliedPresetRuleIds, dbLoadedRules, dbRulesLoaded]);
+0826: 
+0827:   const combinedActiveRules = useMemo(() => {
+0828:     const dedup = new Map<string, ChessRule>();
+0829:     [...selectedPresetRules, ...customRules].forEach((rule) => {
+0830:       if (!rule) return;
+0831:       if (!dedup.has(rule.ruleId)) {
+0832:         dedup.set(rule.ruleId, rule);
+0833:       }
+0834:     });
+0835:     return Array.from(dedup.values());
+0836:   }, [customRules, selectedPresetRules]);
+0837: 
+0838:   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(() => {
+0839:     if (typeof window !== "undefined") {
+0840:       const stored = window.localStorage.getItem("ai-difficulty");
+0841:       if (stored && isAIDifficulty(stored)) return stored;
+0842:     }
+0843:     return "standard";
+0844:   });
+0845:   const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];
+0846:   const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);
+0847: 
+0848:   const [isDesktop, setIsDesktop] = useState(() =>
+0849:     typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
+0850:   );
+0851:   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+0852:   const [soundEnabled, setSoundEnabled] = useState(true);
+0853:   const [coachEnabled, setCoachEnabled] = useState(true);
+0854:   const [coachMessages, setCoachMessages] = useState<CoachChatMessage[]>(() => [
+0855:     createWelcomeMessage(),
+0856:   ]);
+0857:   const [coachLoading, setCoachLoading] = useState(false);
+0858:   const [coachError, setCoachError] = useState<string | null>(null);
+0859:   const [chatInput, setChatInput] = useState("");
+0860:   const coachMessagesRef = useRef<CoachChatMessage[]>(coachMessages);
+0861:   const coachAbortControllerRef = useRef<AbortController | null>(null);
+0862:   const chatContainerRef = useRef<HTMLDivElement | null>(null);
+0863:   const lastDiscussedMoveRef = useRef(0);
+0864:   const initialCoachAnalysisRef = useRef(false);
+0865:   const [pendingAbility, setPendingAbility] = useState<PendingAbility | null>(
+0866:     null,
+0867:   );
+0868: 
+0869:   useEffect(() => {
+0870:     if (typeof window === "undefined") return;
+0871:     const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
+0872:     window.addEventListener("resize", handleResize);
+0873:     return () => window.removeEventListener("resize", handleResize);
+0874:   }, []);
+0875: 
+0876:   const aiFallbackTriggeredRef = useRef(false);
+0877:   const aiFallbackTimeoutRef = useRef<number | null>(null);
+0878:   const selectionTimestampRef = useRef<number | null>(null);
+0879:   const gameSavedRef = useRef(false);
+0880:   const gameStartTimeRef = useRef<number>(Date.now());
+0881: 
+0882:   const [gameState, setGameState] = useState<GameState>(() => {
+0883:     const initialBoard = ChessEngine.initializeBoard();
+0884:     return {
+0885:       board: initialBoard,
+0886:       currentPlayer: "white",
+0887:       turnNumber: 1,
+0888:       movesThisTurn: 0,
+0889:       selectedPiece: null,
+0890:       validMoves: [],
+0891:       gameStatus: "active",
+0892:       capturedPieces: [],
+
+NOT FOUND: const [aiThinking

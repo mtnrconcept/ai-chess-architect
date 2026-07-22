@@ -1,16 +1,28 @@
-import type { EngineEventMap } from "./types";
+import type { PieceID, Tile } from "./types";
 import type { ChessMove, ChessPiece, Position } from "@/types/chess";
 
-type ChessPieceWithEngineId = ChessPiece & { __engineId?: string };
+type ChessPieceWithEngineId = ChessPiece & { __engineId?: PieceID };
 
-const positionToTile = (position: Position): string =>
-  `${String.fromCharCode(97 + position.col)}${8 - position.row}`;
+export interface MoveCommittedPayload {
+  pieceId: PieceID;
+  from: Tile;
+  to: Tile;
+  targetPieceId?: PieceID;
+}
 
-export const resolveCapturedTargetPieceId = (
+const positionToTile = (position: Position): Tile =>
+  `${String.fromCharCode(97 + position.col)}${8 - position.row}` as Tile;
+
+/**
+ * Adds the captured piece to the deterministic lifecycle context. The fallback
+ * identifier is opaque and stable for the committed move; it is never used as a
+ * database identifier.
+ */
+export function resolveCapturedTargetPieceId(
   lastMove: ChessMove | undefined,
   moveNumber: number,
-  payload: EngineEventMap["lifecycle.onMoveCommitted"],
-): string | undefined => {
+  payload: MoveCommittedPayload,
+): PieceID | undefined {
   if (
     !lastMove?.captured ||
     positionToTile(lastMove.from) !== payload.from ||
@@ -20,5 +32,8 @@ export const resolveCapturedTargetPieceId = (
   }
 
   const captured = lastMove.captured as ChessPieceWithEngineId;
-  return captured.__engineId ?? `captured_${moveNumber}_${payload.to}`;
-};
+  return (
+    captured.__engineId ??
+    (`captured_${Math.max(0, Math.floor(moveNumber))}_${payload.to}` as PieceID)
+  );
+}

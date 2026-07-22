@@ -1,0 +1,56 @@
+name: Runtime Repair V3 Source Snippets
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-source-snippets.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+      - name: Extract focused source snippets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def around(path: str, needle: str, radius: int = 45) -> str:
+              lines = Path(path).read_text(encoding='utf-8').splitlines()
+              index = next((i for i, line in enumerate(lines) if needle in line), None)
+              if index is None:
+                  return f'NOT FOUND: {needle} in {path}\n'
+              start = max(0, index - radius)
+              end = min(len(lines), index + radius + 1)
+              body = '\n'.join(f'{i + 1:04d}: {lines[i]}' for i in range(start, end))
+              return f'## {path} :: {needle}\n{body}\n'
+
+          content = '\n'.join([
+              around('src/engine/__tests__/catalog-contracts-v2.test.ts', 'persiste invisibilité et statuts', 65),
+              around('src/pages/Play.tsx', 'const handleSquareClick', 180),
+              around('src/pages/Play.tsx', 'AI_MOVE_DELAY_RANGES', 60),
+              around('src/lib/chessEngine.ts', 'static getValidMoves', 80),
+              around('src/lib/tournamentApi.ts', 'invokeSyncTournamentsViaDirectFetch', 90),
+          ])
+          Path('docs/runtime-source-snippets.txt').write_text(content, encoding='utf-8')
+          PY
+      - name: Commit snippets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/runtime-source-snippets.txt
+          git commit -m 'chore(runtime): capture focused source snippets'
+          git push origin HEAD:agent/runtime-repair-v3

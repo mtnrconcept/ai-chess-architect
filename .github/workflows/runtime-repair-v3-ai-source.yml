@@ -1,0 +1,49 @@
+name: Runtime Repair V3 AI Source
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-ai-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+      - name: Extract exact move and engine sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def numbered(path: str, start: int, end: int) -> str:
+              lines = Path(path).read_text(encoding='utf-8').splitlines()
+              body = '\n'.join(f'{i + 1:04d}: {lines[i]}' for i in range(start - 1, min(end, len(lines))))
+              return f'## {path} {start}-{end}\n{body}\n'
+
+          content = '\n'.join([
+              numbered('src/pages/Play.tsx', 1440, 1705),
+              numbered('src/lib/chessEngine.ts', 1, 520),
+              numbered('src/types/chess.ts', 1, 300),
+          ])
+          Path('docs/runtime-ai-source.txt').write_text(content, encoding='utf-8')
+          PY
+      - name: Commit source extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/runtime-ai-source.txt
+          git commit -m 'chore(ai): capture exact move-engine source'
+          git push origin HEAD:agent/runtime-repair-v3

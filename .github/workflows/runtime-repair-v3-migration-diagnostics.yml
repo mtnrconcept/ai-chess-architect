@@ -1,0 +1,129 @@
+name: Runtime Repair V3 Migration Diagnostics
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-migration-diagnostics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+      - name: Guard historical chess_rules migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/20250601120000_add_unique_constraint_to_chess_rules_rule_id.sql <<'SQL'
+          -- Safe on fresh branches where chess_rules is created by a later legacy migration.
+          do $$
+          begin
+            if to_regclass('public.chess_rules') is not null then
+              with ranked_rules as (
+                select
+                  id,
+                  rule_id,
+                  row_number() over (
+                    partition by rule_id
+                    order by coalesce(updated_at, created_at) desc, created_at desc, id desc
+                  ) as rn
+                from public.chess_rules
+              )
+              delete from public.chess_rules cr
+              using ranked_rules rr
+              where cr.id = rr.id
+                and rr.rn > 1;
+
+              if not exists (
+                select 1
+                from pg_constraint
+                where conname = 'chess_rules_rule_id_key'
+                  and conrelid = to_regclass('public.chess_rules')
+              ) then
+                alter table public.chess_rules
+                  add constraint chess_rules_rule_id_key unique (rule_id);
+              end if;
+            end if;
+          end
+          $$;
+
+          select pg_notify('pgrst', 'reload schema');
+          SQL
+
+          cat > supabase/migrations/20260601120000_reintroduce_unique_constraint_to_chess_rules_rule_id.sql <<'SQL'
+          -- Reintroduce the constraint only when the legacy table exists.
+          do $$
+          begin
+            if to_regclass('public.chess_rules') is not null then
+              with ranked_rules as (
+                select
+                  id,
+                  rule_id,
+                  row_number() over (
+                    partition by rule_id
+                    order by coalesce(updated_at, created_at) desc, created_at desc, id desc
+                  ) as rn
+                from public.chess_rules
+              )
+              delete from public.chess_rules cr
+              using ranked_rules rr
+              where cr.id = rr.id
+                and rr.rn > 1;
+
+              if not exists (
+                select 1
+                from pg_constraint
+                where conname = 'chess_rules_rule_id_key'
+                  and conrelid = to_regclass('public.chess_rules')
+              ) then
+                alter table public.chess_rules
+                  add constraint chess_rules_rule_id_key unique (rule_id);
+              end if;
+            end if;
+          end
+          $$;
+
+          select pg_notify('pgrst', 'reload schema');
+          SQL
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Capture complete test tail
+        shell: bash
+        run: |
+          set +e
+          pnpm test -- --run > /tmp/runtime-tests.log 2>&1
+          status=$?
+          {
+            printf 'status=%s\n' "$status"
+            printf 'head=%s\n\n' "$GITHUB_SHA"
+            tail -n 500 /tmp/runtime-tests.log
+          } > docs/runtime-test-tail.txt
+          exit 0
+      - name: Commit guarded migrations and diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            supabase/migrations/20250601120000_add_unique_constraint_to_chess_rules_rule_id.sql \
+            supabase/migrations/20260601120000_reintroduce_unique_constraint_to_chess_rules_rule_id.sql \
+            docs/runtime-test-tail.txt
+          git commit -m 'fix(db): guard legacy chess_rules migrations on fresh branches'
+          git push origin HEAD:agent/runtime-repair-v3

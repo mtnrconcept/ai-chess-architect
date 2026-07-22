@@ -1,0 +1,124 @@
+name: Runtime Repair V3 AI Fix
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-ai-fix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runtime-repair-v3-ai-fix
+  cancel-in-progress: true
+
+jobs:
+  wire-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+
+      - name: Wire the deterministic AI into Play
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/pages/Play.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'import { ChessEngine } from "@/lib/chessEngine";',
+              'import { ChessEngine } from "@/lib/chessEngine";\nimport { chooseAiMove } from "@/lib/aiOpponent";\nimport { applyMoveToGameState } from "@/lib/gameMoveState";',
+              'AI imports',
+          )
+
+          replace_once(
+              '''  const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];\n  const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);''',
+              '''  const aiDifficultyMeta = AI_DIFFICULTY_LEVELS[aiDifficulty];\n  const aiSearchDepth = Math.max(1, aiDifficultyMeta.depth);\n  const [aiThinking, setAiThinking] = useState(false);\n  const aiMoveGenerationRef = useRef(0);''',
+              'AI state',
+          )
+
+          replace_once(
+              '''  const handleSquareClick = useCallback(\n    (position: Position) => {\n      if (pendingAbility) {''',
+              '''  const handleSquareClick = useCallback(\n    (position: Position) => {\n      if (\n        opponentType === "ai" &&\n        latestGameStateRef.current.currentPlayer === "black"\n      ) {\n        return;\n      }\n\n      if (pendingAbility) {''',
+              'human turn guard',
+          )
+
+          start_marker = '          const move = ChessEngine.createMove('
+          end_marker = '          return nextState;'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('shared move start marker not found')
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('shared move end marker not found')
+          end += len(end_marker)
+          replacement = '''          const applied = applyMoveToGameState(\n            prev,\n            prev.selectedPiece,\n            position,\n            selectionDuration ?? undefined,\n          );\n          if (!applied) {\n            return { ...prev, selectedPiece: null, validMoves: [] };\n          }\n\n          queueMicrotask(() => {\n            if (!soundEnabled) return;\n            playSfx(applied.move.captured ? "capture" : "move");\n          });\n\n          return applied.state;'''
+          text = text[:start] + replacement + text[end:]
+
+          replace_once(
+              '''    [deploySpecialAttack, pendingAbility, playSfx, soundEnabled],\n  );\n\n  const serializeBoardForAi = useCallback(''',
+              '''    [\n      deploySpecialAttack,\n      opponentType,\n      pendingAbility,\n      playSfx,\n      soundEnabled,\n    ],\n  );\n\n  useEffect(() => {\n    if (\n      opponentType !== "ai" ||\n      waitingForOpponent ||\n      pendingAbility ||\n      gameState.currentPlayer !== "black" ||\n      (gameState.gameStatus !== "active" &&\n        gameState.gameStatus !== "check")\n    ) {\n      setAiThinking(false);\n      return;\n    }\n\n    const generation = ++aiMoveGenerationRef.current;\n    const expectedMoveCount = gameState.moveHistory.length;\n    const range = AI_MOVE_DELAY_RANGES[timeControl];\n    const span = Math.max(1, range.max - range.min + 1);\n    const deterministicOffset =\n      (expectedMoveCount * 7919 + gameState.turnNumber * 104729) % span;\n    const delayMs = range.min + deterministicOffset;\n    setAiThinking(true);\n\n    const timeoutId = window.setTimeout(() => {\n      if (aiMoveGenerationRef.current !== generation) return;\n      const snapshot = latestGameStateRef.current;\n      if (\n        snapshot.currentPlayer !== "black" ||\n        snapshot.moveHistory.length !== expectedMoveCount ||\n        (snapshot.gameStatus !== "active" && snapshot.gameStatus !== "check")\n      ) {\n        setAiThinking(false);\n        return;\n      }\n\n      const choice = chooseAiMove(\n        snapshot,\n        aiSearchDepth,\n        aiDifficultyMeta.selectionRange,\n      );\n      if (!choice) {\n        setAiThinking(false);\n        return;\n      }\n\n      setGameState((previous) => {\n        if (\n          aiMoveGenerationRef.current !== generation ||\n          previous.currentPlayer !== "black" ||\n          previous.moveHistory.length !== expectedMoveCount\n        ) {\n          return previous;\n        }\n        const livePiece = ChessEngine.getPieceAt(\n          previous.board,\n          choice.piece.position,\n        );\n        if (!livePiece || livePiece.color !== "black") return previous;\n        const applied = applyMoveToGameState(previous, livePiece, choice.to);\n        if (!applied) return previous;\n        queueMicrotask(() => {\n          if (!soundEnabled) return;\n          playSfx(applied.move.captured ? "capture" : "move");\n        });\n        return applied.state;\n      });\n      if (aiMoveGenerationRef.current === generation) setAiThinking(false);\n    }, delayMs);\n\n    return () => {\n      window.clearTimeout(timeoutId);\n      if (aiMoveGenerationRef.current === generation) {\n        aiMoveGenerationRef.current += 1;\n      }\n    };\n  }, [\n    aiDifficultyMeta.selectionRange,\n    aiSearchDepth,\n    gameState.currentPlayer,\n    gameState.gameStatus,\n    gameState.moveHistory.length,\n    gameState.turnNumber,\n    opponentType,\n    pendingAbility,\n    playSfx,\n    soundEnabled,\n    timeControl,\n    waitingForOpponent,\n  ]);\n\n  const serializeBoardForAi = useCallback(''',
+              'AI execution effect',
+          )
+
+          replace_once(
+              '''          <ChessBoard\n            board={gameState.board}''',
+              '''          {aiThinking && (\n            <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex justify-center">\n              <div className="flex items-center gap-2 rounded-full border border-cyan-300/30 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-xl backdrop-blur">\n                <Loader2 className="h-4 w-4 animate-spin" />\n                Voltus réfléchit…\n              </div>\n            </div>\n          )}\n          <ChessBoard\n            board={gameState.board}''',
+              'AI thinking overlay',
+          )
+
+          replace_once(
+              '''              disabled={\n                gameState.gameStatus !== "active" || waitingForOpponent\n              }''',
+              '''              disabled={\n                (gameState.gameStatus !== "active" &&\n                  gameState.gameStatus !== "check") ||\n                waitingForOpponent ||\n                aiThinking\n              }''',
+              'action dock AI lock',
+          )
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate AI and shared move tests
+        run: pnpm test -- --run src/lib/__tests__/aiOpponent.test.ts
+
+      - name: Run full unit suite
+        run: pnpm test -- --run
+
+      - name: Type check and build
+        run: |
+          pnpm exec tsc --noEmit -p tsconfig.app.json
+          pnpm exec tsc --noEmit -p tsconfig.node.json
+          pnpm build
+
+      - name: Commit validated AI wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pages/Play.tsx
+          git commit -m 'fix(ai): execute legal opponent moves through shared transition'
+          git push origin HEAD:agent/runtime-repair-v3

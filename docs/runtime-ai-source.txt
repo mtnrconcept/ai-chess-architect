@@ -1,0 +1,963 @@
+## src/pages/Play.tsx 1440-1705
+1440:           // Conversion non bloquante
+1441:         }
+1442:       } catch (e) {
+1443:         console.error("[generateRule] unexpected error", e);
+1444:         safeToast({
+1445:           title: "Génération échouée",
+1446:           description: "Erreur inattendue lors de l'appel au générateur.",
+1447:           variant: "destructive",
+1448:         });
+1449:       }
+1450:     },
+1451:     [safeToast],
+1452:   );
+1453: 
+1454:   const handleSquareClick = useCallback(
+1455:     (position: Position) => {
+1456:       if (pendingAbility) {
+1457:         const outcome = deploySpecialAttack(pendingAbility, position);
+1458:         if (outcome.success) setPendingAbility(null);
+1459:         return;
+1460:       }
+1461: 
+1462:       setGameState((prev) => {
+1463:         if (prev.gameStatus !== "active") return prev;
+1464: 
+1465:         const clickedPiece = ChessEngine.getPieceAt(prev.board, position);
+1466:         if (clickedPiece && clickedPiece.color === prev.currentPlayer) {
+1467:           const stateForPiece: GameState = {
+1468:             ...prev,
+1469:             selectedPiece: clickedPiece,
+1470:           };
+1471:           const validMoves = ChessEngine.getValidMoves(
+1472:             prev.board,
+1473:             clickedPiece,
+1474:             stateForPiece,
+1475:           );
+1476:           selectionTimestampRef.current =
+1477:             typeof performance !== "undefined" ? performance.now() : Date.now();
+1478:           return {
+1479:             ...prev,
+1480:             selectedPiece: clickedPiece,
+1481:             validMoves,
+1482:           };
+1483:         }
+1484: 
+1485:         if (prev.selectedPiece) {
+1486:           const isValidMove = prev.validMoves.some((move) =>
+1487:             samePos(move, position),
+1488:           );
+1489:           if (!isValidMove) {
+1490:             selectionTimestampRef.current = null;
+1491:             return { ...prev, selectedPiece: null, validMoves: [] };
+1492:           }
+1493: 
+1494:           const selectionDuration =
+1495:             typeof performance !== "undefined" &&
+1496:             selectionTimestampRef.current != null
+1497:               ? performance.now() - selectionTimestampRef.current
+1498:               : null;
+1499:           selectionTimestampRef.current = null;
+1500: 
+1501:           const move = ChessEngine.createMove(
+1502:             prev.board,
+1503:             prev.selectedPiece,
+1504:             position,
+1505:             prev,
+1506:           );
+1507:           move.timestamp = new Date().toISOString();
+1508:           if (selectionDuration != null) {
+1509:             move.durationMs = Math.round(selectionDuration);
+1510:           }
+1511: 
+1512:           const updatedBoard = ChessEngine.executeMove(prev.board, move, prev);
+1513:           const capturedPieces = move.captured
+1514:             ? [...prev.capturedPieces, move.captured]
+1515:             : prev.capturedPieces;
+1516: 
+1517:           const nextPlayer: PieceColor =
+1518:             prev.currentPlayer === "white" ? "black" : "white";
+1519:           const signature = ChessEngine.getBoardSignature(updatedBoard);
+1520:           const updatedHistory = {
+1521:             ...prev.positionHistory,
+1522:             [signature]: (prev.positionHistory[signature] ?? 0) + 1,
+1523:           };
+1524: 
+1525:           const baseState: GameState = {
+1526:             ...prev,
+1527:             board: updatedBoard,
+1528:             capturedPieces,
+1529:             moveHistory: [...prev.moveHistory, move],
+1530:             currentPlayer: nextPlayer,
+1531:             turnNumber:
+1532:               prev.currentPlayer === "black"
+1533:                 ? prev.turnNumber + 1
+1534:                 : prev.turnNumber,
+1535:             movesThisTurn: 0,
+1536:             selectedPiece: null,
+1537:             validMoves: [],
+1538:             lastMoveByColor: {
+1539:               ...prev.lastMoveByColor,
+1540:               [prev.currentPlayer]: move,
+1541:             },
+1542:             positionHistory: updatedHistory,
+1543:           };
+1544: 
+1545:           const stateForStatus: GameState = {
+1546:             ...baseState,
+1547:             board: updatedBoard,
+1548:             currentPlayer: nextPlayer,
+1549:             selectedPiece: null,
+1550:             validMoves: [],
+1551:           };
+1552: 
+1553:           const inCheck = ChessEngine.isInCheck(
+1554:             updatedBoard,
+1555:             nextPlayer,
+1556:             stateForStatus,
+1557:           );
+1558:           const hasMoves = ChessEngine.hasAnyLegalMoves(
+1559:             updatedBoard,
+1560:             nextPlayer,
+1561:             stateForStatus,
+1562:           );
+1563: 
+1564:           let gameStatus: GameState["gameStatus"] = "active";
+1565:           if (inCheck && !hasMoves) gameStatus = "checkmate";
+1566:           else if (!inCheck && !hasMoves) gameStatus = "stalemate";
+1567:           else if (inCheck) gameStatus = "check";
+1568: 
+1569:           const nextState: GameState = {
+1570:             ...baseState,
+1571:             gameStatus,
+1572:           };
+1573: 
+1574:           queueMicrotask(() => {
+1575:             if (!soundEnabled) return;
+1576:             playSfx(move.captured ? "capture" : "move");
+1577:           });
+1578: 
+1579:           return nextState;
+1580:         }
+1581: 
+1582:         return prev;
+1583:       });
+1584:     },
+1585:     [deploySpecialAttack, pendingAbility, playSfx, soundEnabled],
+1586:   );
+1587: 
+1588:   const serializeBoardForAi = useCallback(
+1589:     (board: (ChessPiece | null)[][]) =>
+1590:       board
+1591:         .map((row) =>
+1592:           row
+1593:             .map((piece) => {
+1594:               if (!piece) return ".";
+1595:               const symbols: Record<
+1596:                 PieceColor,
+1597:                 Record<ChessPiece["type"], string>
+1598:               > = {
+1599:                 white: {
+1600:                   king: "K",
+1601:                   queen: "Q",
+1602:                   rook: "R",
+1603:                   bishop: "B",
+1604:                   knight: "N",
+1605:                   pawn: "P",
+1606:                 },
+1607:                 black: {
+1608:                   king: "k",
+1609:                   queen: "q",
+1610:                   rook: "r",
+1611:                   bishop: "b",
+1612:                   knight: "n",
+1613:                   pawn: "p",
+1614:                 },
+1615:               };
+1616:               return symbols[piece.color][piece.type];
+1617:             })
+1618:             .join(""),
+1619:         )
+1620:         .join(" / "),
+1621:     [],
+1622:   );
+1623: 
+1624:   const positionToNotation = useCallback((pos: Position) => {
+1625:     const file = FILES[pos.col] ?? "?";
+1626:     const rank = 8 - pos.row;
+1627:     return `${file}${rank}`;
+1628:   }, []);
+1629: 
+1630:   const formatMoveForAi = useCallback(
+1631:     (move: ChessMove) => {
+1632:       const separator = move.captured ? "x" : "-";
+1633:       const promotion = move.promotion
+1634:         ? `=${String(move.promotion).toUpperCase()}`
+1635:         : "";
+1636:       const special = move.isCastling
+1637:         ? " (roque)"
+1638:         : move.isEnPassant
+1639:           ? " (prise en passant)"
+1640:           : "";
+1641:       return `${positionToNotation(move.from)}${separator}${positionToNotation(move.to)}${promotion}${special}`;
+1642:     },
+1643:     [positionToNotation],
+1644:   );
+1645: 
+1646:   const requestCoachUpdate = useCallback(
+1647:     async (
+1648:       trigger: CoachChatMessage["trigger"],
+1649:       userMessage: string,
+1650:       historyOverride?: CoachChatHistoryEntry[],
+1651:     ) => {
+1652:       if (!coachEnabled) {
+1653:         safeToast({
+1654:           title: "Coach désactivé",
+1655:           description: "Activez le coach pour solliciter une analyse.",
+1656:         });
+1657:         return;
+1658:       }
+1659: 
+1660:       coachAbortControllerRef.current?.abort();
+1661:       const controller = new AbortController();
+1662:       coachAbortControllerRef.current = controller;
+1663: 
+1664:       const currentState = latestGameStateRef.current;
+1665:       const board = serializeBoardForAi(currentState.board);
+1666:       const moveHistory = currentState.moveHistory.map(formatMoveForAi);
+1667:       const activeRules = currentState.activeRules.map((rule) => rule.ruleName);
+1668: 
+1669:       const baseHistory: CoachChatHistoryEntry[] =
+1670:         historyOverride ??
+1671:         coachMessagesRef.current
+1672:           .filter((message) => message.role !== "system")
+1673:           .slice(-8)
+1674:           .map<CoachChatHistoryEntry>((message) => ({
+1675:             role: message.role === "coach" ? "assistant" : "user",
+1676:             content: message.content,
+1677:           }));
+1678: 
+1679:       setCoachLoading(true);
+1680:       setCoachError(null);
+1681: 
+1682:       try {
+1683:         const { data, error } =
+1684:           await supabase.functions.invoke<CoachChatResponse>("chess-insights", {
+1685:             body: {
+1686:               board,
+1687:               moveHistory,
+1688:               currentPlayer: currentState.currentPlayer,
+1689:               turnNumber: currentState.turnNumber,
+1690:               gameStatus: currentState.gameStatus,
+1691:               activeRules,
+1692:               trigger,
+1693:               userMessage,
+1694:               history: baseHistory,
+1695:             },
+1696:             signal: controller.signal,
+1697:           });
+1698: 
+1699:         if (controller.signal.aborted) return;
+1700: 
+1701:         if (error) {
+1702:           throw new Error(
+1703:             error.message ?? "Erreur lors de la réponse du coach",
+1704:           );
+1705:         }
+
+## src/lib/chessEngine.ts 1-520
+0001: import {
+0002:   ChessPiece,
+0003:   Position,
+0004:   ChessMove,
+0005:   GameState,
+0006:   PieceType,
+0007:   PieceColor,
+0008:   ChessRule,
+0009:   RuleCondition,
+0010: } from "@/types/chess";
+0011: 
+0012: type MoveGenerationPurpose = "movement" | "attack";
+0013: 
+0014: interface MoveGenerationOptions {
+0015:   includeCastling?: boolean;
+0016:   purpose?: MoveGenerationPurpose;
+0017: }
+0018: 
+0019: export class ChessEngine {
+0020:   // Initialize empty board
+0021:   static createEmptyBoard(): (ChessPiece | null)[][] {
+0022:     return Array(8)
+0023:       .fill(null)
+0024:       .map(() => Array(8).fill(null));
+0025:   }
+0026: 
+0027:   // Initialize standard chess starting position
+0028:   static initializeBoard(): (ChessPiece | null)[][] {
+0029:     const board = this.createEmptyBoard();
+0030: 
+0031:     // White pieces
+0032:     const whiteBackRow: PieceType[] = [
+0033:       "rook",
+0034:       "knight",
+0035:       "bishop",
+0036:       "queen",
+0037:       "king",
+0038:       "bishop",
+0039:       "knight",
+0040:       "rook",
+0041:     ];
+0042:     whiteBackRow.forEach((type, col) => {
+0043:       board[7][col] = {
+0044:         type,
+0045:         color: "white",
+0046:         position: { row: 7, col },
+0047:         hasMoved: false,
+0048:         isHidden: false,
+0049:       };
+0050:     });
+0051:     for (let col = 0; col < 8; col++) {
+0052:       board[6][col] = {
+0053:         type: "pawn",
+0054:         color: "white",
+0055:         position: { row: 6, col },
+0056:         hasMoved: false,
+0057:         isHidden: false,
+0058:       };
+0059:     }
+0060: 
+0061:     // Black pieces
+0062:     const blackBackRow: PieceType[] = [
+0063:       "rook",
+0064:       "knight",
+0065:       "bishop",
+0066:       "queen",
+0067:       "king",
+0068:       "bishop",
+0069:       "knight",
+0070:       "rook",
+0071:     ];
+0072:     blackBackRow.forEach((type, col) => {
+0073:       board[0][col] = {
+0074:         type,
+0075:         color: "black",
+0076:         position: { row: 0, col },
+0077:         hasMoved: false,
+0078:         isHidden: false,
+0079:       };
+0080:     });
+0081:     for (let col = 0; col < 8; col++) {
+0082:       board[1][col] = {
+0083:         type: "pawn",
+0084:         color: "black",
+0085:         position: { row: 1, col },
+0086:         hasMoved: false,
+0087:         isHidden: false,
+0088:       };
+0089:     }
+0090: 
+0091:     return board;
+0092:   }
+0093: 
+0094:   static applySecretSetup(
+0095:     board: (ChessPiece | null)[][],
+0096:     random: () => number,
+0097:   ): (ChessPiece | null)[][] {
+0098:     const clonedBoard = board.map((row) =>
+0099:       row.map((piece) => (piece ? { ...piece } : null)),
+0100:     );
+0101: 
+0102:     const shuffle = <T>(values: T[]): T[] => {
+0103:       const items = [...values];
+0104:       for (let i = items.length - 1; i > 0; i--) {
+0105:         const sample = random();
+0106:         if (!Number.isFinite(sample) || sample < 0 || sample >= 1) {
+0107:           throw new Error(
+0108:             "Le RNG injecté doit produire une valeur dans [0, 1).",
+0109:           );
+0110:         }
+0111:         const j = Math.floor(sample * (i + 1));
+0112:         [items[i], items[j]] = [items[j], items[i]];
+0113:       }
+0114:       return items;
+0115:     };
+0116: 
+0117:     const rearrange = (rowIndex: number, color: PieceColor) => {
+0118:       const rowPieces = clonedBoard[rowIndex];
+0119:       const king = rowPieces.find(
+0120:         (piece) => piece && piece.type === "king" && piece.color === color,
+0121:       );
+0122:       if (!king) return;
+0123: 
+0124:       const kingCol = king.position.col;
+0125:       const majorPieces = rowPieces
+0126:         .map((piece) =>
+0127:           piece && piece.color === color && piece.type !== "king"
+0128:             ? piece
+0129:             : null,
+0130:         )
+0131:         .filter((piece): piece is ChessPiece => Boolean(piece));
+0132: 
+0133:       const candidateColumns = rowPieces
+0134:         .map((_, col) => col)
+0135:         .filter((col) => col !== kingCol);
+0136: 
+0137:       const shuffledColumns = shuffle(candidateColumns).slice(
+0138:         0,
+0139:         majorPieces.length,
+0140:       );
+0141: 
+0142:       for (let col = 0; col < 8; col++) {
+0143:         const occupant = clonedBoard[rowIndex][col];
+0144:         if (occupant && occupant.color === color) {
+0145:           clonedBoard[rowIndex][col] = null;
+0146:         }
+0147:       }
+0148: 
+0149:       clonedBoard[rowIndex][kingCol] = {
+0150:         ...king,
+0151:         position: { row: rowIndex, col: kingCol },
+0152:         hasMoved: false,
+0153:         isHidden: false,
+0154:       };
+0155: 
+0156:       majorPieces.forEach((piece, index) => {
+0157:         const targetCol = shuffledColumns[index] ?? piece.position.col;
+0158:         clonedBoard[rowIndex][targetCol] = {
+0159:           ...piece,
+0160:           position: { row: rowIndex, col: targetCol },
+0161:           hasMoved: false,
+0162:           isHidden: true,
+0163:         };
+0164:       });
+0165:     };
+0166: 
+0167:     rearrange(7, "white");
+0168:     rearrange(0, "black");
+0169: 
+0170:     return clonedBoard;
+0171:   }
+0172: 
+0173:   static revealBackRank(
+0174:     board: (ChessPiece | null)[][],
+0175:     color: PieceColor,
+0176:   ): void {
+0177:     const targetRow = color === "white" ? 7 : 0;
+0178:     for (let col = 0; col < 8; col++) {
+0179:       const piece = board[targetRow][col];
+0180:       if (piece && piece.color === color && piece.type !== "pawn") {
+0181:         board[targetRow][col] = { ...piece, isHidden: false };
+0182:       }
+0183:     }
+0184:   }
+0185: 
+0186:   static getBoardSignature(board: (ChessPiece | null)[][]): string {
+0187:     const pieces: string[] = [];
+0188:     board.forEach((row, rowIndex) => {
+0189:       row.forEach((piece, colIndex) => {
+0190:         if (!piece) return;
+0191:         const specialTag = piece.specialState?.carnivorousPlant?.active
+0192:           ? "-carnivorous"
+0193:           : "";
+0194:         pieces.push(
+0195:           `${piece.color}-${piece.type}${specialTag}-${rowIndex}-${colIndex}`,
+0196:         );
+0197:       });
+0198:     });
+0199:     return pieces.sort().join("|");
+0200:   }
+0201: 
+0202:   static getAttackSquares(
+0203:     board: (ChessPiece | null)[][],
+0204:     piece: ChessPiece,
+0205:   ): Position[] {
+0206:     const { row, col } = piece.position;
+0207:     const inBounds = (pos: Position) => this.isValidPosition(pos);
+0208:     const opponentsOnly = (positions: Position[]) =>
+0209:       positions.filter((pos) => {
+0210:         const target = this.getPieceAt(board, pos);
+0211:         return Boolean(target && target.color !== piece.color);
+0212:       });
+0213: 
+0214:     switch (piece.type) {
+0215:       case "pawn": {
+0216:         const direction = piece.color === "white" ? -1 : 1;
+0217:         const diagonals = [
+0218:           { row: row + direction, col: col - 1 },
+0219:           { row: row + direction, col: col + 1 },
+0220:         ].filter(inBounds);
+0221:         return opponentsOnly(diagonals);
+0222:       }
+0223:       case "knight": {
+0224:         const offsets = [
+0225:           [-2, -1],
+0226:           [-2, 1],
+0227:           [-1, -2],
+0228:           [-1, 2],
+0229:           [1, -2],
+0230:           [1, 2],
+0231:           [2, -1],
+0232:           [2, 1],
+0233:         ];
+0234:         const potential = offsets
+0235:           .map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+0236:           .filter(inBounds);
+0237:         return opponentsOnly(potential);
+0238:       }
+0239:       case "bishop":
+0240:         return opponentsOnly(
+0241:           this.getDirectionalMoves(board, piece, [
+0242:             [-1, -1],
+0243:             [-1, 1],
+0244:             [1, -1],
+0245:             [1, 1],
+0246:           ]),
+0247:         );
+0248:       case "rook":
+0249:         return opponentsOnly(
+0250:           this.getDirectionalMoves(board, piece, [
+0251:             [-1, 0],
+0252:             [1, 0],
+0253:             [0, -1],
+0254:             [0, 1],
+0255:           ]),
+0256:         );
+0257:       case "queen":
+0258:         return opponentsOnly(
+0259:           this.getDirectionalMoves(board, piece, [
+0260:             [-1, -1],
+0261:             [-1, 0],
+0262:             [-1, 1],
+0263:             [0, -1],
+0264:             [0, 1],
+0265:             [1, -1],
+0266:             [1, 0],
+0267:             [1, 1],
+0268:           ]),
+0269:         );
+0270:       case "king": {
+0271:         const offsets = [
+0272:           [-1, -1],
+0273:           [-1, 0],
+0274:           [-1, 1],
+0275:           [0, -1],
+0276:           [0, 1],
+0277:           [1, -1],
+0278:           [1, 0],
+0279:           [1, 1],
+0280:         ];
+0281:         const potential = offsets
+0282:           .map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+0283:           .filter(inBounds);
+0284:         return opponentsOnly(potential);
+0285:       }
+0286:       default:
+0287:         return [];
+0288:     }
+0289:   }
+0290: 
+0291:   // Check if position is valid
+0292:   static isValidPosition(pos: Position): boolean {
+0293:     return pos.row >= 0 && pos.row < 8 && pos.col >= 0 && pos.col < 8;
+0294:   }
+0295: 
+0296:   // Get piece at position
+0297:   static getPieceAt(
+0298:     board: (ChessPiece | null)[][],
+0299:     pos: Position,
+0300:   ): ChessPiece | null {
+0301:     if (!this.isValidPosition(pos)) return null;
+0302:     return board[pos.row][pos.col];
+0303:   }
+0304: 
+0305:   // Get valid moves for a piece (traditional rules with legality checks)
+0306:   static getValidMoves(
+0307:     board: (ChessPiece | null)[][],
+0308:     piece: ChessPiece,
+0309:     gameState: GameState,
+0310:   ): Position[] {
+0311:     const pseudoLegalMoves = this.getPseudoLegalMoves(board, piece, gameState, {
+0312:       includeCastling: true,
+0313:       purpose: "movement",
+0314:     });
+0315: 
+0316:     return pseudoLegalMoves.filter((move) =>
+0317:       this.isMoveSafe(board, piece, move, gameState),
+0318:     );
+0319:   }
+0320: 
+0321:   private static getPseudoLegalMoves(
+0322:     board: (ChessPiece | null)[][],
+0323:     piece: ChessPiece,
+0324:     gameState: GameState,
+0325:     options: MoveGenerationOptions = {},
+0326:   ): Position[] {
+0327:     const baseMoves = this.getBaseMoves(board, piece, gameState, options);
+0328:     return this.applyRulesToMoves(baseMoves, piece, gameState, options);
+0329:   }
+0330: 
+0331:   private static getBaseMoves(
+0332:     board: (ChessPiece | null)[][],
+0333:     piece: ChessPiece,
+0334:     gameState: GameState,
+0335:     options: MoveGenerationOptions,
+0336:   ): Position[] {
+0337:     switch (piece.type) {
+0338:       case "pawn":
+0339:         return this.getPawnMoves(board, piece, gameState, options);
+0340:       case "knight":
+0341:         return this.getKnightMoves(board, piece);
+0342:       case "bishop":
+0343:         return this.getBishopMoves(board, piece);
+0344:       case "rook":
+0345:         return this.getRookMoves(board, piece);
+0346:       case "queen":
+0347:         return this.getQueenMoves(board, piece);
+0348:       case "king":
+0349:         return this.getKingMoves(board, piece, gameState, options);
+0350:       default:
+0351:         return [];
+0352:     }
+0353:   }
+0354: 
+0355:   private static isMoveSafe(
+0356:     board: (ChessPiece | null)[][],
+0357:     piece: ChessPiece,
+0358:     destination: Position,
+0359:     gameState: GameState,
+0360:   ): boolean {
+0361:     const move = this.createMove(board, piece, destination, gameState);
+0362:     const simulatedBoard = this.simulateMove(board, move);
+0363: 
+0364:     const simulatedState: GameState = {
+0365:       ...gameState,
+0366:       board: simulatedBoard,
+0367:       currentPlayer: piece.color,
+0368:       moveHistory: [...gameState.moveHistory, move],
+0369:       extraMoves: 0,
+0370:     };
+0371: 
+0372:     return !this.isInCheck(simulatedBoard, piece.color, simulatedState);
+0373:   }
+0374: 
+0375:   private static getPawnMoves(
+0376:     board: (ChessPiece | null)[][],
+0377:     piece: ChessPiece,
+0378:     gameState: GameState,
+0379:     options: MoveGenerationOptions = {},
+0380:   ): Position[] {
+0381:     if (piece.specialState?.carnivorousPlant?.active) {
+0382:       return [];
+0383:     }
+0384: 
+0385:     const moves: Position[] = [];
+0386:     const { row, col } = piece.position;
+0387:     const direction = piece.color === "white" ? -1 : 1;
+0388:     const purpose = options.purpose ?? "movement";
+0389: 
+0390:     if (purpose !== "attack") {
+0391:       const forward = { row: row + direction, col };
+0392:       if (this.isValidPosition(forward) && !this.getPieceAt(board, forward)) {
+0393:         moves.push(forward);
+0394: 
+0395:         if (!piece.hasMoved) {
+0396:           const doubleForward = { row: row + direction * 2, col };
+0397:           if (
+0398:             this.isValidPosition(doubleForward) &&
+0399:             !this.getPieceAt(board, doubleForward)
+0400:           ) {
+0401:             moves.push(doubleForward);
+0402:           }
+0403:         }
+0404:       }
+0405:     }
+0406: 
+0407:     const capturePositions = [
+0408:       { row: row + direction, col: col - 1 },
+0409:       { row: row + direction, col: col + 1 },
+0410:     ];
+0411: 
+0412:     const enPassantTarget = this.getEnPassantTarget(gameState, piece.color);
+0413: 
+0414:     capturePositions.forEach((pos) => {
+0415:       if (!this.isValidPosition(pos)) return;
+0416: 
+0417:       const target = this.getPieceAt(board, pos);
+0418:       if (target && target.color !== piece.color) {
+0419:         moves.push(pos);
+0420:         return;
+0421:       }
+0422: 
+0423:       if (
+0424:         enPassantTarget &&
+0425:         enPassantTarget.row === pos.row &&
+0426:         enPassantTarget.col === pos.col
+0427:       ) {
+0428:         moves.push(pos);
+0429:         return;
+0430:       }
+0431: 
+0432:       if (purpose === "attack") {
+0433:         moves.push(pos);
+0434:       }
+0435:     });
+0436: 
+0437:     return this.ensureUniquePositions(moves);
+0438:   }
+0439: 
+0440:   private static getEnPassantTarget(
+0441:     gameState: GameState,
+0442:     color: PieceColor,
+0443:   ): Position | null {
+0444:     if (gameState.moveHistory.length === 0) {
+0445:       return null;
+0446:     }
+0447: 
+0448:     const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
+0449: 
+0450:     if (lastMove.piece.type !== "pawn") return null;
+0451:     if (lastMove.piece.color === color) return null;
+0452: 
+0453:     const movedTwoSquares = Math.abs(lastMove.from.row - lastMove.to.row) === 2;
+0454:     if (!movedTwoSquares) return null;
+0455: 
+0456:     return {
+0457:       row: (lastMove.from.row + lastMove.to.row) / 2,
+0458:       col: lastMove.to.col,
+0459:     };
+0460:   }
+0461: 
+0462:   private static getKnightMoves(
+0463:     board: (ChessPiece | null)[][],
+0464:     piece: ChessPiece,
+0465:   ): Position[] {
+0466:     const moves: Position[] = [];
+0467:     const { row, col } = piece.position;
+0468:     const offsets = [
+0469:       [-2, -1],
+0470:       [-2, 1],
+0471:       [-1, -2],
+0472:       [-1, 2],
+0473:       [1, -2],
+0474:       [1, 2],
+0475:       [2, -1],
+0476:       [2, 1],
+0477:     ];
+0478: 
+0479:     offsets.forEach(([dRow, dCol]) => {
+0480:       const pos = { row: row + dRow, col: col + dCol };
+0481:       if (this.isValidPosition(pos)) {
+0482:         const target = this.getPieceAt(board, pos);
+0483:         if (!target || target.color !== piece.color) {
+0484:           moves.push(pos);
+0485:         }
+0486:       }
+0487:     });
+0488: 
+0489:     return moves;
+0490:   }
+0491: 
+0492:   private static getBishopMoves(
+0493:     board: (ChessPiece | null)[][],
+0494:     piece: ChessPiece,
+0495:   ): Position[] {
+0496:     return this.getDirectionalMoves(board, piece, [
+0497:       [-1, -1],
+0498:       [-1, 1],
+0499:       [1, -1],
+0500:       [1, 1],
+0501:     ]);
+0502:   }
+0503: 
+0504:   private static getRookMoves(
+0505:     board: (ChessPiece | null)[][],
+0506:     piece: ChessPiece,
+0507:   ): Position[] {
+0508:     return this.getDirectionalMoves(board, piece, [
+0509:       [-1, 0],
+0510:       [1, 0],
+0511:       [0, -1],
+0512:       [0, 1],
+0513:     ]);
+0514:   }
+0515: 
+0516:   private static getQueenMoves(
+0517:     board: (ChessPiece | null)[][],
+0518:     piece: ChessPiece,
+0519:   ): Position[] {
+0520:     return this.getDirectionalMoves(board, piece, [
+
+## src/types/chess.ts 1-300
+0001: import type { SoundEffect } from '@/hooks/useSoundEffects';
+0002: import type { SpecialAbilityKey, SpecialAbilityTrigger } from '@/lib/specialAbilities';
+0003: 
+0004: export type PieceType = 'king' | 'queen' | 'rook' | 'bishop' | 'knight' | 'pawn';
+0005: export type PieceColor = 'white' | 'black';
+0006: 
+0007: export interface Position {
+0008:   row: number;
+0009:   col: number;
+0010: }
+0011: 
+0012: export interface ChessPiece {
+0013:   type: PieceType;
+0014:   color: PieceColor;
+0015:   position: Position;
+0016:   hasMoved?: boolean;
+0017:   isHidden?: boolean;
+0018:   specialState?: {
+0019:     carnivorousPlant?: {
+0020:       active: boolean;
+0021:       transformedAtTurn?: number;
+0022:     };
+0023:     [key: string]: unknown;
+0024:   };
+0025: }
+0026: 
+0027: export interface SerializedPiece {
+0028:   type: PieceType;
+0029:   color: PieceColor;
+0030:   row: number;
+0031:   col: number;
+0032:   isHidden?: boolean;
+0033: }
+0034: 
+0035: export interface SerializedBoardState {
+0036:   pieces: SerializedPiece[];
+0037: }
+0038: 
+0039: export interface ChessMove {
+0040:   from: Position;
+0041:   to: Position;
+0042:   piece: ChessPiece;
+0043:   captured?: ChessPiece;
+0044:   isEnPassant?: boolean;
+0045:   isCastling?: boolean;
+0046:   rookFrom?: Position;
+0047:   rookTo?: Position;
+0048:   promotion?: PieceType;
+0049:   specialCaptures?: Array<{
+0050:     type: 'carnivorousPlant';
+0051:     by: Position;
+0052:     piece: ChessPiece;
+0053:   }>;
+0054:   timestamp?: string;
+0055:   durationMs?: number | null;
+0056:   notation?: string;
+0057:   boardSnapshot?: SerializedBoardState;
+0058: }
+0059: 
+0060: export interface SpecialAttackInstance {
+0061:   id: string;
+0062:   ability: SpecialAbilityKey;
+0063:   owner: PieceColor;
+0064:   position: Position;
+0065:   radius: number;
+0066:   countdown: number;
+0067:   remaining: number;
+0068:   damage: number;
+0069:   trigger: SpecialAbilityTrigger;
+0070:   animation: string;
+0071:   sound: string;
+0072:   ruleName: string;
+0073:   freezeTurns?: number;
+0074: }
+0075: 
+0076: export interface VisualEffect {
+0077:   id: string;
+0078:   type: 'explosion' | 'projection' | 'phantom';
+0079:   position: Position;
+0080:   radius: number;
+0081:   animation: string;
+0082:   durationMs: number;
+0083:   startedAt: number;
+0084:   ability?: SpecialAbilityKey;
+0085:   ruleName?: string;
+0086:   notify?: boolean;
+0087: }
+0088: 
+0089: export interface RuleCondition {
+0090:   type: string;
+0091:   value: any;
+0092:   operator: 'equals' | 'notEquals' | 'greaterThan' | 'lessThan' | 'greaterOrEqual' | 'lessOrEqual' | 'contains' | 'in';
+0093: }
+0094: 
+0095: export interface RuleEffect {
+0096:   action: string;
+0097:   target: 'self' | 'opponent' | 'all' | 'specific';
+0098:   parameters: {
+0099:     count?: number;
+0100:     property?: string;
+0101:     value?: any;
+0102:     duration?: 'permanent' | 'temporary' | 'turns';
+0103:     range?: number;
+0104:     [key: string]: any;
+0105:   };
+0106: }
+0107: 
+0108: export interface ChessRule {
+0109:   id?: string;
+0110:   ruleId: string;
+0111:   ruleName: string;
+0112:   description: string;
+0113:   category: 'movement' | 'capture' | 'special' | 'condition' | 'victory' | 'restriction' | 'defense' | 'behavior' | 'vip';
+0114:   affectedPieces: string[];
+0115:   trigger: 'always' | 'onMove' | 'onCapture' | 'onCheck' | 'onCheckmate' | 'turnBased' | 'conditional';
+0116:   conditions: RuleCondition[];
+0117:   effects: RuleEffect[];
+0118:   tags: string[];
+0119:   priority: number;
+0120:   isActive: boolean;
+0121:   validationRules: {
+0122:     allowedWith: string[];
+0123:     conflictsWith: string[];
+0124:     requiredState: any;
+0125:   };
+0126:   userId?: string;
+0127:   createdAt?: string;
+0128:   updatedAt?: string;
+0129:   // Données supplémentaires pour le nouveau format rule_json
+0130:   assets?: any;
+0131:   uiActions?: any[];
+0132:   state?: any;
+0133:   parameters?: Record<string, any>;
+0134: }
+0135: 
+0136: export interface GameState {
+0137:   board: (ChessPiece | null)[][];
+0138:   currentPlayer: PieceColor;
+0139:   turnNumber: number;
+0140:   movesThisTurn: number;
+0141:   selectedPiece: ChessPiece | null;
+0142:   validMoves: Position[];
+0143:   gameStatus: 'active' | 'check' | 'checkmate' | 'stalemate' | 'draw' | 'timeout';
+0144:   capturedPieces: ChessPiece[];
+0145:   moveHistory: ChessMove[];
+0146:   activeRules: ChessRule[];
+0147:   extraMoves: number;
+0148:   modifiedMovement?: any;
+0149:   abilities?: any[];
+0150:   restrictions?: any[];
+0151:   events?: SoundEffect[];
+0152:   forcedMirrorResponse?: {
+0153:     color: PieceColor;
+0154:     file: number;
+0155:   } | null;
+0156:   pendingExtraMoves: Record<PieceColor, number>;
+0157:   freezeEffects: Array<{
+0158:     color: PieceColor;
+0159:     position: Position;
+0160:     remainingTurns: number;
+0161:   }>;
+0162:   freezeUsage: Record<PieceColor, boolean>;
+0163:   positionHistory: Record<string, number>;
+0164:   pendingTransformations: Record<PieceColor, boolean>;
+0165:   lastMoveByColor: Partial<Record<PieceColor, ChessMove>>;
+0166:   replayOpportunities: Partial<Record<PieceColor, { from: Position; to: Position }>>;
+0167:   vipTokens: Record<PieceColor, number>;
+0168:   secretSetupApplied?: boolean;
+0169:   blindOpeningRevealed: Record<PieceColor, boolean>;
+0170:   specialAttacks: SpecialAttackInstance[];
+0171:   visualEffects: VisualEffect[];
+0172: }
