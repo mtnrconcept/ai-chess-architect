@@ -307,6 +307,30 @@ for (const invariant of [
   );
 }
 
+const earlyTournamentAiColumns = read(
+  "supabase/migrations/20251012190417_add_ai_columns_to_tournament_matches.sql",
+).toLowerCase();
+requireText(
+  earlyTournamentAiColumns,
+  "pg_catalog.to_regclass('public.tournament_matches') is null",
+  "migration historique tournament_matches",
+);
+
+const tournamentAiColumnRepair = read(
+  "supabase/migrations/20260722123000_ensure_tournament_match_ai_columns.sql",
+).toLowerCase();
+for (const columnName of [
+  "is_ai_match",
+  "ai_opponent_label",
+  "ai_opponent_difficulty",
+]) {
+  requireText(
+    tournamentAiColumnRepair,
+    `add column if not exists ${columnName}`,
+    "migration corrective tournament_matches",
+  );
+}
+
 console.log(
   "Rule Architect V2 : garde-fous frontend, CI, Vercel et SQL vérifiés.",
 );
