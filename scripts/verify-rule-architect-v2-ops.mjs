@@ -293,6 +293,20 @@ if (/drop\s+table/.test(lowerMigration)) {
   );
 }
 
+const earlyChessRulesConstraint = read(
+  "supabase/migrations/20250601120000_add_unique_constraint_to_chess_rules_rule_id.sql",
+).toLowerCase();
+for (const invariant of [
+  "pg_catalog.to_regclass('public.chess_rules') is null",
+  "execute $deduplicate$",
+]) {
+  requireText(
+    earlyChessRulesConstraint,
+    invariant,
+    "migration historique chess_rules",
+  );
+}
+
 console.log(
   "Rule Architect V2 : garde-fous frontend, CI, Vercel et SQL vérifiés.",
 );
