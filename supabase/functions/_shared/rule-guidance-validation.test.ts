@@ -12,6 +12,8 @@ const directGuidance = (): Record<string, unknown> => ({
       importance: "core",
       feasibility: "direct",
       adaptation: "",
+      evidenceKind: "logic",
+      expectedSides: [],
     },
   ],
   questions: [
@@ -23,9 +25,24 @@ const directGuidance = (): Record<string, unknown> => ({
       minSelections: 1,
       maxSelections: 1,
       choices: [
-        { id: "one", label: "Un tour", description: "Durée courte." },
-        { id: "two", label: "Deux tours", description: "Durée moyenne." },
-        { id: "three", label: "Trois tours", description: "Durée longue." },
+        {
+          id: "one",
+          label: "Un tour",
+          description: "Durée courte.",
+          expectedSides: [],
+        },
+        {
+          id: "two",
+          label: "Deux tours",
+          description: "Durée moyenne.",
+          expectedSides: [],
+        },
+        {
+          id: "three",
+          label: "Trois tours",
+          description: "Durée longue.",
+          expectedSides: [],
+        },
       ],
     },
     {
@@ -36,9 +53,24 @@ const directGuidance = (): Record<string, unknown> => ({
       minSelections: 1,
       maxSelections: 1,
       choices: [
-        { id: "two", label: "Deux tours", description: "Délai court." },
-        { id: "three", label: "Trois tours", description: "Délai moyen." },
-        { id: "four", label: "Quatre tours", description: "Délai long." },
+        {
+          id: "two",
+          label: "Deux tours",
+          description: "Délai court.",
+          expectedSides: [],
+        },
+        {
+          id: "three",
+          label: "Trois tours",
+          description: "Délai moyen.",
+          expectedSides: [],
+        },
+        {
+          id: "four",
+          label: "Quatre tours",
+          description: "Délai long.",
+          expectedSides: [],
+        },
       ],
     },
   ],
@@ -67,6 +99,8 @@ for (const feasibility of ["adaptable", "unsupported"] as const) {
           importance: "cosmetic",
           feasibility,
           adaptation: "Utiliser une animation gérée par le moteur.",
+          evidenceKind: "logic",
+          expectedSides: [],
         },
       ];
 
@@ -91,6 +125,8 @@ Deno.test(
         importance: "cosmetic",
         feasibility: "adaptable",
         adaptation: "Utiliser une animation gérée par le moteur.",
+        evidenceKind: "logic",
+        expectedSides: [],
       },
     ];
     guidance.adjustments = [
@@ -119,6 +155,8 @@ Deno.test(
         importance: "cosmetic",
         feasibility: "adaptable",
         adaptation: "Utiliser une animation gérée par le moteur.",
+        evidenceKind: "logic",
+        expectedSides: [],
       },
     ];
     guidance.adjustments = [
@@ -189,5 +227,101 @@ Deno.test(
       Error,
       "GUIDANCE_ADJUSTMENT_REQUIREMENT_DIRECT",
     );
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: accepte une exigence de portée mono-camp",
+  () => {
+    const guidance = directGuidance();
+    const requirements = guidance.requirements as Array<
+      Record<string, unknown>
+    >;
+    requirements[0].evidenceKind = "side-scope";
+    requirements[0].expectedSides = ["white"];
+
+    assertEquals(validateGuidance(guidance), guidance);
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: refuse des camps sur une preuve logique",
+  () => {
+    const guidance = directGuidance();
+    const requirements = guidance.requirements as Array<
+      Record<string, unknown>
+    >;
+    requirements[0].expectedSides = ["white"];
+
+    assertThrows(
+      () => validateGuidance(guidance),
+      Error,
+      "GUIDANCE_REQUIREMENT_EVIDENCE_INVALID",
+    );
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: refuse une portée sans camp",
+  () => {
+    const guidance = directGuidance();
+    const requirements = guidance.requirements as Array<
+      Record<string, unknown>
+    >;
+    requirements[0].evidenceKind = "side-scope";
+
+    assertThrows(
+      () => validateGuidance(guidance),
+      Error,
+      "GUIDANCE_REQUIREMENT_EVIDENCE_INVALID",
+    );
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: refuse un camp dupliqué",
+  () => {
+    const guidance = directGuidance();
+    const requirements = guidance.requirements as Array<
+      Record<string, unknown>
+    >;
+    requirements[0].evidenceKind = "side-scope";
+    requirements[0].expectedSides = ["white", "white"];
+
+    assertThrows(
+      () => validateGuidance(guidance),
+      Error,
+      "GUIDANCE_REQUIREMENT_EVIDENCE_INVALID",
+    );
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: refuse une question aux portées mixtes",
+  () => {
+    const guidance = directGuidance();
+    const questions = guidance.questions as Array<Record<string, unknown>>;
+    const choices = questions[0].choices as Array<Record<string, unknown>>;
+    choices[0].expectedSides = ["white"];
+
+    assertThrows(
+      () => validateGuidance(guidance),
+      Error,
+      "GUIDANCE_CHOICE_SCOPE_MISMATCH",
+    );
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: accepte une question dont tous les choix portent des camps",
+  () => {
+    const guidance = directGuidance();
+    const questions = guidance.questions as Array<Record<string, unknown>>;
+    const choices = questions[0].choices as Array<Record<string, unknown>>;
+    choices[0].expectedSides = ["white"];
+    choices[1].expectedSides = ["black"];
+    choices[2].expectedSides = ["white", "black"];
+
+    assertEquals(validateGuidance(guidance), guidance);
   },
 );

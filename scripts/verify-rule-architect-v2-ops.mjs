@@ -489,6 +489,53 @@ for (const invariant of [
   );
 }
 
+const rootEvidenceMigration = read(
+  "supabase/migrations/20260722170000_extend_rule_coverage_root_evidence.sql",
+).toLowerCase();
+for (const invariant of [
+  "(sides|actions\\[[0-9]{1,3}\\]",
+  "is distinct from btrim",
+  "v_contract_version integer",
+  "not in ('logic', 'side-scope')",
+  "contract_item -> 'expectedsides'",
+  "evidence_path #>> '{}' = '$.sides'",
+  "coverage_item -> 'evidencepaths' @> '[\"$.sides\"]'::jsonb",
+  "jsonb_array_elements(new.blueprint_json -> 'sides')",
+  "in ('1'::jsonb, '2'::jsonb)",
+  "rule_versions_coverage_root_evidence_audit",
+]) {
+  requireText(
+    rootEvidenceMigration,
+    invariant,
+    "extension stricte des preuves de périmètre",
+  );
+}
+
+const rootEvidenceRollback = read(
+  "supabase/rollbacks/20260722170000_extend_rule_coverage_root_evidence.down.sql",
+).toLowerCase();
+if (rootEvidenceRollback.includes("(sides|actions")) {
+  throw new Error(
+    "Le rollback des preuves de périmètre ne restaure plus la grammaire précédente.",
+  );
+}
+requireText(
+  rootEvidenceRollback,
+  "rule_versions_coverage_root_evidence_audit",
+  "rollback des preuves de périmètre",
+);
+for (const invariant of [
+  "rule_version_coverage_v2_rollback_blocked",
+  "is distinct from btrim",
+  "is not distinct from '1'::jsonb",
+]) {
+  requireText(
+    rootEvidenceRollback,
+    invariant,
+    "rollback sûr des preuves de périmètre",
+  );
+}
+
 const customPvpRuntimeGate = read(
   "supabase/migrations/20260722140000_fail_closed_custom_pvp_runtime.sql",
 ).toLowerCase();
@@ -534,6 +581,12 @@ for (const expectedCase of [
   "empty_coverage_was_accepted",
   "missing_complete_was_accepted",
   "string_contract_version_was_accepted",
+  "mismatched_contract_versions_were_accepted",
+  "missing_v2_evidence_kind_was_accepted",
+  "logic_requirement_with_sides_was_accepted",
+  "duplicate_expected_sides_were_accepted",
+  "logic_requirement_used_side_scope_was_accepted",
+  "v1_side_scope_evidence_was_accepted",
   "unknown_engine_was_accepted",
   "invalid_decision_was_accepted",
   "empty_requirement_id_was_accepted",
@@ -542,6 +595,10 @@ for (const expectedCase of [
   "mismatched_requirement_id_was_accepted",
   "missing_fidelity_requirement_was_accepted",
   "missing_evidence_was_accepted",
+  "trigger_collection_evidence_was_accepted",
+  "padded_evidence_path_was_accepted",
+  "single_side_root_evidence_was_accepted",
+  "side_scope_action_path_bypass_was_accepted",
   "description_evidence_was_accepted",
   "lax_jsonpath_structure_was_accepted",
   "nonexistent_evidence_was_accepted",
@@ -555,6 +612,7 @@ for (const expectedCase of [
   "unvalidated_compilation_was_accepted",
   "valid_coverage_was_rejected",
   "valid_adapted_coverage_was_rejected",
+  "valid_v1_coverage_was_rejected",
   "valid_historical_replay_was_rejected",
   "valid_legacy_precontract_proof_was_rejected",
   "legacy_precontract_was_certified",

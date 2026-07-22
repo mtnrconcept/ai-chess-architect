@@ -94,6 +94,9 @@ for (const invariant of [
   "cooldownTurns=N",
   'feasibility="direct"',
   'adaptation=""',
+  "Le champ racine sides est le périmètre autoritaire",
+  'toutes les actions et tous les triggers. sides=["white","black"] réalise',
+  "directement une règle disponible pour les deux camps.",
 ]) {
   if (!architectPromptSource.includes(invariant)) {
     throw new Error(`Contrat natif d'action manquant: ${invariant}`);
@@ -106,6 +109,66 @@ if (
   throw new Error(
     "Le guidage IA n'intègre plus le contrat autoritaire des actions UI.",
   );
+}
+
+for (const invariant of [
+  '"evidenceKind"',
+  '"expectedSides"',
+  'schemaName: "rule_guidance_v2"',
+]) {
+  if (!guidanceSource.includes(invariant)) {
+    throw new Error(`Contrat de guidage V2 manquant: ${invariant}`);
+  }
+}
+
+const coverageSource = fs.readFileSync(
+  path.join(
+    root,
+    "supabase",
+    "functions",
+    "_shared",
+    "rule-coverage.ts",
+  ),
+  "utf8",
+);
+for (const invariant of [
+  "version: 2",
+  '"$.sides"',
+  "COVERAGE_EVIDENCE_CONTRACT_INVALID",
+  "COVERAGE_LOGIC_EVIDENCE_REQUIRED",
+  "COVERAGE_SIDE_SCOPE_EVIDENCE_REQUIRED",
+  "COVERAGE_SIDE_SCOPE_MISMATCH",
+]) {
+  if (!coverageSource.includes(invariant)) {
+    throw new Error(`Contrat de preuve V2 manquant: ${invariant}`);
+  }
+}
+
+const guidanceValidationSource = fs.readFileSync(
+  path.join(
+    root,
+    "supabase",
+    "functions",
+    "_shared",
+    "rule-guidance-validation.ts",
+  ),
+  "utf8",
+);
+if (!guidanceValidationSource.includes("GUIDANCE_CHOICE_SCOPE_MISMATCH")) {
+  throw new Error("Le validateur ne protège plus l'homogénéité des camps.");
+}
+
+const compileSource = fs.readFileSync(
+  path.join(root, "supabase", "functions", "compile-chess-rule", "index.ts"),
+  "utf8",
+);
+for (const invariant of [
+  'schemaName: "rule_coverage_audit_v2"',
+  "coverageContractVersion: intentContract.version",
+]) {
+  if (!compileSource.includes(invariant)) {
+    throw new Error(`Audit de couverture V2 manquant: ${invariant}`);
+  }
 }
 
 const requiredRuntimeFiles = [

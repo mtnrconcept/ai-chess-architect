@@ -108,6 +108,26 @@ const contract = (approvedAdaptation = ""): RuleIntentContract => ({
   decisions: [],
 });
 
+const typedContract = (
+  evidenceKind: "logic" | "side-scope",
+  expectedSides: Array<"white" | "black">,
+): RuleIntentContract => ({
+  version: 2,
+  originalPrompt: "La règle est réservée exactement aux camps sélectionnés.",
+  requirements: [
+    {
+      id: "typed-requirement",
+      statement: "La règle respecte la preuve typée demandée.",
+      importance: "core",
+      feasibility: "direct",
+      approvedAdaptation: "",
+      evidenceKind,
+      expectedSides,
+    },
+  ],
+  decisions: [],
+});
+
 const signedGuidance = (): Record<string, unknown> => ({
   draftPrompt:
     "Le fou gèle une pièce ennemie pendant deux tours avec un cooldown.",
@@ -118,6 +138,8 @@ const signedGuidance = (): Record<string, unknown> => ({
       importance: "core",
       feasibility: "direct",
       adaptation: "",
+      evidenceKind: "logic",
+      expectedSides: [],
     },
   ],
   questions: [
@@ -128,9 +150,24 @@ const signedGuidance = (): Record<string, unknown> => ({
       minSelections: 1,
       maxSelections: 1,
       choices: [
-        { id: "one-turn", label: "Un tour", description: "Gel court." },
-        { id: "two-turns", label: "Deux tours", description: "Gel équilibré." },
-        { id: "three-turns", label: "Trois tours", description: "Gel long." },
+        {
+          id: "one-turn",
+          label: "Un tour",
+          description: "Gel court.",
+          expectedSides: [],
+        },
+        {
+          id: "two-turns",
+          label: "Deux tours",
+          description: "Gel équilibré.",
+          expectedSides: [],
+        },
+        {
+          id: "three-turns",
+          label: "Trois tours",
+          description: "Gel long.",
+          expectedSides: [],
+        },
       ],
     },
     {
@@ -140,16 +177,23 @@ const signedGuidance = (): Record<string, unknown> => ({
       minSelections: 1,
       maxSelections: 1,
       choices: [
-        { id: "two-turns", label: "Deux tours", description: "Délai court." },
+        {
+          id: "two-turns",
+          label: "Deux tours",
+          description: "Délai court.",
+          expectedSides: [],
+        },
         {
           id: "three-turns",
           label: "Trois tours",
           description: "Délai équilibré.",
+          expectedSides: [],
         },
         {
           id: "four-turns",
           label: "Quatre tours",
           description: "Délai prudent.",
+          expectedSides: [],
         },
       ],
     },
@@ -171,6 +215,7 @@ Deno.test(
 
     const pattern = new RegExp(RULE_COVERAGE_EVIDENCE_PATH_PATTERN);
     for (const path of [
+      "$.sides",
       "$.actions[0]",
       "$.triggers[12]",
       "$.triggers[1].conditions[2]",
@@ -196,6 +241,7 @@ Deno.test(
   () => {
     const manifest = buildRuleCoverageEvidencePathManifest(blueprint);
     assertEquals(manifest, [
+      "$.sides",
       "$.actions[0]",
       "$.triggers[0]",
       "$.triggers[0].effects[0]",
@@ -600,6 +646,8 @@ Deno.test(
         importance: "core",
         feasibility: "direct",
         adaptation: "",
+        evidenceKind: "logic",
+        expectedSides: [],
       }),
     );
 
@@ -638,6 +686,327 @@ Deno.test(
         }),
       Error,
       "SIGNED_GUIDANCE_QUESTION_INVALID",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: conserve les contrats historiques v1 sans preuve typée",
+  () => {
+    const normalized = normalizeRuleIntentContract(
+      {
+        version: 1,
+        originalPrompt:
+          "Une règle historique suffisamment longue pour être valide.",
+        requirements: [
+          {
+            id: "historical-rule",
+            statement: "La règle historique reste lisible.",
+            importance: "core",
+            feasibility: "direct",
+            approvedAdaptation: "",
+            evidenceKind: "side-scope",
+            expectedSides: ["white"],
+          },
+        ],
+        decisions: [],
+      },
+      "Une règle historique suffisamment longue pour être valide.",
+    );
+
+    assertEquals(normalized.version, 1);
+    assertEquals(normalized.requirements[0].evidenceKind, undefined);
+    assertEquals(normalized.requirements[0].expectedSides, undefined);
+  },
+);
+
+Deno.test(
+  "rule-coverage: normalise un contrat v2 avec preuve typée",
+  () => {
+    const normalized = normalizeRuleIntentContract(
+      {
+        version: 2,
+        originalPrompt: "La règle est réservée exactement aux pièces blanches.",
+        requirements: [
+          {
+            id: "white-only",
+            statement: "Seules les pièces blanches utilisent la règle.",
+            importance: "core",
+            feasibility: "direct",
+            approvedAdaptation: "",
+            evidenceKind: "side-scope",
+            expectedSides: ["white"],
+          },
+        ],
+        decisions: [],
+      },
+      "La règle est réservée exactement aux pièces blanches.",
+    );
+
+    assertEquals(normalized.version, 2);
+    assertEquals(normalized.requirements[0].evidenceKind, "side-scope");
+    assertEquals(normalized.requirements[0].expectedSides, ["white"]);
+  },
+);
+
+Deno.test(
+  "rule-coverage: refuse un contrat v2 dont la preuve typée est incohérente",
+  () => {
+    assertThrows(
+      () =>
+        normalizeRuleIntentContract(
+          {
+            version: 2,
+            originalPrompt:
+              "La logique doit être prouvée par un trigger exact.",
+            requirements: [
+              {
+                id: "logic-only",
+                statement: "Le trigger applique la mécanique demandée.",
+                importance: "core",
+                feasibility: "direct",
+                approvedAdaptation: "",
+                evidenceKind: "logic",
+                expectedSides: ["white"],
+              },
+            ],
+            decisions: [],
+          },
+          "La logique doit être prouvée par un trigger exact.",
+        ),
+      Error,
+      "INTENT_CONTRACT_REQUIREMENT_INVALID",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: refuse un contrat v2 privé de son type de preuve",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: {
+        version: 2,
+        originalPrompt:
+          "La mécanique doit être prouvée par une action autoritaire.",
+        requirements: [
+          {
+            id: "missing-evidence-contract",
+            statement: "Une action autoritaire applique la mécanique.",
+            importance: "core",
+            feasibility: "direct",
+            approvedAdaptation: "",
+          },
+        ],
+        decisions: [],
+      },
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary:
+          "Une action est présente mais le contrat de preuve est absent.",
+        requirements: [
+          {
+            id: "missing-evidence-contract",
+            status: "implemented",
+            evidencePaths: ["$.actions[0]"],
+            explanation: "L’action existe dans le blueprint.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assertEquals(
+      result.diagnostics[0]?.code,
+      "COVERAGE_EVIDENCE_CONTRACT_INVALID",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: accepte une preuve de portée mono-camp exacte",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: typedContract("side-scope", ["white"]),
+      blueprint: { ...blueprint, sides: ["white"] },
+      audit: {
+        exactIntentPreserved: true,
+        summary: "La portée blanche est exactement celle du blueprint.",
+        requirements: [
+          {
+            id: "typed-requirement",
+            status: "implemented",
+            evidencePaths: ["$.sides"],
+            explanation: "Le champ sides limite la règle aux blancs.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assert(result.assessment.complete);
+    assertEquals(result.diagnostics, []);
+  },
+);
+
+Deno.test(
+  "rule-coverage: refuse une portée qui ne correspond pas exactement",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: typedContract("side-scope", ["white"]),
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "La portée annoncée ne correspond pas au blueprint.",
+        requirements: [
+          {
+            id: "typed-requirement",
+            status: "implemented",
+            evidencePaths: ["$.sides"],
+            explanation: "Le blueprint contient deux camps.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assert(!result.assessment.complete);
+    assertEquals(
+      result.diagnostics[0]?.code,
+      "COVERAGE_SIDE_SCOPE_MISMATCH",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: une action seule ne prouve pas une portée de camps",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: typedContract("side-scope", ["white", "black"]),
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "Une action est proposée comme preuve de portée.",
+        requirements: [
+          {
+            id: "typed-requirement",
+            status: "implemented",
+            evidencePaths: ["$.actions[0]"],
+            explanation: "L’action existe mais ne prouve pas les camps.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assertEquals(
+      result.diagnostics[0]?.code,
+      "COVERAGE_SIDE_SCOPE_EVIDENCE_REQUIRED",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: une preuve logique ne peut pas utiliser le champ sides",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: typedContract("logic", []),
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "La portée est proposée comme preuve de logique.",
+        requirements: [
+          {
+            id: "typed-requirement",
+            status: "implemented",
+            evidencePaths: ["$.sides"],
+            explanation: "Le champ sides ne prouve aucune mécanique.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assertEquals(
+      result.diagnostics[0]?.code,
+      "COVERAGE_LOGIC_EVIDENCE_REQUIRED",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: propage et canonise la portée des choix signés",
+  () => {
+    const guidance = signedGuidance();
+    const questions = guidance.questions as Array<Record<string, unknown>>;
+    questions[0].selectionMode = "multiple";
+    questions[0].maxSelections = 2;
+    const choices = questions[0].choices as Array<Record<string, unknown>>;
+    choices[0].expectedSides = ["black"];
+    choices[1].expectedSides = ["white"];
+    choices[2].expectedSides = ["black", "white"];
+
+    const result = buildSignedGuidanceCompilation({
+      originalPrompt: "Le fou gèle une cible pour les camps choisis.",
+      guidance,
+      selections: {
+        answers: {
+          "freeze-duration": ["one-turn", "two-turns"],
+          "freeze-cooldown": ["three-turns"],
+        },
+        acceptedAdjustmentIds: [],
+      },
+    });
+
+    assertEquals(result.contract.version, 2);
+    assertEquals(result.contract.requirements[0].evidenceKind, "logic");
+    assertEquals(result.contract.requirements[0].expectedSides, []);
+    const firstDecision = result.contract.requirements.find((requirement) =>
+      requirement.id.startsWith("decision-1-"),
+    );
+    assertEquals(firstDecision?.evidenceKind, "side-scope");
+    assertEquals(firstDecision?.expectedSides, ["white", "black"]);
+    const secondDecision = result.contract.requirements.find((requirement) =>
+      requirement.id.startsWith("decision-2-"),
+    );
+    assertEquals(secondDecision?.evidenceKind, "logic");
+    assertEquals(secondDecision?.expectedSides, []);
+    const fidelity = result.contract.requirements.find(
+      (requirement) => requirement.id === "request-fidelity",
+    );
+    assertEquals(fidelity?.evidenceKind, "logic");
+    assertEquals(fidelity?.expectedSides, []);
+  },
+);
+
+Deno.test(
+  "rule-coverage: refuse une question qui mélange des choix avec et sans portée",
+  () => {
+    const guidance = signedGuidance();
+    const questions = guidance.questions as Array<Record<string, unknown>>;
+    const choices = questions[0].choices as Array<Record<string, unknown>>;
+    choices[0].expectedSides = ["white"];
+
+    assertThrows(
+      () =>
+        buildSignedGuidanceCompilation({
+          originalPrompt: "Le fou gèle une cible pour un camp sélectionné.",
+          guidance,
+          selections: {
+            answers: {
+              "freeze-duration": ["one-turn"],
+              "freeze-cooldown": ["three-turns"],
+            },
+            acceptedAdjustmentIds: [],
+          },
+        }),
+      Error,
+      "SIGNED_GUIDANCE_CHOICE_SCOPE_MISMATCH",
     );
   },
 );

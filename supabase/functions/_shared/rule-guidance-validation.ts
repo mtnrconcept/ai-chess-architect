@@ -1,7 +1,36 @@
+import { SIDES, type Side } from "./rules-v2/index.ts";
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const NON_DIRECT_FEASIBILITIES = new Set(["adaptable", "unsupported"]);
+
+const normalizeExpectedSides = (
+  value: unknown,
+  minimum: 0 | 1,
+): Side[] | null => {
+  if (
+    !Array.isArray(value) ||
+    value.length < minimum ||
+    value.length > SIDES.length
+  ) {
+    return null;
+  }
+
+  const seen = new Set<Side>();
+  for (const item of value) {
+    if (
+      typeof item !== "string" ||
+      !SIDES.includes(item as Side) ||
+      seen.has(item as Side)
+    ) {
+      return null;
+    }
+    seen.add(item as Side);
+  }
+
+  return SIDES.filter((side) => seen.has(side));
+};
 
 /**
  * Deterministic validation for the model-produced guidance contract.
@@ -37,6 +66,19 @@ export const validateGuidance = (value: unknown): Record<string, unknown> => {
       feasibility !== "unsupported"
     ) {
       throw new Error("GUIDANCE_REQUIREMENT_INVALID");
+    }
+
+    const evidenceKind = requirement.evidenceKind;
+    const expectedSides = normalizeExpectedSides(
+      requirement.expectedSides,
+      evidenceKind === "side-scope" ? 1 : 0,
+    );
+    if (
+      (evidenceKind !== "logic" && evidenceKind !== "side-scope") ||
+      expectedSides === null ||
+      (evidenceKind === "logic" && expectedSides.length > 0)
+    ) {
+      throw new Error("GUIDANCE_REQUIREMENT_EVIDENCE_INVALID");
     }
 
     requirementIds.add(requirement.id);
@@ -100,6 +142,7 @@ export const validateGuidance = (value: unknown): Record<string, unknown> => {
     }
 
     const choiceIds = new Set<string>();
+    let scopedChoiceCount = 0;
     for (const choice of questionValue.choices) {
       if (!isRecord(choice) || typeof choice.id !== "string") {
         throw new Error("GUIDANCE_CHOICE_INVALID");
@@ -107,7 +150,18 @@ export const validateGuidance = (value: unknown): Record<string, unknown> => {
       if (choiceIds.has(choice.id)) {
         throw new Error("GUIDANCE_CHOICE_DUPLICATED");
       }
+      const expectedSides = normalizeExpectedSides(choice.expectedSides, 0);
+      if (expectedSides === null) {
+        throw new Error("GUIDANCE_CHOICE_SCOPE_INVALID");
+      }
+      if (expectedSides.length > 0) scopedChoiceCount += 1;
       choiceIds.add(choice.id);
+    }
+    if (
+      scopedChoiceCount !== 0 &&
+      scopedChoiceCount !== questionValue.choices.length
+    ) {
+      throw new Error("GUIDANCE_CHOICE_SCOPE_MISMATCH");
     }
   }
 

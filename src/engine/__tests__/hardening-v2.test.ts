@@ -31,7 +31,7 @@ function createContracts(): EngineContracts {
     vfx: {},
     match: {
       endTurn: vi.fn(),
-      get: () => ({ ply: 0 }),
+      get: () => ({ ply: 0, turnSide: "white" }),
     },
     cooldown: {
       tickAll: vi.fn(),
@@ -100,6 +100,59 @@ function lifecycleRule(
         },
       ],
     },
+  } as unknown as RuleJSON;
+}
+
+function globalRuleArchitectRule(
+  sides: Array<"white" | "black"> = ["white"],
+): RuleJSON {
+  return {
+    meta: {
+      ruleId: "global-action@v1",
+      ruleName: "Global action",
+      version: "2.0.0",
+      description: "Test",
+      category: "special",
+      priority: 1,
+      isActive: true,
+      tags: [],
+    },
+    scope: {
+      affectedPieces: ["any"],
+      sides,
+    },
+    ui: {
+      actions: [
+        {
+          id: "global-action.activate",
+          label: "Activate",
+          availability: {
+            requiresSelection: false,
+            pieceTypes: ["any"],
+          },
+          targeting: { mode: "none" },
+          cooldown: { perPiece: 2 },
+          maxPerPiece: 1,
+        },
+      ],
+    },
+    state: {
+      namespace: "rules.global-action",
+      schema: {},
+      initial: {},
+      serialize: true,
+    },
+    logic: {
+      effects: [
+        {
+          id: "activate",
+          when: "ui.global-action.activate",
+          do: { action: "state.inc" },
+          onFail: "blockAction",
+        },
+      ],
+    },
+    integration: { ruleArchitect: { source: "ai-blueprint" } },
   } as unknown as RuleJSON;
 }
 
@@ -413,5 +466,71 @@ describe("RuleEngine V2 hardening", () => {
     expect(engine.runUIAction("success.action", "pawn-a2", "a3")).toEqual({
       ok: true,
     });
+  });
+
+  it("applique le camp du tour et ignore une pièce injectée pour une action globale", () => {
+    const registry = new Registry();
+    const contexts: EngineContext[] = [];
+    registry.registerEffect("state.inc", (context) => {
+      contexts.push(context);
+      return true;
+    });
+
+    const contracts = createContracts();
+    let turnSide: "white" | "black" = "black";
+    contracts.match.get = () => ({ ply: 0, turnSide });
+    contracts.board.getPiece = vi.fn(contracts.board.getPiece);
+    contracts.cooldown.isReady = vi.fn(() => true);
+    contracts.cooldown.set = vi.fn();
+
+    const engine = new RuleEngine(contracts, registry);
+    engine.loadRules([globalRuleArchitectRule(["white"])]);
+    const actionId = engine.getUIActions()[0].id;
+
+    expect(engine.runUIAction(actionId, "injected-black-piece")).toMatchObject({
+      ok: false,
+    });
+    expect(contracts.board.getPiece).not.toHaveBeenCalled();
+
+    turnSide = "white";
+    expect(engine.runUIAction(actionId, "injected-black-piece")).toEqual({
+      ok: true,
+    });
+    expect(contracts.board.getPiece).not.toHaveBeenCalled();
+    expect(contracts.cooldown.isReady).not.toHaveBeenCalled();
+    expect(contracts.cooldown.set).not.toHaveBeenCalled();
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]).toMatchObject({
+      pieceId: undefined,
+      piece: null,
+      side: "white",
+    });
+  });
+
+  it("refuse les scopes de camp Rule Architect invalides", () => {
+    const invalidScopes: unknown[] = [
+      undefined,
+      [],
+      ["red"],
+      ["white", "white"],
+    ];
+
+    for (const sides of invalidScopes) {
+      const registry = new Registry();
+      registry.registerEffect("state.inc", () => true);
+      const rule = globalRuleArchitectRule();
+
+      if (sides === undefined) {
+        delete rule.scope?.sides;
+      } else {
+        rule.scope!.sides = sides as Array<"white" | "black">;
+      }
+
+      const engine = new RuleEngine(createContracts(), registry);
+      engine.loadRules([rule]);
+
+      expect(engine.getRules()).toEqual([]);
+      expect(engine.getUIActions()).toEqual([]);
+    }
   });
 });
