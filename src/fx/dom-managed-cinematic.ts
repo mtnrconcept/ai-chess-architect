@@ -42,10 +42,17 @@ const finishAnimation = async (animation: Animation): Promise<void> => {
   }
 };
 
-const imageLoaded = (image: HTMLImageElement, timeoutMs: number): Promise<void> =>
+const imageLoaded = (
+  image: HTMLImageElement,
+  timeoutMs: number,
+): Promise<void> =>
   new Promise((resolve, reject) => {
     if (image.complete) {
-      image.naturalWidth > 0 ? resolve() : reject(new Error("IMAGE_LOAD_FAILED"));
+      if (image.naturalWidth > 0) {
+        resolve();
+      } else {
+        reject(new Error("IMAGE_LOAD_FAILED"));
+      }
       return;
     }
     const timeout = window.setTimeout(
@@ -91,7 +98,8 @@ const publicAssetUrl = (resourceId: string): string => {
 
 const proceduralActor = (motion: ManagedCinematicMotion): HTMLElement => {
   const actor = document.createElement("div");
-  actor.textContent = motion === "burst" ? "✦" : motion === "carry" ? "🐉" : "🦅";
+  actor.textContent =
+    motion === "burst" ? "✦" : motion === "carry" ? "🐉" : "🦅";
   Object.assign(actor.style, {
     position: "absolute",
     left: "-64px",
