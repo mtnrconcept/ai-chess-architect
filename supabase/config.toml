@@ -19,7 +19,11 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.sync-tournaments]
-verify_jwt = true
+# Public, bounded maintenance endpoint: it only normalises lifecycle states and
+# ensures at most 10 generated tournaments per two-hour block. It accepts no
+# user-controlled tournament fields, so the public tournaments page can safely
+# trigger it before authentication.
+verify_jwt = false
 
 [functions.create-checkout-session]
 verify_jwt = true
