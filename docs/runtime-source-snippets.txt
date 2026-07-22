@@ -1,0 +1,964 @@
+## src/engine/__tests__/catalog-contracts-v2.test.ts :: persiste invisibilité et statuts
+0302:       const params = conditionParams[operation];
+0303:       const descriptor: ConditionDescriptor =
+0304:         params === undefined ? operation : [operation, params];
+0305:       expect(
+0306:         typeof registry.runCondition(descriptor, contextFor(contracts)),
+0307:       ).toBe("boolean");
+0308:     }
+0309:   });
+0310: 
+0311:   it("respecte le type de cible de chaque provider exposé", () => {
+0312:     const registry = createRegistry();
+0313:     const { contracts } = createHarness();
+0314:     const context = contextFor(contracts);
+0315: 
+0316:     for (const id of PROVIDERS.filter((provider) => provider !== "none")) {
+0317:       const values = registry.runProvider(id, context);
+0318:       expect(Array.isArray(values), id).toBe(true);
+0319:       expect(new Set(values as unknown[]).size, id).toBe(
+0320:         (values as unknown[]).length,
+0321:       );
+0322: 
+0323:       const spec = PROVIDER_CATALOG[id as ProviderId];
+0324:       for (const value of values as unknown[]) {
+0325:         expect(typeof value, id).toBe("string");
+0326:         if (spec.targetModes.includes("piece")) {
+0327:           expect(
+0328:             () => contracts.board.getPiece(value as string),
+0329:             id,
+0330:           ).not.toThrow();
+0331:         } else {
+0332:           expect(tilePattern.test(value as string), id).toBe(true);
+0333:         }
+0334:       }
+0335:     }
+0336:   });
+0337: 
+0338:   it("exécute chaque effet V2 avec un contrat valide et refuse les paramètres manquants", () => {
+0339:     expect(Object.keys(EFFECT_CATALOG)).toEqual([...EFFECT_OPS]);
+0340: 
+0341:     for (const operation of EFFECT_OPS) {
+0342:       const registry = createRegistry();
+0343:       const { contracts } = createHarness();
+0344:       const context = contextFor(contracts);
+0345:       if (operation === "tile.resolveTrap") {
+0346:         context.state.traps = { a3: { kind: "quicksand", owner: "white" } };
+0347:       }
+0348:       expect(
+0349:         registry.runEffect(
+0350:           { action: operation, params: effectParams[operation] },
+0351:           context,
+0352:         ),
+0353:         operation,
+0354:       ).toBe(true);
+0355:     }
+0356: 
+0357:     const registry = createRegistry();
+0358:     const { contracts } = createHarness();
+0359:     expect(
+0360:       registry.runEffect(
+0361:         { action: "piece.move", params: {} },
+0362:         contextFor(contracts),
+0363:       ),
+0364:     ).toBe(false);
+0365:   });
+0366: 
+0367:   it("persiste invisibilité et statuts dans le plateau réel, y compris après snapshot", () => {
+0368:     const rawBoard = Array.from({ length: 8 }, () =>
+0369:       Array.from({ length: 8 }, () => null),
+0370:     ) as ConstructorParameters<typeof ChessBoardAdapter>[0];
+0371:     rawBoard[6][0] = {
+0372:       type: "pawn",
+0373:       color: "white",
+0374:       position: { row: 6, col: 0 },
+0375:       hasMoved: false,
+0376:       isHidden: false,
+0377:     };
+0378:     const board = new ChessBoardAdapter(rawBoard);
+0379:     const pieceId = board.getPieceAt("a2")!;
+0380:     const { contracts } = createHarness();
+0381:     contracts.board = board;
+0382:     contracts.capturePiece = (id) => board.removePiece(id);
+0383:     const registry = createRegistry();
+0384:     const context: EngineContext = {
+0385:       engine: contracts,
+0386:       pieceId,
+0387:       piece: board.getPiece(pieceId),
+0388:       state: {},
+0389:       params: {},
+0390:       budget: new RuntimeBudget(32, 8),
+0391:       turnEnded: false,
+0392:     };
+0393: 
+0394:     expect(
+0395:       registry.runEffect(
+0396:         {
+0397:           action: "piece.setInvisible",
+0398:           params: { pieceId, value: true },
+0399:         },
+0400:         context,
+0401:       ),
+0402:     ).toBe(true);
+0403:     expect(
+0404:       registry.runEffect(
+0405:         {
+0406:           action: "piece.setStatus",
+0407:           params: { pieceId, key: "shielded", value: true },
+0408:         },
+0409:         context,
+0410:       ),
+0411:     ).toBe(true);
+0412: 
+0413:     const snapshot = board.serialize();
+0414:     expect(rawBoard[6][0]?.isHidden).toBe(true);
+0415:     expect(rawBoard[6][0]?.specialState?.shielded).toBe(true);
+0416: 
+0417:     board.setPieceInvisible(pieceId, false);
+0418:     board.clearPieceStatus(pieceId, "shielded");
+0419:     board.deserialize(snapshot);
+0420:     expect(rawBoard[6][0]?.isHidden).toBe(true);
+0421:     expect(rawBoard[6][0]?.specialState?.shielded).toBe(true);
+0422:   });
+0423: 
+0424:   it("restaure plateau, état et effets différés si une étape échoue", () => {
+0425:     const registry = createRegistry();
+0426:     registry.registerEffect("audio.play", () => false);
+0427:     const { contracts, state, toast } = createHarness();
+0428:     const engine = new RuleEngine(contracts, registry, { matchSeed: "atomic" });
+0429:     engine.loadRules([
+0430:       versionedRule("atomic@v1", [
+0431:         { action: "state.set", params: { path: "changed", value: true } },
+0432:         { action: "piece.move", params: { pieceId: "$pieceId", to: "b3" } },
+
+## src/pages/Play.tsx :: const handleSquareClick
+1274:         };
+1275: 
+1276:         const colLetter = FILES[position.col] ?? "?";
+1277:         const coordinate = `${colLetter}${8 - position.row}`;
+1278:         result = {
+1279:           success: true,
+1280:           coordinate,
+1281:           trigger: next.specialAttacks[next.specialAttacks.length - 1].trigger,
+1282:           countdown:
+1283:             next.specialAttacks[next.specialAttacks.length - 1].remaining,
+1284:           abilityLabel: ability.label ?? "Aptitude",
+1285:         };
+1286: 
+1287:         return next;
+1288:       });
+1289: 
+1290:       // ⚠️ Les toasts et SFX sont déclenchés **après** l’update, jamais dans l’updater
+1291:       if (result.success) {
+1292:         // Type assertion car TypeScript narrow incorrectement
+1293:         const successResult = result as {
+1294:           success: true;
+1295:           coordinate: string;
+1296:           trigger: SpecialAbilityTrigger;
+1297:           countdown: number;
+1298:           abilityLabel: string;
+1299:         };
+1300:         if (soundEnabled) playSfx(toSoundEffect(ability.sound, "explosion"));
+1301:         const targetTile = successResult.coordinate;
+1302:         if (ability.uiActionId) {
+1303:           runUIAction(
+1304:             ability.uiActionId,
+1305:             ability.sourcePieceId ?? undefined,
+1306:             targetTile,
+1307:           );
+1308:         }
+1309:         safeToast({
+1310:           title: "Aptitude déployée",
+1311:           description:
+1312:             successResult.trigger === "countdown"
+1313:               ? `${successResult.abilityLabel} sur ${successResult.coordinate} — explosion dans ${successResult.countdown} tours.`
+1314:               : `${successResult.abilityLabel} sur ${successResult.coordinate} — explosion au contact.`,
+1315:         });
+1316:       } else {
+1317:         const reasonLabel =
+1318:           result.reason === "occupied"
+1319:             ? "case déjà occupée"
+1320:             : result.reason === "duplicate"
+1321:               ? "une aptitude est déjà armée ici"
+1322:               : result.reason === "invalid"
+1323:                 ? "case invalide"
+1324:                 : "état de partie incompatible";
+1325:         safeToast({
+1326:           title: "Impossible d'armer l'aptitude",
+1327:           description: reasonLabel,
+1328:           variant: "destructive",
+1329:         });
+1330:       }
+1331: 
+1332:       return result;
+1333:     },
+1334:     [playSfx, runUIAction, safeToast, soundEnabled],
+1335:   );
+1336: 
+1337:   /* ------------------------------------------------------------------------ */
+1338:   /*                      Exemple: appel Supabase générateur                  */
+1339:   /* ------------------------------------------------------------------------ */
+1340: 
+1341:   const generateRule = useCallback(
+1342:     async (payload: {
+1343:       prompt: string;
+1344:       locale?: string;
+1345:       temperature?: number;
+1346:     }) => {
+1347:       // Validation minimale locale
+1348:       if (
+1349:         typeof payload.prompt !== "string" ||
+1350:         payload.prompt.trim().length < 8
+1351:       ) {
+1352:         safeToast({
+1353:           title: "Requête incomplète",
+1354:           description: "Votre prompt doit contenir au moins 8 caractères.",
+1355:           variant: "destructive",
+1356:         });
+1357:         return;
+1358:       }
+1359: 
+1360:       try {
+1361:         const cleanBody = JSON.parse(
+1362:           JSON.stringify({
+1363:             prompt: payload.prompt.trim(),
+1364:             board: undefined,
+1365:             options: {
+1366:               locale: payload.locale ?? "fr-CH",
+1367:               dryRun: false,
+1368:               temperature: payload.temperature,
+1369:             },
+1370:           }),
+1371:         );
+1372: 
+1373:         const { data, error } = await supabase.functions.invoke(
+1374:           "generate-chess-rule",
+1375:           {
+1376:             body: cleanBody,
+1377:           },
+1378:         );
+1379: 
+1380:         if (error) {
+1381:           const raw = await readErrorResponseText(error);
+1382:           const msg = raw?.trim()?.length
+1383:             ? raw
+1384:             : getSupabaseFunctionErrorMessage(
+1385:                 error,
+1386:                 "Erreur lors de la génération.",
+1387:               );
+1388:           safeToast({
+1389:             title: "Génération échouée",
+1390:             description: msg,
+1391:             variant: "destructive",
+1392:           });
+1393:           return;
+1394:         }
+1395: 
+1396:         const dataRecord = toRecord(data);
+1397:         const resultRecord = toRecord(dataRecord?.result);
+1398:         const resultStatus =
+1399:           typeof resultRecord?.status === "string"
+1400:             ? resultRecord.status
+1401:             : undefined;
+1402: 
+1403:         if (resultStatus && resultStatus !== "ready") {
+1404:           safeToast({
+1405:             title: "Informations requises",
+1406:             description:
+1407:               "Le générateur a besoin d'informations supplémentaires pour terminer la règle.",
+1408:             variant: "destructive",
+1409:           });
+1410:           return;
+1411:         }
+1412: 
+1413:         const ruleCandidate =
+1414:           (resultStatus === "ready" ? resultRecord?.rule : undefined) ??
+1415:           resultRecord?.rule ??
+1416:           dataRecord?.rule ??
+1417:           dataRecord?.["rule_json"];
+1418: 
+1419:         if (!ruleCandidate) {
+1420:           safeToast({
+1421:             title: "Génération échouée",
+1422:             description:
+1423:               "La réponse du générateur ne contient aucune règle exploitable.",
+1424:             variant: "destructive",
+1425:           });
+1426:           return;
+1427:         }
+1428: 
+1429:         safeToast({
+1430:           title: "Règle générée",
+1431:           description: "Votre variante a été créée.",
+1432:         });
+1433: 
+1434:         try {
+1435:           const converted = convertRuleJsonToChessRule(
+1436:             ruleCandidate as RuleJSON,
+1437:           );
+1438:           setCustomRules((prev) => [converted, ...prev]);
+1439:         } catch {
+1440:           // Conversion non bloquante
+1441:         }
+1442:       } catch (e) {
+1443:         console.error("[generateRule] unexpected error", e);
+1444:         safeToast({
+1445:           title: "Génération échouée",
+1446:           description: "Erreur inattendue lors de l'appel au générateur.",
+1447:           variant: "destructive",
+1448:         });
+1449:       }
+1450:     },
+1451:     [safeToast],
+1452:   );
+1453: 
+1454:   const handleSquareClick = useCallback(
+1455:     (position: Position) => {
+1456:       if (pendingAbility) {
+1457:         const outcome = deploySpecialAttack(pendingAbility, position);
+1458:         if (outcome.success) setPendingAbility(null);
+1459:         return;
+1460:       }
+1461: 
+1462:       setGameState((prev) => {
+1463:         if (prev.gameStatus !== "active") return prev;
+1464: 
+1465:         const clickedPiece = ChessEngine.getPieceAt(prev.board, position);
+1466:         if (clickedPiece && clickedPiece.color === prev.currentPlayer) {
+1467:           const stateForPiece: GameState = {
+1468:             ...prev,
+1469:             selectedPiece: clickedPiece,
+1470:           };
+1471:           const validMoves = ChessEngine.getValidMoves(
+1472:             prev.board,
+1473:             clickedPiece,
+1474:             stateForPiece,
+1475:           );
+1476:           selectionTimestampRef.current =
+1477:             typeof performance !== "undefined" ? performance.now() : Date.now();
+1478:           return {
+1479:             ...prev,
+1480:             selectedPiece: clickedPiece,
+1481:             validMoves,
+1482:           };
+1483:         }
+1484: 
+1485:         if (prev.selectedPiece) {
+1486:           const isValidMove = prev.validMoves.some((move) =>
+1487:             samePos(move, position),
+1488:           );
+1489:           if (!isValidMove) {
+1490:             selectionTimestampRef.current = null;
+1491:             return { ...prev, selectedPiece: null, validMoves: [] };
+1492:           }
+1493: 
+1494:           const selectionDuration =
+1495:             typeof performance !== "undefined" &&
+1496:             selectionTimestampRef.current != null
+1497:               ? performance.now() - selectionTimestampRef.current
+1498:               : null;
+1499:           selectionTimestampRef.current = null;
+1500: 
+1501:           const move = ChessEngine.createMove(
+1502:             prev.board,
+1503:             prev.selectedPiece,
+1504:             position,
+1505:             prev,
+1506:           );
+1507:           move.timestamp = new Date().toISOString();
+1508:           if (selectionDuration != null) {
+1509:             move.durationMs = Math.round(selectionDuration);
+1510:           }
+1511: 
+1512:           const updatedBoard = ChessEngine.executeMove(prev.board, move, prev);
+1513:           const capturedPieces = move.captured
+1514:             ? [...prev.capturedPieces, move.captured]
+1515:             : prev.capturedPieces;
+1516: 
+1517:           const nextPlayer: PieceColor =
+1518:             prev.currentPlayer === "white" ? "black" : "white";
+1519:           const signature = ChessEngine.getBoardSignature(updatedBoard);
+1520:           const updatedHistory = {
+1521:             ...prev.positionHistory,
+1522:             [signature]: (prev.positionHistory[signature] ?? 0) + 1,
+1523:           };
+1524: 
+1525:           const baseState: GameState = {
+1526:             ...prev,
+1527:             board: updatedBoard,
+1528:             capturedPieces,
+1529:             moveHistory: [...prev.moveHistory, move],
+1530:             currentPlayer: nextPlayer,
+1531:             turnNumber:
+1532:               prev.currentPlayer === "black"
+1533:                 ? prev.turnNumber + 1
+1534:                 : prev.turnNumber,
+1535:             movesThisTurn: 0,
+1536:             selectedPiece: null,
+1537:             validMoves: [],
+1538:             lastMoveByColor: {
+1539:               ...prev.lastMoveByColor,
+1540:               [prev.currentPlayer]: move,
+1541:             },
+1542:             positionHistory: updatedHistory,
+1543:           };
+1544: 
+1545:           const stateForStatus: GameState = {
+1546:             ...baseState,
+1547:             board: updatedBoard,
+1548:             currentPlayer: nextPlayer,
+1549:             selectedPiece: null,
+1550:             validMoves: [],
+1551:           };
+1552: 
+1553:           const inCheck = ChessEngine.isInCheck(
+1554:             updatedBoard,
+1555:             nextPlayer,
+1556:             stateForStatus,
+1557:           );
+1558:           const hasMoves = ChessEngine.hasAnyLegalMoves(
+1559:             updatedBoard,
+1560:             nextPlayer,
+1561:             stateForStatus,
+1562:           );
+1563: 
+1564:           let gameStatus: GameState["gameStatus"] = "active";
+1565:           if (inCheck && !hasMoves) gameStatus = "checkmate";
+1566:           else if (!inCheck && !hasMoves) gameStatus = "stalemate";
+1567:           else if (inCheck) gameStatus = "check";
+1568: 
+1569:           const nextState: GameState = {
+1570:             ...baseState,
+1571:             gameStatus,
+1572:           };
+1573: 
+1574:           queueMicrotask(() => {
+1575:             if (!soundEnabled) return;
+1576:             playSfx(move.captured ? "capture" : "move");
+1577:           });
+1578: 
+1579:           return nextState;
+1580:         }
+1581: 
+1582:         return prev;
+1583:       });
+1584:     },
+1585:     [deploySpecialAttack, pendingAbility, playSfx, soundEnabled],
+1586:   );
+1587: 
+1588:   const serializeBoardForAi = useCallback(
+1589:     (board: (ChessPiece | null)[][]) =>
+1590:       board
+1591:         .map((row) =>
+1592:           row
+1593:             .map((piece) => {
+1594:               if (!piece) return ".";
+1595:               const symbols: Record<
+1596:                 PieceColor,
+1597:                 Record<ChessPiece["type"], string>
+1598:               > = {
+1599:                 white: {
+1600:                   king: "K",
+1601:                   queen: "Q",
+1602:                   rook: "R",
+1603:                   bishop: "B",
+1604:                   knight: "N",
+1605:                   pawn: "P",
+1606:                 },
+1607:                 black: {
+1608:                   king: "k",
+1609:                   queen: "q",
+1610:                   rook: "r",
+1611:                   bishop: "b",
+1612:                   knight: "n",
+1613:                   pawn: "p",
+1614:                 },
+1615:               };
+1616:               return symbols[piece.color][piece.type];
+1617:             })
+1618:             .join(""),
+1619:         )
+1620:         .join(" / "),
+1621:     [],
+1622:   );
+1623: 
+1624:   const positionToNotation = useCallback((pos: Position) => {
+1625:     const file = FILES[pos.col] ?? "?";
+1626:     const rank = 8 - pos.row;
+1627:     return `${file}${rank}`;
+1628:   }, []);
+1629: 
+1630:   const formatMoveForAi = useCallback(
+1631:     (move: ChessMove) => {
+1632:       const separator = move.captured ? "x" : "-";
+1633:       const promotion = move.promotion
+1634:         ? `=${String(move.promotion).toUpperCase()}`
+
+## src/pages/Play.tsx :: AI_MOVE_DELAY_RANGES
+0277: 
+0278: const collectPiecesWithinRadius = (
+0279:   board: (ChessPiece | null)[][],
+0280:   center: Position,
+0281:   radius: number,
+0282:   color: PieceColor,
+0283: ): Position[] => {
+0284:   const affected: Position[] = [];
+0285:   for (
+0286:     let row = Math.max(0, center.row - radius);
+0287:     row <= Math.min(7, center.row + radius);
+0288:     row++
+0289:   ) {
+0290:     for (
+0291:       let col = Math.max(0, center.col - radius);
+0292:       col <= Math.min(7, center.col + radius);
+0293:       col++
+0294:     ) {
+0295:       const dRow = Math.abs(row - center.row);
+0296:       const dCol = Math.abs(col - center.col);
+0297:       if (Math.max(dRow, dCol) > radius) continue;
+0298:       const target = ChessEngine.getPieceAt(board, { row, col });
+0299:       if (target && target.color === color) affected.push({ row, col });
+0300:     }
+0301:   }
+0302:   return affected;
+0303: };
+0304: 
+0305: const mergeFreezeEffects = (
+0306:   current: GameState["freezeEffects"],
+0307:   board: (ChessPiece | null)[][],
+0308:   applications: FreezeApplication[],
+0309: ): GameState["freezeEffects"] => {
+0310:   if (applications.length === 0) return current;
+0311:   const updated = current.map((e) => ({ ...e }));
+0312:   applications.forEach(({ color, positions, turns }) => {
+0313:     positions.forEach((position) => {
+0314:       const target = ChessEngine.getPieceAt(board, position);
+0315:       if (!target || target.color !== color) return;
+0316:       const idx = updated.findIndex(
+0317:         (e) =>
+0318:           e.color === color &&
+0319:           e.position.row === position.row &&
+0320:           e.position.col === position.col,
+0321:       );
+0322:       if (idx >= 0) {
+0323:         if (updated[idx].remainingTurns < turns)
+0324:           updated[idx] = { ...updated[idx], remainingTurns: turns };
+0325:       } else {
+0326:         updated.push({
+0327:           color,
+0328:           position: { ...position },
+0329:           remainingTurns: turns,
+0330:         });
+0331:       }
+0332:     });
+0333:   });
+0334:   return updated;
+0335: };
+0336: 
+0337: const AI_MOVE_DELAY_RANGES: Record<
+0338:   TimeControlOption,
+0339:   { min: number; max: number }
+0340: > = {
+0341:   bullet: { min: 500, max: 3000 },
+0342:   blitz: { min: 2000, max: 5000 },
+0343:   long: { min: 1000, max: 10000 },
+0344:   untimed: { min: 1000, max: 10000 },
+0345: };
+0346: 
+0347: type AIDifficulty = "novice" | "standard" | "expert";
+0348: const AI_DIFFICULTY_LEVELS: Record<
+0349:   AIDifficulty,
+0350:   { depth: number; label: string; description: string; selectionRange: number }
+0351: > = {
+0352:   novice: {
+0353:     depth: 1,
+0354:     label: "Débutant",
+0355:     description:
+0356:       "Vision limitée et choix parfois aventureux pour un entraînement détendu.",
+0357:     selectionRange: 3,
+0358:   },
+0359:   standard: {
+0360:     depth: 2,
+0361:     label: "Intermédiaire",
+0362:     description: "Équilibre entre temps de réflexion et précision stratégique.",
+0363:     selectionRange: 2,
+0364:   },
+0365:   expert: {
+0366:     depth: 3,
+0367:     label: "Maître",
+0368:     description: "Recherche profonde et coups optimisés pour un vrai défi.",
+0369:     selectionRange: 1,
+0370:   },
+0371: };
+0372: const isAIDifficulty = (v: string): v is AIDifficulty =>
+0373:   v in AI_DIFFICULTY_LEVELS;
+0374: 
+0375: type AiMoveResolver = (
+0376:   state: GameState,
+0377: ) => { from: Position; to: Position } | null;
+0378: 
+0379: const CAPTURED_PIECE_SYMBOLS: Record<
+0380:   ChessPiece["type"],
+0381:   { white: string; black: string }
+0382: > = {
+0383:   king: { white: "♔", black: "♚" },
+0384:   queen: { white: "♕", black: "♛" },
+0385:   rook: { white: "♖", black: "♜" },
+0386:   bishop: { white: "♗", black: "♝" },
+0387:   knight: { white: "♘", black: "♞" },
+0388:   pawn: { white: "♙", black: "♟" },
+0389: };
+0390: 
+0391: const ABILITY_ICON_MAP: Record<string, LucideIcon> = {
+0392:   bomb: Bomb,
+0393:   target: Target,
+0394: };
+0395: 
+0396: const SPECIAL_SOUND_EFFECTS: readonly SoundEffect[] = [
+0397:   "explosion",
+
+## src/lib/chessEngine.ts :: static getValidMoves
+0226:           [-2, 1],
+0227:           [-1, -2],
+0228:           [-1, 2],
+0229:           [1, -2],
+0230:           [1, 2],
+0231:           [2, -1],
+0232:           [2, 1],
+0233:         ];
+0234:         const potential = offsets
+0235:           .map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+0236:           .filter(inBounds);
+0237:         return opponentsOnly(potential);
+0238:       }
+0239:       case "bishop":
+0240:         return opponentsOnly(
+0241:           this.getDirectionalMoves(board, piece, [
+0242:             [-1, -1],
+0243:             [-1, 1],
+0244:             [1, -1],
+0245:             [1, 1],
+0246:           ]),
+0247:         );
+0248:       case "rook":
+0249:         return opponentsOnly(
+0250:           this.getDirectionalMoves(board, piece, [
+0251:             [-1, 0],
+0252:             [1, 0],
+0253:             [0, -1],
+0254:             [0, 1],
+0255:           ]),
+0256:         );
+0257:       case "queen":
+0258:         return opponentsOnly(
+0259:           this.getDirectionalMoves(board, piece, [
+0260:             [-1, -1],
+0261:             [-1, 0],
+0262:             [-1, 1],
+0263:             [0, -1],
+0264:             [0, 1],
+0265:             [1, -1],
+0266:             [1, 0],
+0267:             [1, 1],
+0268:           ]),
+0269:         );
+0270:       case "king": {
+0271:         const offsets = [
+0272:           [-1, -1],
+0273:           [-1, 0],
+0274:           [-1, 1],
+0275:           [0, -1],
+0276:           [0, 1],
+0277:           [1, -1],
+0278:           [1, 0],
+0279:           [1, 1],
+0280:         ];
+0281:         const potential = offsets
+0282:           .map(([dRow, dCol]) => ({ row: row + dRow, col: col + dCol }))
+0283:           .filter(inBounds);
+0284:         return opponentsOnly(potential);
+0285:       }
+0286:       default:
+0287:         return [];
+0288:     }
+0289:   }
+0290: 
+0291:   // Check if position is valid
+0292:   static isValidPosition(pos: Position): boolean {
+0293:     return pos.row >= 0 && pos.row < 8 && pos.col >= 0 && pos.col < 8;
+0294:   }
+0295: 
+0296:   // Get piece at position
+0297:   static getPieceAt(
+0298:     board: (ChessPiece | null)[][],
+0299:     pos: Position,
+0300:   ): ChessPiece | null {
+0301:     if (!this.isValidPosition(pos)) return null;
+0302:     return board[pos.row][pos.col];
+0303:   }
+0304: 
+0305:   // Get valid moves for a piece (traditional rules with legality checks)
+0306:   static getValidMoves(
+0307:     board: (ChessPiece | null)[][],
+0308:     piece: ChessPiece,
+0309:     gameState: GameState,
+0310:   ): Position[] {
+0311:     const pseudoLegalMoves = this.getPseudoLegalMoves(board, piece, gameState, {
+0312:       includeCastling: true,
+0313:       purpose: "movement",
+0314:     });
+0315: 
+0316:     return pseudoLegalMoves.filter((move) =>
+0317:       this.isMoveSafe(board, piece, move, gameState),
+0318:     );
+0319:   }
+0320: 
+0321:   private static getPseudoLegalMoves(
+0322:     board: (ChessPiece | null)[][],
+0323:     piece: ChessPiece,
+0324:     gameState: GameState,
+0325:     options: MoveGenerationOptions = {},
+0326:   ): Position[] {
+0327:     const baseMoves = this.getBaseMoves(board, piece, gameState, options);
+0328:     return this.applyRulesToMoves(baseMoves, piece, gameState, options);
+0329:   }
+0330: 
+0331:   private static getBaseMoves(
+0332:     board: (ChessPiece | null)[][],
+0333:     piece: ChessPiece,
+0334:     gameState: GameState,
+0335:     options: MoveGenerationOptions,
+0336:   ): Position[] {
+0337:     switch (piece.type) {
+0338:       case "pawn":
+0339:         return this.getPawnMoves(board, piece, gameState, options);
+0340:       case "knight":
+0341:         return this.getKnightMoves(board, piece);
+0342:       case "bishop":
+0343:         return this.getBishopMoves(board, piece);
+0344:       case "rook":
+0345:         return this.getRookMoves(board, piece);
+0346:       case "queen":
+0347:         return this.getQueenMoves(board, piece);
+0348:       case "king":
+0349:         return this.getKingMoves(board, piece, gameState, options);
+0350:       default:
+0351:         return [];
+0352:     }
+0353:   }
+0354: 
+0355:   private static isMoveSafe(
+0356:     board: (ChessPiece | null)[][],
+0357:     piece: ChessPiece,
+0358:     destination: Position,
+0359:     gameState: GameState,
+0360:   ): boolean {
+0361:     const move = this.createMove(board, piece, destination, gameState);
+0362:     const simulatedBoard = this.simulateMove(board, move);
+0363: 
+0364:     const simulatedState: GameState = {
+0365:       ...gameState,
+0366:       board: simulatedBoard,
+0367:       currentPlayer: piece.color,
+0368:       moveHistory: [...gameState.moveHistory, move],
+0369:       extraMoves: 0,
+0370:     };
+0371: 
+0372:     return !this.isInCheck(simulatedBoard, piece.color, simulatedState);
+0373:   }
+0374: 
+0375:   private static getPawnMoves(
+0376:     board: (ChessPiece | null)[][],
+0377:     piece: ChessPiece,
+0378:     gameState: GameState,
+0379:     options: MoveGenerationOptions = {},
+0380:   ): Position[] {
+0381:     if (piece.specialState?.carnivorousPlant?.active) {
+0382:       return [];
+0383:     }
+0384: 
+0385:     const moves: Position[] = [];
+0386:     const { row, col } = piece.position;
+
+## src/lib/tournamentApi.ts :: invokeSyncTournamentsViaDirectFetch
+0285: 
+0286:   return trimmedPath ? `${trimmedBase}/${trimmedPath}` : trimmedBase;
+0287: };
+0288: 
+0289: const isFetchNetworkError = (error: unknown): error is TypeError => {
+0290:   if (!(error instanceof TypeError)) {
+0291:     return false;
+0292:   }
+0293: 
+0294:   const message =
+0295:     typeof error.message === "string" ? error.message.toLowerCase() : "";
+0296:   return (
+0297:     message.includes("fetch") ||
+0298:     message.includes("network") ||
+0299:     message.includes("failed")
+0300:   );
+0301: };
+0302: 
+0303: const readFunctionErrorPayload = async (
+0304:   response: Response,
+0305: ): Promise<unknown> => {
+0306:   const contentType = response.headers.get("content-type") ?? "";
+0307: 
+0308:   if (contentType.includes("application/json")) {
+0309:     try {
+0310:       return await response.json();
+0311:     } catch (_error) {
+0312:       return null;
+0313:     }
+0314:   }
+0315: 
+0316:   try {
+0317:     const text = await response.text();
+0318:     return text;
+0319:   } catch (_error) {
+0320:     return null;
+0321:   }
+0322: };
+0323: 
+0324: const normaliseFunctionErrorMessage = (payload: unknown): string => {
+0325:   if (typeof payload === "string") {
+0326:     const trimmed = payload.trim();
+0327:     return trimmed.length > 0 ? trimmed : "";
+0328:   }
+0329: 
+0330:   if (!isRecord(payload)) {
+0331:     return "";
+0332:   }
+0333: 
+0334:   const candidates: unknown[] = [
+0335:     payload.error,
+0336:     payload.message,
+0337:     payload.msg,
+0338:     payload.detail,
+0339:     payload.hint,
+0340:   ];
+0341: 
+0342:   for (const candidate of candidates) {
+0343:     if (typeof candidate === "string" && candidate.trim().length > 0) {
+0344:       return candidate.trim();
+0345:     }
+0346: 
+0347:     if (isRecord(candidate)) {
+0348:       const nested = normaliseFunctionErrorMessage(candidate);
+0349:       if (nested) {
+0350:         return nested;
+0351:       }
+0352:     }
+0353:   }
+0354: 
+0355:   return "";
+0356: };
+0357: 
+0358: const extractFunctionErrorCode = (payload: unknown): string | undefined => {
+0359:   if (!isRecord(payload)) {
+0360:     return undefined;
+0361:   }
+0362: 
+0363:   const { code } = payload;
+0364:   if (typeof code === "string" && code.trim().length > 0) {
+0365:     return code.trim().toLowerCase();
+0366:   }
+0367: 
+0368:   if (typeof code === "number" && Number.isFinite(code)) {
+0369:     return String(code);
+0370:   }
+0371: 
+0372:   return undefined;
+0373: };
+0374: 
+0375: const invokeSyncTournamentsViaDirectFetch = async (
+0376:   supabaseClient: ReturnType<typeof requireTournamentSupabase>,
+0377: ): Promise<void> => {
+0378:   const endpoint = resolveSupabaseFunctionsEndpoint(
+0379:     SYNC_TOURNAMENTS_FUNCTION_PATH,
+0380:   );
+0381:   if (!endpoint) {
+0382:     throw new TournamentFeatureUnavailableError(
+0383:       SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE,
+0384:     );
+0385:   }
+0386: 
+0387:   const headers = new Headers({
+0388:     "Content-Type": "application/json",
+0389:     "x-client-info": "ai-chess-architect-web",
+0390:   });
+0391: 
+0392:   if (supabaseAnonKey) {
+0393:     headers.set("apikey", supabaseAnonKey);
+0394:   }
+0395: 
+0396:   let accessToken: string | null | undefined;
+0397:   try {
+0398:     const { data } = await supabaseClient.auth.getSession();
+0399:     accessToken = data.session?.access_token;
+0400:   } catch (_error) {
+0401:     accessToken = undefined;
+0402:   }
+0403: 
+0404:   const bearerToken =
+0405:     typeof accessToken === "string" && accessToken.trim().length > 0
+0406:       ? accessToken
+0407:       : typeof supabaseAnonKey === "string" && supabaseAnonKey.trim().length > 0
+0408:         ? supabaseAnonKey
+0409:         : undefined;
+0410: 
+0411:   if (bearerToken) {
+0412:     headers.set("Authorization", `Bearer ${bearerToken}`);
+0413:   }
+0414: 
+0415:   const response = await fetch(endpoint, {
+0416:     method: "POST",
+0417:     headers,
+0418:     body: JSON.stringify({}),
+0419:   });
+0420: 
+0421:   if (response.ok) {
+0422:     return;
+0423:   }
+0424: 
+0425:   const payload = await readFunctionErrorPayload(response);
+0426:   const message = normaliseFunctionErrorMessage(payload);
+0427: 
+0428:   if (response.status === 404) {
+0429:     throw new TournamentFeatureUnavailableError(
+0430:       SYNC_TOURNAMENTS_UNAVAILABLE_MESSAGE,
+0431:     );
+0432:   }
+0433: 
+0434:   const code = extractFunctionErrorCode(payload);
+0435:   if (response.status === 503 && code === "feature_unavailable") {
+0436:     throw new TournamentFeatureUnavailableError(
+0437:       message ||
+0438:         "La synchronisation des tournois n'est pas disponible. Vérifiez votre déploiement Supabase.",
+0439:     );
+0440:   }
+0441: 
+0442:   if (message) {
+0443:     throw new Error(message);
+0444:   }
+0445: 
+0446:   throw new Error(
+0447:     `La fonction 'sync-tournaments' a renvoyé le statut ${response.status}.`,
+0448:   );
+0449: };
+0450: 
+0451: const requireTournamentSupabase = () => {
+0452:   if (!supabase) {
+0453:     const details =
+0454:       supabaseEnvProblems.length > 0
+0455:         ? ` Détails : ${supabaseEnvProblems.join(" | ")}.`
+0456:         : "";
+0457:     throw new TournamentFeatureUnavailableError(
+0458:       `Supabase n'est pas configuré pour les tournois.${details || " Configurez vos variables d'environnement Supabase."}`,
+0459:     );
+0460:   }
+0461: 
+0462:   return supabase;
+0463: };
+0464: 
+0465: type ErrorWithStatus = {
