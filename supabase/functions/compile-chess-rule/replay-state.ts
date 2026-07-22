@@ -19,6 +19,29 @@ export interface CompilationReplayState {
   metrics: Record<string, unknown> | null;
 }
 
+export type RequestEnvelopeReplayMatch =
+  | "verified-match"
+  | "verified-conflict"
+  | "legacy-unverified";
+
+/**
+ * A terminal replay must be identifiable before re-verifying a now-expired
+ * one-hour guidance token. Rows created before this fingerprint existed retain
+ * the historical verified prompt-hash path instead of being downgraded.
+ */
+export function classifyRequestEnvelopeReplay(
+  metrics: Record<string, unknown> | null,
+  requestEnvelopeFingerprint: string,
+  premiumRequested: boolean,
+): RequestEnvelopeReplayMatch {
+  const storedFingerprint = metrics?.requestEnvelopeFingerprint;
+  if (typeof storedFingerprint !== "string") return "legacy-unverified";
+  return storedFingerprint === requestEnvelopeFingerprint &&
+    metrics?.premiumRequested === premiumRequested
+    ? "verified-match"
+    : "verified-conflict";
+}
+
 export type CompilationReplayDisposition =
   | {
       kind: "processing-active";

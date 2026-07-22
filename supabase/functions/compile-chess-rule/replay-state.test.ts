@@ -1,5 +1,6 @@
 import {
   classifyCompilationReplay,
+  classifyRequestEnvelopeReplay,
   DEFAULT_STALE_PROCESSING_SECONDS,
   MAX_STALE_PROCESSING_SECONDS,
   MIN_STALE_PROCESSING_SECONDS,
@@ -46,6 +47,59 @@ Deno.test(
     assert(
       parseStaleProcessingSeconds("99999") === MAX_STALE_PROCESSING_SECONDS,
       "Le seuil doit avoir une borne supérieure.",
+    );
+  },
+);
+
+Deno.test(
+  "une empreinte brute identique autorise le replay terminal sans réouvrir le guidage expiré",
+  () => {
+    const metrics = {
+      premiumRequested: false,
+      requestEnvelopeFingerprint: "a".repeat(64),
+    };
+    assert(
+      classifyRequestEnvelopeReplay(metrics, "a".repeat(64), false) ===
+        "verified-match",
+      "La même enveloppe doit être reconnue avant la vérification du jeton.",
+    );
+    const terminal: CompilationReplayState = {
+      status: "validated",
+      updated_at: "2026-07-20T11:00:00.000Z",
+      expires_at: FUTURE_EXPIRY,
+      metrics,
+    };
+    assert(
+      classifyCompilationReplay(terminal, 180, NOW).kind === "terminal-success",
+      "Le résultat réservé doit être rejoué sans nouvel appel provider.",
+    );
+  },
+);
+
+Deno.test(
+  "la même clé avec une enveloppe ou un premium altéré est un conflit",
+  () => {
+    const metrics = {
+      premiumRequested: false,
+      requestEnvelopeFingerprint: "a".repeat(64),
+    };
+    assert(
+      classifyRequestEnvelopeReplay(metrics, "b".repeat(64), false) ===
+        "verified-conflict",
+      "Un contenu modifié ne doit jamais rejouer une réservation.",
+    );
+    assert(
+      classifyRequestEnvelopeReplay(metrics, "a".repeat(64), true) ===
+        "verified-conflict",
+      "Le mode premium appartient à l’enveloppe réservée.",
+    );
+    assert(
+      classifyRequestEnvelopeReplay(
+        { premiumRequested: false },
+        "a".repeat(64),
+        false,
+      ) === "legacy-unverified",
+      "Une ancienne ligne doit conserver le chemin historique signé.",
     );
   },
 );

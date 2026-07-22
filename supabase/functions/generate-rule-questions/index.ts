@@ -3,6 +3,12 @@ import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
 import { requireSafeRulePrompt } from "../_shared/prompt-security.ts";
 import { issueGuidanceToken } from "../_shared/guidance-token.ts";
+import {
+  decorateLegacyGuidanceDraft,
+  LEGACY_GUIDANCE_SESSION_TTL_SECONDS,
+  legacyGuidanceCompatEnabled,
+  prepareLegacyCompatibleGuidance,
+} from "../_shared/legacy-guidance-compat.ts";
 import { validateGuidance } from "../_shared/rule-guidance-validation.ts";
 import {
   CONDITION_OPS,
@@ -215,7 +221,7 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const { user } = await authenticateRequest(request);
+    const { user, serviceClient } = await authenticateRequest(request);
     const body = (await request.json().catch(() => null)) as {
       prompt?: unknown;
       diagnostics?: unknown;
@@ -251,16 +257,56 @@ Deno.serve(async (request) => {
       timeoutMs: 45_000,
     });
 
-    const guidance = validateGuidance(response.value);
+    const validatedGuidance = validateGuidance(response.value);
+    const compatibilityEnabled = legacyGuidanceCompatEnabled();
+    const guidance = compatibilityEnabled
+      ? prepareLegacyCompatibleGuidance(validatedGuidance)
+      : validatedGuidance;
+    const issuedAt = Math.floor(Date.now() / 1000);
     const guidanceToken = await issueGuidanceToken({
       userId: user.id,
       originalPrompt: security.sanitizedPrompt,
       guidance,
+      nowSeconds: issuedAt,
     });
+    let legacySessionId: string | null = null;
+    if (compatibilityEnabled) {
+      legacySessionId = crypto.randomUUID();
+      const createdAt = new Date(issuedAt * 1_000).toISOString();
+      const expiresAt = new Date(
+        (issuedAt + LEGACY_GUIDANCE_SESSION_TTL_SECONDS) * 1_000,
+      ).toISOString();
+      const { error: sessionError } = await serviceClient
+        .from("rule_guidance_compat_sessions")
+        .insert({
+          id: legacySessionId,
+          user_id: user.id,
+          guidance_token: guidanceToken,
+          created_at: createdAt,
+          expires_at: expiresAt,
+        });
+      if (sessionError) {
+        throw new Error("GUIDANCE_COMPAT_SESSION_PERSIST_FAILED");
+      }
+
+      const { error: cleanupError } = await serviceClient
+        .from("rule_guidance_compat_sessions")
+        .delete()
+        .lte("expires_at", new Date().toISOString());
+      if (cleanupError) {
+        console.error("[generate-rule-questions]", {
+          code: "GUIDANCE_COMPAT_CLEANUP_FAILED",
+        });
+      }
+    }
+
     return jsonResponse(request, 200, {
       success: true,
       data: {
         ...guidance,
+        draftPrompt: legacySessionId
+          ? decorateLegacyGuidanceDraft(legacySessionId)
+          : guidance.draftPrompt,
         guidanceToken,
         model,
       },

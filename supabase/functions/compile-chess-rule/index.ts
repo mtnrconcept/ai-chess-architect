@@ -7,6 +7,13 @@ import {
   requireSafeSignedRuleCompilerPrompt,
 } from "../_shared/prompt-security.ts";
 import { verifyGuidanceToken } from "../_shared/guidance-token.ts";
+import {
+  extractLegacyGuidanceSessionId,
+  legacyGuidanceCompatEnabled,
+  recoverLegacyGuidanceSelections,
+  requireUsableLegacyGuidanceSession,
+  type LegacyGuidanceSessionRow,
+} from "../_shared/legacy-guidance-compat.ts";
 import { buildRuleArchitectSystemPrompt } from "../_shared/rule-architect-prompt.ts";
 import { normalizeRuleBlueprintCandidate } from "../_shared/rule-blueprint-normalizer.ts";
 import {
@@ -25,6 +32,7 @@ import {
 } from "../_shared/rules-v2/index.ts";
 import {
   classifyCompilationReplay,
+  classifyRequestEnvelopeReplay,
   parseStaleProcessingSeconds,
   STALE_PROCESSING_FAILURE_CODE,
   type CompilationReplayState,
@@ -43,6 +51,14 @@ interface StoredCompilation extends CompilationReplayState {
   metrics: Record<string, unknown> | null;
   content_hash: string | null;
   request_id: string | null;
+}
+
+interface CompileRequestBody {
+  prompt?: unknown;
+  premium?: unknown;
+  requestKey?: unknown;
+  guidanceToken?: unknown;
+  guidanceSelections?: unknown;
 }
 
 const COMPILATION_COLUMNS = [
@@ -174,12 +190,16 @@ Deno.serve(async (request) => {
     const { user, userClient, serviceClient } =
       await authenticateRequest(request);
 
-    const body = (await request.json().catch(() => null)) as {
-      premium?: unknown;
-      requestKey?: unknown;
-      guidanceToken?: unknown;
-      guidanceSelections?: unknown;
-    } | null;
+    const rawRequestEnvelope = await request.text();
+    if (rawRequestEnvelope.length < 2 || rawRequestEnvelope.length > 128_000) {
+      throw new Error("GUIDANCE_REQUEST_ENVELOPE_INVALID");
+    }
+    let body: CompileRequestBody | null = null;
+    try {
+      body = JSON.parse(rawRequestEnvelope) as CompileRequestBody | null;
+    } catch {
+      throw new Error("GUIDANCE_REQUEST_ENVELOPE_INVALID");
+    }
 
     const requestKey =
       typeof body?.requestKey === "string" ? body.requestKey : "";
@@ -191,107 +211,19 @@ Deno.serve(async (request) => {
       });
     }
 
-    if (typeof body?.guidanceToken !== "string") {
-      throw new Error("GUIDANCE_TOKEN_REQUIRED");
-    }
-    const signedGuidance = await verifyGuidanceToken({
-      token: body.guidanceToken,
-      userId: user.id,
-    });
-    const signedCompilation = buildSignedGuidanceCompilation({
-      originalPrompt: signedGuidance.originalPrompt,
-      guidance: signedGuidance.guidance,
-      selections: body?.guidanceSelections,
-    });
-    const promptSecurity = requireSafeSignedRuleCompilerPrompt(
-      signedCompilation.compilerPrompt,
-    );
-    const safePrompt = promptSecurity.sanitizedPrompt;
-    const intentContract = signedCompilation.contract;
-    const originalPromptSecurity = requireSafeRulePrompt(
-      intentContract.originalPrompt,
-    );
-    intentContract.originalPrompt = originalPromptSecurity.sanitizedPrompt;
-
     const premiumRequested = body?.premium === true;
-    const appMetadata = user.app_metadata as Record<string, unknown>;
-    const configuredPremiumUsers = new Set(
-      (Deno.env.get("RULE_ARCHITECT_PREMIUM_USER_IDS") ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
-    );
-    const premiumEntitled =
-      appMetadata.rule_architect_tier === "premium" ||
-      appMetadata.role === "admin" ||
-      appMetadata.role === "owner" ||
-      appMetadata.is_admin === true ||
-      configuredPremiumUsers.has(user.id);
-    const premium = premiumRequested && premiumEntitled;
-    const model = premium
-      ? Deno.env.get("OPENAI_PREMIUM_RULE_MODEL")?.trim() || "gpt-5.6-sol"
-      : Deno.env.get("OPENAI_RULE_MODEL")?.trim() || "gpt-5.6-terra";
-    const promptHash = await sha256Hex({
-      prompt: safePrompt,
-      intentContract,
-      selections: signedCompilation.selections,
+    const requestEnvelopeFingerprint = await sha256Hex({
+      domain: "rule-compile-request-envelope-v1",
+      body: rawRequestEnvelope,
     });
-    const expiresAt = new Date(
-      Date.now() + 7 * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    const initialMetrics = {
-      premiumRequested,
-      premiumGranted: premium,
-    };
     const staleProcessingSeconds = parseStaleProcessingSeconds(
       Deno.env.get("RULE_COMPILE_STALE_SECONDS"),
     );
 
-    const { data: inserted, error: insertError } = await serviceClient
-      .from("rule_compilations")
-      .insert({
-        user_id: user.id,
-        prompt: safePrompt,
-        prompt_hash: promptHash,
-        model,
-        status: "processing",
-        blueprint: {},
-        diagnostics: [],
-        metrics: initialMetrics,
-        request_key: requestKey,
-        expires_at: expiresAt,
-      })
-      .select(COMPILATION_COLUMNS)
-      .single();
-
-    if (insertError || !inserted) {
-      if (insertError?.code !== "23505") {
-        throw new Error("La demande de compilation n'a pas pu être réservée.");
-      }
-
-      const { data: existing, error: existingError } = await serviceClient
-        .from("rule_compilations")
-        .select(COMPILATION_COLUMNS)
-        .eq("user_id", user.id)
-        .eq("request_key", requestKey)
-        .single();
-
-      if (existingError || !existing) {
-        throw new Error("La compilation existante n'a pas pu être relue.");
-      }
-
-      let stored = existing as unknown as StoredCompilation;
-      if (
-        stored.prompt_hash !== promptHash ||
-        stored.metrics?.premiumRequested !== premiumRequested
-      ) {
-        return jsonResponse(request, 409, {
-          success: false,
-          error:
-            "Cette clé de requête a déjà été utilisée avec un autre contenu.",
-        });
-      }
-
+    const replayStored = async (
+      initialStored: StoredCompilation,
+    ): Promise<Response> => {
+      let stored = initialStored;
       const replayDisposition = classifyCompilationReplay(
         stored,
         staleProcessingSeconds,
@@ -347,6 +279,187 @@ Deno.serve(async (request) => {
       }
 
       return replayCompilation(request, stored, staleProcessingSeconds);
+    };
+
+    const { data: preExisting, error: preExistingError } = await serviceClient
+      .from("rule_compilations")
+      .select(COMPILATION_COLUMNS)
+      .eq("user_id", user.id)
+      .eq("request_key", requestKey)
+      .maybeSingle();
+    if (preExistingError) {
+      throw new Error("COMPILATION_REPLAY_LOOKUP_FAILED");
+    }
+    if (preExisting) {
+      const stored = preExisting as unknown as StoredCompilation;
+      const envelopeMatch = classifyRequestEnvelopeReplay(
+        stored.metrics,
+        requestEnvelopeFingerprint,
+        premiumRequested,
+      );
+      if (envelopeMatch === "verified-conflict") {
+        return jsonResponse(request, 409, {
+          success: false,
+          error:
+            "Cette clé de requête a déjà été utilisée avec un autre contenu.",
+        });
+      }
+      if (envelopeMatch === "verified-match") {
+        return await replayStored(stored);
+      }
+      // Pre-fingerprint historical rows continue through the signed guidance
+      // and prompt-hash verification below.
+    }
+
+    let signedGuidance;
+    let guidanceSelections = body?.guidanceSelections;
+    const guidanceTokenProvided =
+      typeof body === "object" &&
+      body !== null &&
+      !Array.isArray(body) &&
+      Object.prototype.hasOwnProperty.call(body, "guidanceToken");
+    if (guidanceTokenProvided && typeof body?.guidanceToken !== "string") {
+      throw new Error("GUIDANCE_TOKEN_INVALID");
+    }
+    if (typeof body?.guidanceToken === "string") {
+      // Canonical clients keep the existing stateless signed-token path.
+      signedGuidance = await verifyGuidanceToken({
+        token: body.guidanceToken,
+        userId: user.id,
+      });
+    } else {
+      if (!legacyGuidanceCompatEnabled()) {
+        throw new Error("GUIDANCE_LEGACY_COMPAT_DISABLED");
+      }
+      // The production 9fe465 client only forwards its rendered prompt. Accept
+      // it exclusively when it carries a server-issued compatibility marker;
+      // arbitrary free text never reaches the compiler or the model.
+      const legacyPrompt = typeof body?.prompt === "string" ? body.prompt : "";
+      const legacySessionId = extractLegacyGuidanceSessionId(legacyPrompt);
+      const nowIso = new Date().toISOString();
+      const { data: session, error: sessionError } = await serviceClient
+        .from("rule_guidance_compat_sessions")
+        .select("id,user_id,guidance_token,created_at,expires_at")
+        .eq("id", legacySessionId)
+        .eq("user_id", user.id)
+        .gt("expires_at", nowIso)
+        .maybeSingle();
+      if (sessionError) {
+        throw new Error("GUIDANCE_LEGACY_SESSION_LOOKUP_FAILED");
+      }
+      const storedToken = requireUsableLegacyGuidanceSession({
+        row: session as LegacyGuidanceSessionRow | null,
+        sessionId: legacySessionId,
+        userId: user.id,
+      });
+      signedGuidance = await verifyGuidanceToken({
+        token: storedToken,
+        userId: user.id,
+      });
+      guidanceSelections = recoverLegacyGuidanceSelections({
+        prompt: legacyPrompt,
+        sessionId: legacySessionId,
+        guidance: signedGuidance.guidance,
+      });
+    }
+    const signedCompilation = buildSignedGuidanceCompilation({
+      originalPrompt: signedGuidance.originalPrompt,
+      guidance: signedGuidance.guidance,
+      selections: guidanceSelections,
+    });
+    const promptSecurity = requireSafeSignedRuleCompilerPrompt(
+      signedCompilation.compilerPrompt,
+    );
+    const safePrompt = promptSecurity.sanitizedPrompt;
+    const intentContract = signedCompilation.contract;
+    const originalPromptSecurity = requireSafeRulePrompt(
+      intentContract.originalPrompt,
+    );
+    intentContract.originalPrompt = originalPromptSecurity.sanitizedPrompt;
+
+    const appMetadata = user.app_metadata as Record<string, unknown>;
+    const configuredPremiumUsers = new Set(
+      (Deno.env.get("RULE_ARCHITECT_PREMIUM_USER_IDS") ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    const premiumEntitled =
+      appMetadata.rule_architect_tier === "premium" ||
+      appMetadata.role === "admin" ||
+      appMetadata.role === "owner" ||
+      appMetadata.is_admin === true ||
+      configuredPremiumUsers.has(user.id);
+    const premium = premiumRequested && premiumEntitled;
+    const model = premium
+      ? Deno.env.get("OPENAI_PREMIUM_RULE_MODEL")?.trim() || "gpt-5.6-sol"
+      : Deno.env.get("OPENAI_RULE_MODEL")?.trim() || "gpt-5.6-terra";
+    const promptHash = await sha256Hex({
+      prompt: safePrompt,
+      intentContract,
+      selections: signedCompilation.selections,
+    });
+    const expiresAt = new Date(
+      Date.now() + 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const initialMetrics = {
+      premiumRequested,
+      premiumGranted: premium,
+      requestEnvelopeFingerprint,
+    };
+
+    const { data: inserted, error: insertError } = await serviceClient
+      .from("rule_compilations")
+      .insert({
+        user_id: user.id,
+        prompt: safePrompt,
+        prompt_hash: promptHash,
+        model,
+        status: "processing",
+        blueprint: {},
+        diagnostics: [],
+        metrics: initialMetrics,
+        request_key: requestKey,
+        expires_at: expiresAt,
+      })
+      .select(COMPILATION_COLUMNS)
+      .single();
+
+    if (insertError || !inserted) {
+      if (insertError?.code !== "23505") {
+        throw new Error("La demande de compilation n'a pas pu être réservée.");
+      }
+
+      const { data: existing, error: existingError } = await serviceClient
+        .from("rule_compilations")
+        .select(COMPILATION_COLUMNS)
+        .eq("user_id", user.id)
+        .eq("request_key", requestKey)
+        .single();
+
+      if (existingError || !existing) {
+        throw new Error("La compilation existante n'a pas pu être relue.");
+      }
+
+      const stored = existing as unknown as StoredCompilation;
+      const envelopeMatch = classifyRequestEnvelopeReplay(
+        stored.metrics,
+        requestEnvelopeFingerprint,
+        premiumRequested,
+      );
+      if (
+        envelopeMatch === "verified-conflict" ||
+        (envelopeMatch === "legacy-unverified" &&
+          (stored.prompt_hash !== promptHash ||
+            stored.metrics?.premiumRequested !== premiumRequested))
+      ) {
+        return jsonResponse(request, 409, {
+          success: false,
+          error:
+            "Cette clé de requête a déjà été utilisée avec un autre contenu.",
+        });
+      }
+      return await replayStored(stored);
     }
 
     const insertedCompilation = inserted as unknown as StoredCompilation;

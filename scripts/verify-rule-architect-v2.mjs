@@ -77,6 +77,7 @@ const requiredRuntimeFiles = [
   "src/pages/RuleArchitect.tsx",
   "src/pages/RuleLobby.tsx",
   "supabase/functions/compile-chess-rule/index.ts",
+  "supabase/functions/_shared/legacy-guidance-compat.ts",
   "supabase/functions/publish-rule-version/index.ts",
   "supabase/functions/create-rule-lobby-v2/index.ts",
   "supabase/functions/join-rule-lobby-v2/index.ts",
@@ -86,10 +87,15 @@ const requiredRuntimeFiles = [
   "supabase/migrations/20260722130000_harden_rule_version_coverage_gate.sql",
   "supabase/migrations/20260722140000_fail_closed_custom_pvp_runtime.sql",
   "supabase/migrations/20260722150000_secure_api_registry_for_integration_health.sql",
+  "supabase/migrations/20260722160000_legacy_guidance_compat_sessions.sql",
+  "supabase/migrations/20260722161000_harden_legacy_guidance_compat_session_grants.sql",
   "supabase/rollbacks/20260722140000_fail_closed_custom_pvp_runtime.down.sql",
   "supabase/rollbacks/20260722150000_secure_api_registry_for_integration_health.down.sql",
+  "supabase/rollbacks/20260722160000_legacy_guidance_compat_sessions.down.sql",
+  "supabase/rollbacks/20260722161000_harden_legacy_guidance_compat_session_grants.down.sql",
   "supabase/tests/api_registry_integration_health.sql",
   "supabase/tests/rule_version_coverage_gate.sql",
+  "supabase/tests/legacy_guidance_compat_sessions.sql",
 ];
 
 for (const relative of requiredRuntimeFiles) {
