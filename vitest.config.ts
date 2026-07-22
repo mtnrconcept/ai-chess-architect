@@ -12,6 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    setupFiles: [path.resolve(__dirname, "./configs/quality/vitest.setup.ts")],
     exclude: [
       ...configDefaults.exclude,
       "supabase/functions/**/*.test.ts",

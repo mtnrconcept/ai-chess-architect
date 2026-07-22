@@ -1,5 +1,4 @@
 // Enrichissement automatique des règles générées
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export const CATEGORY_ASSETS: Record<string, { color: string; icon: string }> =
   {
