@@ -1,0 +1,45 @@
+name: Runtime Repair V3 Test Diagnostics
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-test-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Capture unit-test diagnostics
+        shell: bash
+        run: |
+          set +e
+          pnpm test -- --run 2>&1 | tee runtime-unit-tests.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > runtime-unit-tests.status
+          exit 0
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-unit-test-diagnostics
+          path: |
+            runtime-unit-tests.log
+            runtime-unit-tests.status
+          if-no-files-found: error
+          retention-days: 3
