@@ -1,0 +1,50 @@
+name: Runtime Repair V3 Test Tail
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-test-tail.yml
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run tests and keep concise diagnostics
+        shell: bash
+        run: |
+          set +e
+          pnpm test -- --run > /tmp/runtime-tests.log 2>&1
+          status=$?
+          {
+            printf 'status=%s\n' "$status"
+            printf 'head=%s\n\n' "$GITHUB_SHA"
+            tail -n 320 /tmp/runtime-tests.log
+          } > docs/runtime-test-tail.txt
+          exit 0
+      - name: Commit diagnostics to repair branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/runtime-test-tail.txt
+          git commit -m 'test(runtime): capture failing unit-test tail'
+          git push origin HEAD:agent/runtime-repair-v3
