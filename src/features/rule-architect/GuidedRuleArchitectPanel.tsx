@@ -1,5 +1,5 @@
-import { type ChangeEvent, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -43,12 +43,26 @@ const stepLabels = ["Idée", "Clarification", "Validation", "Lobby"];
 const errorMessage = (caught: unknown, fallback: string) =>
   caught instanceof Error && caught.message.trim() ? caught.message : fallback;
 
+const coverageStatusLabel = (status: string, userApproved: boolean): string => {
+  if (status === "implemented") return "Implémentée";
+  if (status === "adapted") {
+    return userApproved ? "Adaptation approuvée" : "Adaptation non approuvée";
+  }
+  if (status === "unsupported") return "Non prise en charge";
+  return "Clarification requise";
+};
+
 export default function GuidedRuleArchitectPanel() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const architect = useRuleArchitect();
-  const [idea, setIdea] = useState(STARTER_IDEAS[0]);
+  const initialIdea = searchParams.get("idea")?.trim().slice(0, 6000) ?? "";
+  const [idea, setIdea] = useState(
+    initialIdea.length >= 8 ? initialIdea : STARTER_IDEAS[0],
+  );
   const [guidance, setGuidance] = useState<RuleGuidanceResponse | null>(null);
+  const [analyzedIdea, setAnalyzedIdea] = useState<string | null>(null);
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [acceptedAdjustments, setAcceptedAdjustments] = useState<Set<string>>(
     new Set(),
@@ -61,6 +75,7 @@ export default function GuidedRuleArchitectPanel() {
   >("unlisted");
   const [lobbyName, setLobbyName] = useState("Ma variante Voltus");
   const [mode, setMode] = useState<"player" | "ai">("player");
+  const guidanceRequestSequence = useRef(0);
 
   const busy =
     guidanceLoading ||
@@ -78,10 +93,30 @@ export default function GuidedRuleArchitectPanel() {
     () =>
       guidance?.questions.every((question) => {
         const count = selections[question.id]?.length ?? 0;
-        return count >= question.minSelections && count <= question.maxSelections;
+        return (
+          count >= question.minSelections && count <= question.maxSelections
+        );
       }) ?? false,
     [guidance, selections],
   );
+
+  const allRequiredAdjustmentsAccepted = useMemo(
+    () =>
+      guidance?.requirements.every(
+        (requirement) =>
+          requirement.feasibility === "direct" ||
+          guidance.adjustments.some(
+            (adjustment) =>
+              acceptedAdjustments.has(adjustment.id) &&
+              adjustment.requirementIds.includes(requirement.id),
+          ),
+      ) ?? false,
+    [acceptedAdjustments, guidance],
+  );
+
+  const allUncertaintiesResolved =
+    (guidance?.remainingUncertainty.length ?? 0) === 0;
+  const guidanceMatchesIdea = guidance !== null && analyzedIdea === idea.trim();
 
   const diagnostics = architect.compilation?.diagnostics ?? [];
   const blockingDiagnostics = diagnostics.filter(
@@ -91,20 +126,11 @@ export default function GuidedRuleArchitectPanel() {
   const initialiseRecommendedSelections = (result: RuleGuidanceResponse) => {
     const defaults: Record<string, string[]> = {};
     result.questions.forEach((question) => {
-      const recommended = question.choices
-        .filter((choice) => choice.recommended)
-        .slice(0, Math.max(question.minSelections, 1))
-        .map((choice) => choice.id);
-      defaults[question.id] = recommended;
+      defaults[question.id] = [];
     });
     setSelections(defaults);
-    setAcceptedAdjustments(
-      new Set(
-        result.adjustments
-          .filter((adjustment) => adjustment.recommended)
-          .map((adjustment) => adjustment.id),
-      ),
-    );
+    // Une adaptation modifie la demande : elle exige toujours un clic explicite.
+    setAcceptedAdjustments(new Set());
   };
 
   const analyseIdea = async (diagnosticMessages: string[] = []) => {
@@ -118,6 +144,7 @@ export default function GuidedRuleArchitectPanel() {
       return;
     }
 
+    const requestSequence = ++guidanceRequestSequence.current;
     setGuidanceLoading(true);
     setGuidanceError(null);
     try {
@@ -125,22 +152,29 @@ export default function GuidedRuleArchitectPanel() {
         prompt,
         diagnostics: diagnosticMessages,
       });
-      setGuidance(result);
-      initialiseRecommendedSelections(result);
-      architect.reset();
+      if (requestSequence === guidanceRequestSequence.current) {
+        setGuidance(result);
+        setAnalyzedIdea(prompt);
+        initialiseRecommendedSelections(result);
+        architect.reset();
+      }
     } catch (caught) {
-      setGuidanceError(
-        errorMessage(caught, "Impossible d’analyser cette idée pour le moment."),
-      );
+      if (requestSequence === guidanceRequestSequence.current) {
+        setGuidanceError(
+          errorMessage(
+            caught,
+            "Impossible d’analyser cette idée pour le moment.",
+          ),
+        );
+      }
     } finally {
-      setGuidanceLoading(false);
+      if (requestSequence === guidanceRequestSequence.current) {
+        setGuidanceLoading(false);
+      }
     }
   };
 
-  const toggleChoice = (
-    question: RuleGuidanceQuestion,
-    choiceId: string,
-  ) => {
+  const toggleChoice = (question: RuleGuidanceQuestion, choiceId: string) => {
     setSelections((previous) => {
       const selected = new Set(previous[question.id] ?? []);
       if (question.selectionMode === "single") {
@@ -148,7 +182,7 @@ export default function GuidedRuleArchitectPanel() {
       }
 
       if (selected.has(choiceId)) {
-        if (selected.size > question.minSelections) selected.delete(choiceId);
+        selected.delete(choiceId);
       } else if (selected.size < question.maxSelections) {
         selected.add(choiceId);
       }
@@ -157,16 +191,31 @@ export default function GuidedRuleArchitectPanel() {
   };
 
   const handleCompile = async () => {
-    if (!guidance || !allRequiredAnswersSelected) return;
+    if (
+      !guidance ||
+      !allRequiredAnswersSelected ||
+      !allRequiredAdjustmentsAccepted ||
+      !allUncertaintiesResolved ||
+      !guidanceMatchesIdea
+    ) {
+      return;
+    }
     const prompt = buildGuidedRulePrompt({
       originalPrompt: idea,
       guidance,
       selections,
       acceptedAdjustmentIds: acceptedAdjustments,
     });
-
     try {
-      const result = await architect.compile(prompt, premium);
+      const result = await architect.compile(
+        prompt,
+        premium,
+        guidance.guidanceToken,
+        {
+          answers: selections,
+          acceptedAdjustmentIds: Array.from(acceptedAdjustments),
+        },
+      );
       if (premium && !result.premiumGranted) {
         toast({
           title: "Variante générée avec le modèle standard",
@@ -227,11 +276,26 @@ export default function GuidedRuleArchitectPanel() {
   };
 
   const resetAll = () => {
+    guidanceRequestSequence.current += 1;
     architect.reset();
     setGuidance(null);
+    setAnalyzedIdea(null);
     setSelections({});
     setAcceptedAdjustments(new Set());
     setGuidanceError(null);
+    setGuidanceLoading(false);
+  };
+
+  const updateIdea = (nextIdea: string) => {
+    if (
+      (guidance !== null ||
+        guidanceLoading ||
+        architect.compilation !== null) &&
+      nextIdea.trim() !== analyzedIdea
+    ) {
+      resetAll();
+    }
+    setIdea(nextIdea);
   };
 
   return (
@@ -258,6 +322,7 @@ export default function GuidedRuleArchitectPanel() {
               return (
                 <div key={label} className="min-w-0 text-center">
                   <div
+                    aria-current={step === currentStep ? "step" : undefined}
                     className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
                       active
                         ? "bg-primary text-primary-foreground"
@@ -286,10 +351,14 @@ export default function GuidedRuleArchitectPanel() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <label htmlFor="rule-idea" className="sr-only">
+              Idée de règle d’échecs
+            </label>
             <textarea
+              id="rule-idea"
               value={idea}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                setIdea(event.target.value)
+                updateIdea(event.target.value)
               }
               disabled={busy}
               maxLength={6000}
@@ -307,8 +376,8 @@ export default function GuidedRuleArchitectPanel() {
                   type="button"
                   disabled={busy}
                   onClick={() => {
-                    setIdea(starter);
                     resetAll();
+                    setIdea(starter);
                   }}
                   className="rounded-xl border p-3 text-left text-xs text-muted-foreground transition hover:border-primary hover:text-foreground"
                 >
@@ -330,7 +399,10 @@ export default function GuidedRuleArchitectPanel() {
               Analyser et me guider
             </Button>
             {guidanceError && (
-              <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+              <div
+                role="alert"
+                className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+              >
                 {guidanceError}
               </div>
             )}
@@ -348,11 +420,18 @@ export default function GuidedRuleArchitectPanel() {
                   [Swords, "Déclencheur", "Quand et pour quelle pièce ?"],
                   [Gauge, "Limites", "Cooldown, fréquence et portée."],
                   [CheckCircle2, "Contre-jeu", "Comment l’adversaire répond."],
-                  [Sparkles, "Présentation", "Animation et effets sans code libre."],
+                  [
+                    Sparkles,
+                    "Présentation",
+                    "Animation et effets sans code libre.",
+                  ],
                 ].map(([Icon, title, description]) => {
                   const Component = Icon as typeof Swords;
                   return (
-                    <div key={String(title)} className="flex gap-3 rounded-2xl border p-4">
+                    <div
+                      key={String(title)}
+                      className="flex gap-3 rounded-2xl border p-4"
+                    >
                       <Component className="h-5 w-5 shrink-0 text-primary" />
                       <div>
                         <p className="font-semibold">{String(title)}</p>
@@ -379,24 +458,74 @@ export default function GuidedRuleArchitectPanel() {
                   </div>
                   <Badge
                     variant={
-                      guidance.feasibility === "direct" ? "default" : "secondary"
+                      guidance.feasibility === "direct"
+                        ? "default"
+                        : "secondary"
                     }
                   >
                     {guidance.feasibility === "direct"
                       ? "Directement réalisable"
                       : guidance.feasibility === "adaptable"
                         ? "Réalisable avec ajustements"
-                        : "Conversion guidée"}
+                        : "Certaines clauses non prises en charge"}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
+                <section className="rounded-2xl border bg-muted/20 p-4">
+                  <h3 className="font-semibold">
+                    Ce que l’assistant a compris
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Chaque exigence sera contrôlée après compilation. Aucune ne
+                    peut disparaître silencieusement.
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {guidance.requirements.map((requirement) => (
+                      <div
+                        key={requirement.id}
+                        className="flex flex-col gap-2 rounded-xl border bg-background/60 p-3 sm:flex-row sm:items-start sm:justify-between"
+                      >
+                        <div>
+                          <p className="text-sm font-medium">
+                            {requirement.statement}
+                          </p>
+                          {requirement.adaptation && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Adaptation proposée : {requirement.adaptation}
+                            </p>
+                          )}
+                        </div>
+                        <Badge
+                          variant={
+                            requirement.feasibility === "direct"
+                              ? "default"
+                              : "secondary"
+                          }
+                          className="w-fit shrink-0"
+                        >
+                          {requirement.feasibility === "direct"
+                            ? "Directe"
+                            : requirement.feasibility === "adaptable"
+                              ? "Adaptable"
+                              : "Non prise en charge"}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
                 {guidance.questions.map((question, questionIndex) => (
-                  <section key={question.id} className="rounded-2xl border p-4">
+                  <fieldset
+                    key={question.id}
+                    className="rounded-2xl border p-4"
+                  >
+                    <legend className="px-1 font-semibold">
+                      {question.question}
+                    </legend>
                     <p className="text-xs font-bold uppercase tracking-wider text-primary">
                       Question {questionIndex + 1}
                     </p>
-                    <h3 className="mt-1 font-semibold">{question.question}</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {question.help}
                     </p>
@@ -409,6 +538,7 @@ export default function GuidedRuleArchitectPanel() {
                           <button
                             key={choice.id}
                             type="button"
+                            aria-pressed={checked}
                             disabled={busy}
                             onClick={() => toggleChoice(question, choice.id)}
                             className={`flex w-full gap-3 rounded-xl border p-3 text-left transition ${
@@ -441,15 +571,37 @@ export default function GuidedRuleArchitectPanel() {
                         );
                       })}
                     </div>
-                  </section>
+                  </fieldset>
                 ))}
+
+                {guidance.remainingUncertainty.length > 0 && (
+                  <section
+                    role="alert"
+                    className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4"
+                  >
+                    <h3 className="font-semibold text-destructive">
+                      Points encore ambigus
+                    </h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      La compilation reste bloquée pour éviter d’inventer ou
+                      d’oublier une règle. Relance l’analyse après avoir précisé
+                      :
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                      {guidance.remainingUncertainty.map((uncertainty) => (
+                        <li key={uncertainty}>{uncertainty}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
 
                 {guidance.adjustments.length > 0 && (
                   <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
                     <h3 className="font-semibold">Ajustements proposés</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Ils rapprochent la demande du moteur disponible sans changer
-                      son idée centrale.
+                      Ils rapprochent la demande du moteur disponible. Aucun
+                      ajustement n’est accepté automatiquement : coche
+                      uniquement ceux que tu valides.
                     </p>
                     <div className="mt-3 space-y-2">
                       {guidance.adjustments.map((adjustment) => {
@@ -466,14 +618,17 @@ export default function GuidedRuleArchitectPanel() {
                               onChange={() =>
                                 setAcceptedAdjustments((previous) => {
                                   const next = new Set(previous);
-                                  if (next.has(adjustment.id)) next.delete(adjustment.id);
+                                  if (next.has(adjustment.id))
+                                    next.delete(adjustment.id);
                                   else next.add(adjustment.id);
                                   return next;
                                 })
                               }
                             />
                             <span>
-                              <span className="font-medium">{adjustment.label}</span>
+                              <span className="font-medium">
+                                {adjustment.label}
+                              </span>
                               <span className="mt-1 block text-xs text-muted-foreground">
                                 {adjustment.description}
                               </span>
@@ -488,6 +643,7 @@ export default function GuidedRuleArchitectPanel() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
                     type="button"
+                    aria-pressed={!premium}
                     disabled={busy}
                     onClick={() => setPremium(false)}
                     className={`rounded-2xl border p-4 text-left ${
@@ -501,6 +657,7 @@ export default function GuidedRuleArchitectPanel() {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={premium}
                     disabled={busy}
                     onClick={() => setPremium(true)}
                     className={`rounded-2xl border p-4 text-left ${
@@ -517,7 +674,13 @@ export default function GuidedRuleArchitectPanel() {
                 <Button
                   className="w-full gap-2"
                   size="lg"
-                  disabled={busy || !allRequiredAnswersSelected}
+                  disabled={
+                    busy ||
+                    !allRequiredAnswersSelected ||
+                    !allRequiredAdjustmentsAccepted ||
+                    !allUncertaintiesResolved ||
+                    !guidanceMatchesIdea
+                  }
                   onClick={() => void handleCompile()}
                 >
                   {architect.phase === "compiling" ? (
@@ -527,6 +690,14 @@ export default function GuidedRuleArchitectPanel() {
                   )}
                   Créer la variante jouable
                 </Button>
+                {architect.error && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+                  >
+                    {architect.error}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -537,14 +708,17 @@ export default function GuidedRuleArchitectPanel() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <CardTitle>
-                      {architect.compilation.blueprint?.title || "Variante en cours"}
+                      {architect.compilation.blueprint?.title ||
+                        "Variante en cours"}
                     </CardTitle>
                     <CardDescription className="mt-2">
                       {architect.compilation.blueprint?.summary}
                     </CardDescription>
                   </div>
                   <Badge
-                    variant={architect.compilation.ok ? "default" : "destructive"}
+                    variant={
+                      architect.compilation.ok ? "default" : "destructive"
+                    }
                   >
                     {architect.compilation.ok ? "Prête" : "À ajuster"}
                   </Badge>
@@ -555,9 +729,79 @@ export default function GuidedRuleArchitectPanel() {
                   <div className="rounded-2xl bg-muted/40 p-4">
                     <p className="font-semibold">Comment jouer</p>
                     <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
-                      {architect.compilation.blueprint.explanation.plainLanguage}
+                      {
+                        architect.compilation.blueprint.explanation
+                          .plainLanguage
+                      }
                     </p>
                   </div>
+                )}
+                {architect.compilation.coverage && (
+                  <section
+                    className={`rounded-2xl border p-4 ${
+                      architect.compilation.coverage.complete
+                        ? "border-emerald-500/30 bg-emerald-500/5"
+                        : "border-destructive/40 bg-destructive/5"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">Audit de couverture</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {architect.compilation.coverage.summary}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          architect.compilation.coverage.complete
+                            ? "default"
+                            : "destructive"
+                        }
+                      >
+                        {architect.compilation.coverage.score}% couvert
+                      </Badge>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {architect.compilation.coverage.requirements.map(
+                        (requirement) => {
+                          const source = guidance?.requirements.find(
+                            (item) => item.id === requirement.id,
+                          );
+                          const covered =
+                            requirement.status === "implemented" ||
+                            (requirement.status === "adapted" &&
+                              requirement.userApproved);
+                          return (
+                            <div
+                              key={requirement.id}
+                              className="flex gap-3 rounded-xl border bg-background/60 p-3"
+                            >
+                              {covered ? (
+                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                              ) : (
+                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium">
+                                  {source?.statement ??
+                                    (requirement.id === "request-fidelity"
+                                      ? "Fidélité à l’idée originale complète"
+                                      : requirement.id)}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {coverageStatusLabel(
+                                    requirement.status,
+                                    requirement.userApproved,
+                                  )}{" "}
+                                  — {requirement.explanation}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        },
+                      )}
+                    </div>
+                  </section>
                 )}
                 <div className="grid grid-cols-3 gap-2 text-center">
                   {[
@@ -585,7 +829,9 @@ export default function GuidedRuleArchitectPanel() {
                           <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />
                         )}
                         <div>
-                          <p className="text-sm font-medium">{diagnostic.message}</p>
+                          <p className="text-sm font-medium">
+                            {diagnostic.message}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {diagnostic.code}
                           </p>
@@ -608,7 +854,14 @@ export default function GuidedRuleArchitectPanel() {
 
                 {architect.compilation.ok && !architect.publication && (
                   <div className="space-y-3 rounded-2xl border p-4">
+                    <label
+                      htmlFor="rule-visibility"
+                      className="text-sm font-medium"
+                    >
+                      Visibilité
+                    </label>
                     <select
+                      id="rule-visibility"
                       value={visibility}
                       disabled={busy}
                       onChange={(event: ChangeEvent<HTMLSelectElement>) =>
@@ -633,7 +886,14 @@ export default function GuidedRuleArchitectPanel() {
 
                 {architect.publication && (
                   <div className="space-y-3 rounded-2xl border p-4">
+                    <label
+                      htmlFor="rule-lobby-name"
+                      className="text-sm font-medium"
+                    >
+                      Nom du lobby
+                    </label>
                     <input
+                      id="rule-lobby-name"
                       value={lobbyName}
                       onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         setLobbyName(event.target.value)
@@ -641,7 +901,14 @@ export default function GuidedRuleArchitectPanel() {
                       maxLength={80}
                       className="h-11 w-full rounded-xl border bg-background px-3 text-sm"
                     />
+                    <label
+                      htmlFor="rule-lobby-mode"
+                      className="text-sm font-medium"
+                    >
+                      Adversaire
+                    </label>
                     <select
+                      id="rule-lobby-mode"
                       value={mode}
                       onChange={(event: ChangeEvent<HTMLSelectElement>) =>
                         setMode(event.target.value as typeof mode)
@@ -663,7 +930,10 @@ export default function GuidedRuleArchitectPanel() {
                 )}
 
                 {architect.error && (
-                  <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+                  >
                     {architect.error}
                   </div>
                 )}

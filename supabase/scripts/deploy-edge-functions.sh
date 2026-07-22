@@ -78,6 +78,7 @@ else
 fi
 
 protected_functions=(
+  generate-rule-questions
   compile-chess-rule
   publish-rule-version
   create-rule-lobby-v2

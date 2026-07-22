@@ -11,9 +11,13 @@ La chaîne de traitement est la suivante :
 
 ```text
 prompt joueur
-  -> Structured Output
+  -> décomposition en exigences et clarifications
+  -> contrat signé par le serveur et lié au compte
+  -> accord explicite sur les adaptations
+  -> Structured Output du blueprint
   -> validation structurelle et métier
   -> compilation DSL
+  -> audit indépendant de couverture avec preuves dans la logique
   -> diagnostics et score d'équilibrage
   -> confirmation joueur
   -> version immuable
@@ -25,6 +29,12 @@ Le navigateur n'obtient jamais `OPENAI_API_KEY`, une clé Supabase
 seul le serveur l'accorde à partir de métadonnées ou d'une liste d'UUID de
 confiance.
 
+Le navigateur ne fait pas autorité sur la liste des exigences. Le serveur signe
+le questionnaire pour une heure, vérifie son propriétaire et reconstruit lui-même
+le prompt de compilation à partir des choix autorisés. Toute modification,
+omission, réponse inconnue ou incertitude restante est refusée avant l’appel au
+modèle.
+
 ## Cycle de vie
 
 ### Compilation privée
@@ -33,6 +43,14 @@ Une tentative possède une clé UUID d'idempotence. Les doubles clics et retries
 réseau réutilisent cette clé. Le prompt, le blueprint et le résultat compilé
 restent privés. Une compilation expire après sept jours et sa politique RLS
 cesse de la rendre lisible à l'expiration.
+
+Le serveur recalcule la couverture de chaque exigence et de chaque réponse de
+clarification. Une description ou un exemple ne prouve pas une mécanique : la
+preuve doit pointer vers une action, une condition ou un effet compilé. Toute
+exigence oubliée, non prise en charge ou adaptée autrement que l’ajustement
+accepté place la compilation en statut `rejected`, ce qui empêche sa publication.
+Un trigger de base de données vérifie à nouveau la complétude du contrat lors de
+l’insertion de la version immuable.
 
 La fonction `public.cleanup_expired_rule_compilations()` supprime les
 compilations expirées non publiées. Son existence ne suffit pas : un cron

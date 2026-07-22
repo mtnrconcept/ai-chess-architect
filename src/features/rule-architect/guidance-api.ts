@@ -26,16 +26,45 @@ export interface RuleGuidanceAdjustment {
   label: string;
   description: string;
   recommended: boolean;
+  requirementIds: string[];
+}
+
+export interface RuleGuidanceRequirement {
+  id: string;
+  statement: string;
+  importance: "core" | "supporting" | "cosmetic";
+  feasibility: RuleGuidanceFeasibility;
+  adaptation: string;
+}
+
+export interface RuleIntentContract {
+  version: 1;
+  originalPrompt: string;
+  requirements: Array<{
+    id: string;
+    statement: string;
+    importance: RuleGuidanceRequirement["importance"];
+    feasibility: RuleGuidanceFeasibility;
+    approvedAdaptation: string;
+  }>;
+  decisions: string[];
 }
 
 export interface RuleGuidanceResponse {
   feasibility: RuleGuidanceFeasibility;
   summary: string;
   draftPrompt: string;
+  requirements: RuleGuidanceRequirement[];
   questions: RuleGuidanceQuestion[];
   adjustments: RuleGuidanceAdjustment[];
   remainingUncertainty: string[];
+  guidanceToken: string;
   model: string;
+}
+
+export interface RuleGuidanceSelections {
+  answers: Record<string, string[]>;
+  acceptedAdjustmentIds: string[];
 }
 
 type GuidanceEnvelope = {
@@ -106,17 +135,69 @@ export function buildGuidedRulePrompt(input: {
     .filter((adjustment) => input.acceptedAdjustmentIds.has(adjustment.id))
     .map((adjustment) => `${adjustment.label} — ${adjustment.description}`);
 
-  return [
-    input.guidance.draftPrompt.trim() || input.originalPrompt.trim(),
+  const content = [
+    `Contrat de couverture obligatoire :\n- ${input.guidance.requirements
+      .map(
+        (requirement) =>
+          `${requirement.id}: ${requirement.statement.slice(0, 180)}`,
+      )
+      .join("\n- ")}`,
     answers.length > 0
       ? `\nDécisions confirmées par l’utilisateur :\n- ${answers.join("\n- ")}`
       : "",
     adjustments.length > 0
       ? `\nAjustements acceptés pour rendre la variante jouable :\n- ${adjustments.join("\n- ")}`
       : "",
-    "\nPréserve l’intention originale. Lorsque deux décisions se contredisent, privilégie les choix confirmés ci-dessus. Produis une variante jouable avec limites, contre-jeu et exemples concrets.",
+    `\nCahier des charges proposé :\n${
+      input.guidance.draftPrompt.trim() || input.originalPrompt.trim()
+    }`,
   ]
     .filter(Boolean)
-    .join("\n")
-    .slice(0, 12000);
+    .join("\n");
+
+  return `${content.slice(0, 5750)}\nPréserve chaque exigence du contrat. Privilégie les décisions confirmées. N’adapte que les ajustements explicitement acceptés. Produis une variante jouable avec limites, contre-jeu et exemples concrets.`;
+}
+
+export function buildRuleIntentContract(input: {
+  originalPrompt: string;
+  guidance: RuleGuidanceResponse;
+  selections: Record<string, string[]>;
+  acceptedAdjustmentIds: Set<string>;
+}): RuleIntentContract {
+  const decisions = input.guidance.questions.flatMap((question) => {
+    const selected = new Set(input.selections[question.id] ?? []);
+    const labels = question.choices
+      .filter((choice) => selected.has(choice.id))
+      .map((choice) => choice.label.trim())
+      .filter(Boolean);
+    return labels.length > 0
+      ? [`${question.question.trim()} ${labels.join(" ; ")}`.slice(0, 300)]
+      : [];
+  });
+
+  return {
+    version: 1,
+    originalPrompt: input.originalPrompt.trim().slice(0, 6000),
+    requirements: input.guidance.requirements.map((requirement) => {
+      const approvedAdaptation = input.guidance.adjustments
+        .filter(
+          (adjustment) =>
+            input.acceptedAdjustmentIds.has(adjustment.id) &&
+            adjustment.requirementIds.includes(requirement.id),
+        )
+        .map((adjustment) => adjustment.description.trim())
+        .filter(Boolean)
+        .join(" ; ")
+        .slice(0, 400);
+
+      return {
+        id: requirement.id,
+        statement: requirement.statement.trim().slice(0, 300),
+        importance: requirement.importance,
+        feasibility: requirement.feasibility,
+        approvedAdaptation,
+      };
+    }),
+    decisions: decisions.slice(0, 20),
+  };
 }

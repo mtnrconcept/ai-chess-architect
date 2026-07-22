@@ -1,5 +1,7 @@
 begin;
 
+create extension if not exists pg_cron;
+
 -- pg_cron keeps named jobs unique for a given owner. Re-scheduling this exact
 -- name updates the existing definition instead of creating parallel purges.
 select cron.schedule(

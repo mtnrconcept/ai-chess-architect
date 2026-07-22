@@ -20,6 +20,8 @@ function createContracts(): EngineContracts {
       isEmpty: () => true,
       withinBoard: () => true,
       removePiece: vi.fn(),
+      serialize: () => "{}",
+      deserialize: vi.fn(),
     },
     ui: {
       registerAction: vi.fn(),
@@ -159,5 +161,98 @@ describe("RuleEngine V2 hardening", () => {
     expect(() => registry.runCondition("always", context)).toThrow(
       RuntimeBudgetExceededError,
     );
+  });
+
+  it("n’avance pas l’aléatoire après une cible rejetée", () => {
+    const run = (attemptInvalidTarget: boolean): number => {
+      const registry = new Registry();
+      let sampled = -1;
+      registry.registerProvider("provider.anyEmptyTile", () => ["a3"]);
+      registry.registerEffect("state.inc", (context) => {
+        sampled = context.random?.() ?? -1;
+      });
+      const engine = new RuleEngine(createContracts(), registry, {
+        matchSeed: "match-seed",
+      });
+      engine.loadRules([
+        {
+          meta: {
+            ruleId: "random-target@v1",
+            ruleName: "Random target",
+            priority: 1,
+            isActive: true,
+          },
+          scope: { affectedPieces: ["pawn"], sides: ["white"] },
+          ui: {
+            actions: [
+              {
+                id: "random-target.action",
+                label: "Action",
+                availability: {
+                  requiresSelection: true,
+                  pieceTypes: ["pawn"],
+                },
+                targeting: {
+                  mode: "tile",
+                  validTilesProvider: "provider.anyEmptyTile",
+                },
+              },
+            ],
+          },
+          state: {
+            namespace: "rules.random-target",
+            initial: {},
+          },
+          logic: {
+            effects: [
+              {
+                id: "sample",
+                when: "ui.random-target.action",
+                do: { action: "state.inc" },
+              },
+            ],
+          },
+          integration: { ruleArchitect: { source: "ai-blueprint" } },
+        },
+      ]);
+      const actionId = engine.getUIActions()[0].id;
+
+      if (attemptInvalidTarget) {
+        engine.runUIAction(actionId, "pawn-a2", "h8");
+      }
+      engine.runUIAction(actionId, "pawn-a2", "a3");
+      return sampled;
+    };
+
+    expect(run(true)).toBe(run(false));
+  });
+
+  it("exécute les triggers d’un même événement selon leur priorité", () => {
+    const registry = new Registry();
+    const executionOrder: string[] = [];
+    registry.registerEffect("test.high", () => {
+      executionOrder.push("high");
+    });
+    registry.registerEffect("test.low", () => {
+      executionOrder.push("low");
+    });
+    const engine = new RuleEngine(createContracts(), registry, {
+      matchSeed: "match-seed",
+    });
+    const rule = lifecycleRule([{ action: "test.low" }]);
+    rule.logic!.effects = [
+      { ...rule.logic!.effects![0], id: "low", priority: 1 },
+      {
+        ...rule.logic!.effects![0],
+        id: "high",
+        priority: 10,
+        do: [{ action: "test.high" }],
+      },
+    ];
+    engine.loadRules([rule]);
+
+    engine.onEnterTile("pawn-a2", "a3");
+
+    expect(executionOrder).toEqual(["high", "low"]);
   });
 });

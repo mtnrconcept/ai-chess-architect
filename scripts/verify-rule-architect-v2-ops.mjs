@@ -293,6 +293,58 @@ if (/drop\s+table/.test(lowerMigration)) {
   );
 }
 
+const earlyChessRulesConstraint = read(
+  "supabase/migrations/20250601120000_add_unique_constraint_to_chess_rules_rule_id.sql",
+).toLowerCase();
+for (const invariant of [
+  "pg_catalog.to_regclass('public.chess_rules') is null",
+  "execute $deduplicate$",
+]) {
+  requireText(
+    earlyChessRulesConstraint,
+    invariant,
+    "migration historique chess_rules",
+  );
+}
+
+const earlyTournamentAiColumns = read(
+  "supabase/migrations/20251012190417_add_ai_columns_to_tournament_matches.sql",
+).toLowerCase();
+requireText(
+  earlyTournamentAiColumns,
+  "pg_catalog.to_regclass('public.tournament_matches') is null",
+  "migration historique tournament_matches",
+);
+
+const tournamentAiColumnRepair = read(
+  "supabase/migrations/20260722123000_ensure_tournament_match_ai_columns.sql",
+).toLowerCase();
+for (const columnName of [
+  "is_ai_match",
+  "ai_opponent_label",
+  "ai_opponent_difficulty",
+]) {
+  requireText(
+    tournamentAiColumnRepair,
+    `add column if not exists ${columnName}`,
+    "migration corrective tournament_matches",
+  );
+}
+
+const retentionCronMigration = read(
+  "supabase/migrations/20260720184000_rule_architect_retention_cron.sql",
+).toLowerCase();
+requireText(
+  retentionCronMigration,
+  "create extension if not exists pg_cron",
+  "migration de rétention",
+);
+requireText(
+  retentionCronMigration,
+  "cron.schedule(",
+  "migration de rétention",
+);
+
 console.log(
   "Rule Architect V2 : garde-fous frontend, CI, Vercel et SQL vérifiés.",
 );

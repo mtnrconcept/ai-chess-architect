@@ -1,0 +1,391 @@
+import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
+import {
+  buildSignedGuidanceCompilation,
+  evaluateRuleCoverage,
+  normalizeRuleIntentContract,
+  type RuleIntentContract,
+} from "./rule-coverage.ts";
+import type { RuleBlueprintV2 } from "./rules-v2/index.ts";
+
+const blueprint: RuleBlueprintV2 = {
+  schemaVersion: "2.0.0",
+  ruleKey: "frozen-bishop",
+  title: "Fou de glace",
+  summary: "Le fou peut geler une cible ennemie pendant deux tours.",
+  category: "special",
+  tags: ["freeze"],
+  affectedPieces: ["bishop"],
+  sides: ["white", "black"],
+  stateNamespace: "rules.frozenBishop",
+  initialStateJson: "{}",
+  actions: [
+    {
+      id: "freeze-target",
+      label: "Geler",
+      description: "Gèle une pièce ennemie.",
+      targetingMode: "piece",
+      validTilesProvider: "provider.enemyPieces",
+      consumesTurn: true,
+      cooldownTurns: 3,
+      maxPerPiece: 4,
+      requiresSelection: true,
+      pieceTypes: ["bishop"],
+    },
+  ],
+  triggers: [
+    {
+      id: "freeze-target-trigger",
+      event: "ui.action",
+      actionId: "freeze-target",
+      priority: 10,
+      conditions: [],
+      effects: [
+        {
+          id: "apply-freeze",
+          op: "status.add",
+          arguments: [],
+        },
+        {
+          id: "play-ice-effect",
+          op: "vfx.play",
+          arguments: [],
+        },
+      ],
+      onFailure: "blockAction",
+      message: "Cible invalide.",
+    },
+  ],
+  balance: {
+    powerLevel: 3,
+    counterplay: ["Éloigner les pièces du fou."],
+    limitations: ["Cooldown de trois tours."],
+  },
+  explanation: {
+    plainLanguage: "Sélectionne un fou puis une cible ennemie pour la geler.",
+    examples: ["Le fou gèle une tour ennemie pendant deux tours."],
+  },
+};
+
+const contract = (approvedAdaptation = ""): RuleIntentContract => ({
+  version: 1,
+  originalPrompt:
+    "Le fou gèle une cible ennemie et joue une animation de glace.",
+  requirements: [
+    {
+      id: "freeze-enemy",
+      statement: "Le fou gèle une cible ennemie.",
+      importance: "core",
+      feasibility: "direct",
+      approvedAdaptation: "",
+    },
+    {
+      id: "ice-animation",
+      statement: "Une animation de glace accompagne l’effet.",
+      importance: "cosmetic",
+      feasibility: "adaptable",
+      approvedAdaptation,
+    },
+  ],
+  decisions: [],
+});
+
+const signedGuidance = (): Record<string, unknown> => ({
+  draftPrompt:
+    "Le fou gèle une pièce ennemie pendant deux tours avec un cooldown.",
+  requirements: [
+    {
+      id: "freeze-enemy",
+      statement: "Le fou gèle une cible ennemie.",
+      importance: "core",
+      feasibility: "direct",
+      adaptation: "",
+    },
+  ],
+  questions: [
+    {
+      id: "freeze-duration",
+      question: "Combien de tours dure le gel ?",
+      selectionMode: "single",
+      minSelections: 1,
+      maxSelections: 1,
+      choices: [
+        { id: "one-turn", label: "Un tour", description: "Gel court." },
+        { id: "two-turns", label: "Deux tours", description: "Gel équilibré." },
+        { id: "three-turns", label: "Trois tours", description: "Gel long." },
+      ],
+    },
+    {
+      id: "freeze-cooldown",
+      question: "Quel délai de récupération appliquer ?",
+      selectionMode: "single",
+      minSelections: 1,
+      maxSelections: 1,
+      choices: [
+        { id: "two-turns", label: "Deux tours", description: "Délai court." },
+        {
+          id: "three-turns",
+          label: "Trois tours",
+          description: "Délai équilibré.",
+        },
+        {
+          id: "four-turns",
+          label: "Quatre tours",
+          description: "Délai prudent.",
+        },
+      ],
+    },
+  ],
+  adjustments: [],
+  remainingUncertainty: [],
+});
+
+Deno.test("rule-coverage: bloque une adaptation non approuvée", () => {
+  const result = evaluateRuleCoverage({
+    contract: contract(),
+    blueprint,
+    audit: {
+      exactIntentPreserved: false,
+      summary: "La mécanique est présente mais l’animation a été adaptée.",
+      requirements: [
+        {
+          id: "freeze-enemy",
+          status: "implemented",
+          evidencePaths: ["$.triggers[0].effects[0]"],
+          explanation: "Le statut de gel est appliqué par le trigger.",
+          adaptation: "",
+          userApproved: false,
+        },
+        {
+          id: "ice-animation",
+          status: "adapted",
+          evidencePaths: ["$.triggers[0].effects[0]"],
+          explanation: "L’effet visuel utilise le mécanisme disponible.",
+          adaptation: "Effet visuel générique.",
+          userApproved: true,
+        },
+      ],
+    },
+  });
+
+  assert(!result.assessment.complete);
+  assertEquals(result.assessment.score, 75);
+  assert(
+    result.diagnostics.some(
+      (item) => item.code === "COVERAGE_ADAPTATION_NOT_APPROVED",
+    ),
+  );
+});
+
+Deno.test(
+  "rule-coverage: accepte uniquement une adaptation explicitement approuvée",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: contract("Utiliser l’effet visuel géré disponible."),
+      blueprint,
+      audit: {
+        exactIntentPreserved: false,
+        summary: "Toutes les exigences sont couvertes.",
+        requirements: [
+          {
+            id: "freeze-enemy",
+            status: "implemented",
+            evidencePaths: ["$.triggers[0].effects[0]"],
+            explanation: "Le statut de gel est appliqué.",
+            adaptation: "",
+            userApproved: false,
+          },
+          {
+            id: "ice-animation",
+            status: "adapted",
+            evidencePaths: ["$.triggers[0].effects[1]"],
+            explanation: "L’animation gérée accompagne le trigger.",
+            adaptation: "Utiliser l’effet visuel géré disponible.",
+            userApproved: true,
+          },
+        ],
+      },
+    });
+
+    assert(result.assessment.complete);
+    assert(!result.assessment.exactIntentPreserved);
+    assertEquals(result.assessment.score, 100);
+    assertEquals(result.diagnostics, []);
+  },
+);
+
+Deno.test(
+  "rule-coverage: refuse une adaptation différente de celle approuvée",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: {
+        ...contract("Utiliser l’effet visuel géré disponible."),
+        requirements: [
+          contract("Utiliser l’effet visuel géré disponible.").requirements[1],
+        ],
+      },
+      blueprint,
+      audit: {
+        exactIntentPreserved: false,
+        summary: "L’audit tente de substituer une autre adaptation.",
+        requirements: [
+          {
+            id: "ice-animation",
+            status: "adapted",
+            evidencePaths: ["$.triggers[0].effects[1]"],
+            explanation: "Une autre animation a été utilisée.",
+            adaptation: "Supprimer entièrement l’animation.",
+            userApproved: true,
+          },
+        ],
+      },
+    });
+
+    assert(!result.assessment.complete);
+    assertEquals(
+      result.diagnostics[0]?.code,
+      "COVERAGE_ADAPTATION_NOT_APPROVED",
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: une description seule ne prouve pas une mécanique",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: {
+        ...contract(),
+        requirements: [contract().requirements[0]],
+      },
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "Couverture annoncée sans logique.",
+        requirements: [
+          {
+            id: "freeze-enemy",
+            status: "implemented",
+            evidencePaths: ["$.explanation.plainLanguage"],
+            explanation: "La description affirme que la règle existe.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assert(!result.assessment.complete);
+    assertEquals(result.diagnostics[0]?.code, "COVERAGE_EVIDENCE_MISSING");
+  },
+);
+
+Deno.test("rule-coverage: refuse les identifiants dupliqués", () => {
+  assertThrows(
+    () =>
+      normalizeRuleIntentContract(
+        {
+          originalPrompt: "Une règle assez longue pour être validée.",
+          requirements: [
+            {
+              id: "same-id",
+              statement: "Première exigence.",
+              importance: "core",
+              feasibility: "direct",
+              approvedAdaptation: "",
+            },
+            {
+              id: "same-id",
+              statement: "Deuxième exigence.",
+              importance: "supporting",
+              feasibility: "direct",
+              approvedAdaptation: "",
+            },
+          ],
+          decisions: [],
+        },
+        "Une règle assez longue pour être validée.",
+      ),
+    Error,
+    "INTENT_CONTRACT_REQUIREMENT_INVALID",
+  );
+});
+
+Deno.test(
+  "rule-coverage: transforme chaque réponse signée en exigence auditée",
+  () => {
+    const result = buildSignedGuidanceCompilation({
+      originalPrompt: "Le fou gèle une cible ennemie pendant deux tours.",
+      guidance: signedGuidance(),
+      selections: {
+        answers: {
+          "freeze-duration": ["two-turns"],
+          "freeze-cooldown": ["three-turns"],
+        },
+        acceptedAdjustmentIds: [],
+      },
+    });
+
+    assertEquals(result.contract.requirements.length, 4);
+    assert(
+      result.contract.requirements.some(
+        (item) =>
+          item.id.startsWith("decision-") &&
+          item.statement.includes("Gel équilibré"),
+      ),
+    );
+    assert(result.compilerPrompt.length <= 6_000);
+  },
+);
+
+Deno.test(
+  "rule-coverage: refuse un questionnaire signé ambigu ou tronqué",
+  () => {
+    const tooManyRequirements = signedGuidance();
+    tooManyRequirements.requirements = Array.from(
+      { length: 21 },
+      (_, index) => ({
+        id: `requirement-${index + 1}`,
+        statement: `Exigence indépendante numéro ${index + 1}.`,
+        importance: "core",
+        feasibility: "direct",
+        adaptation: "",
+      }),
+    );
+
+    assertThrows(
+      () =>
+        buildSignedGuidanceCompilation({
+          originalPrompt:
+            "Une variante comporte plus de vingt clauses indépendantes.",
+          guidance: tooManyRequirements,
+          selections: {
+            answers: {
+              "freeze-duration": ["two-turns"],
+              "freeze-cooldown": ["three-turns"],
+            },
+            acceptedAdjustmentIds: [],
+          },
+        }),
+      Error,
+      "SIGNED_GUIDANCE_INVALID",
+    );
+
+    const duplicateQuestion = signedGuidance();
+    const questions = duplicateQuestion.questions as Array<
+      Record<string, unknown>
+    >;
+    questions[1] = { ...questions[1], id: "freeze-duration" };
+    assertThrows(
+      () =>
+        buildSignedGuidanceCompilation({
+          originalPrompt: "Le fou gèle une cible ennemie pendant deux tours.",
+          guidance: duplicateQuestion,
+          selections: {
+            answers: { "freeze-duration": ["two-turns"] },
+            acceptedAdjustmentIds: [],
+          },
+        }),
+      Error,
+      "SIGNED_GUIDANCE_QUESTION_INVALID",
+    );
+  },
+);
