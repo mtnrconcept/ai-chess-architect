@@ -16,42 +16,39 @@ export type Database = {
     Tables: {
       api_registry: {
         Row: {
-          api_key_env: string | null
-          category: string | null
+          active: boolean
+          category: "supabase" | "edge_function" | "coach_api" | "http"
+          config: Json
           created_at: string
-          endpoint_url: string
           id: string
-          is_active: boolean | null
-          last_checked_at: string | null
-          metadata: Json | null
-          service_name: string
-          status: string | null
+          method: string | null
+          notes: string | null
+          service: string
+          target: string
           updated_at: string
         }
         Insert: {
-          api_key_env?: string | null
-          category?: string | null
+          active?: boolean
+          category: "supabase" | "edge_function" | "coach_api" | "http"
+          config?: Json
           created_at?: string
-          endpoint_url: string
           id?: string
-          is_active?: boolean | null
-          last_checked_at?: string | null
-          metadata?: Json | null
-          service_name: string
-          status?: string | null
+          method?: string | null
+          notes?: string | null
+          service: string
+          target: string
           updated_at?: string
         }
         Update: {
-          api_key_env?: string | null
-          category?: string | null
+          active?: boolean
+          category?: "supabase" | "edge_function" | "coach_api" | "http"
+          config?: Json
           created_at?: string
-          endpoint_url?: string
           id?: string
-          is_active?: boolean | null
-          last_checked_at?: string | null
-          metadata?: Json | null
-          service_name?: string
-          status?: string | null
+          method?: string | null
+          notes?: string | null
+          service?: string
+          target?: string
           updated_at?: string
         }
         Relationships: []

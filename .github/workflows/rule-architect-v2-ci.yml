@@ -123,7 +123,7 @@ jobs:
           deno-version: v2.9.3
           cache: true
 
-      - name: Type-check seven Edge entrypoints
+      - name: Type-check eight Edge entrypoints
         shell: bash
         run: |
           set -o pipefail
@@ -135,6 +135,7 @@ jobs:
             supabase/functions/create-rule-lobby-v2/index.ts \
             supabase/functions/join-rule-lobby-v2/index.ts \
             supabase/functions/process-chess-move/index.ts \
+            supabase/functions/integration-health/index.ts \
             2>&1 | tee deno-check.log
 
       - name: Upload Deno diagnostics on failure

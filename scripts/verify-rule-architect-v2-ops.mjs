@@ -115,6 +115,7 @@ for (const functionName of [
   "create-rule-lobby-v2",
   "join-rule-lobby-v2",
   "process-chess-move",
+  "integration-health",
 ]) {
   const handler = read(`supabase/functions/${functionName}/index.ts`);
   if (/console\.error\([^\n]*message/.test(handler)) {
@@ -187,6 +188,7 @@ if (!denoCheckBlock) {
 for (const edgeEntrypoint of [
   "supabase/functions/create-rule-lobby-v2/index.ts",
   "supabase/functions/join-rule-lobby-v2/index.ts",
+  "supabase/functions/integration-health/index.ts",
 ]) {
   requireText(
     denoCheckBlock,
@@ -205,14 +207,130 @@ for (const forbiddenBootstrap of [
   }
 }
 
+const deployedFunctionsBlock = deploymentWorkflow.match(
+  /functions=\([\s\S]*?\n\s*\)/,
+)?.[0];
+if (!deployedFunctionsBlock) {
+  throw new Error(
+    "workflow Edge: la liste explicite des fonctions à déployer est introuvable.",
+  );
+}
+
 for (const functionName of [
   "compile-chess-rule",
   "publish-rule-version",
   "create-rule-lobby-v2",
   "join-rule-lobby-v2",
   "process-chess-move",
+  "integration-health",
 ]) {
-  requireText(deploymentWorkflow, functionName, "workflow Edge");
+  requireText(
+    deployedFunctionsBlock,
+    functionName,
+    "allowlist du workflow Edge",
+  );
+}
+
+const generatedSupabaseTypes = read("src/integrations/supabase/types.ts");
+const apiRegistryTypes = generatedSupabaseTypes.match(
+  /api_registry:\s*\{([\s\S]*?)Relationships:\s*\[\]/,
+)?.[1];
+if (!apiRegistryTypes) {
+  throw new Error("types Supabase: le schéma api_registry est introuvable.");
+}
+
+const apiRegistryRow = apiRegistryTypes.match(
+  /Row:\s*\{([\s\S]*?)\n\s*};?\s*\n\s*Insert:/,
+)?.[1];
+const apiRegistryInsert = apiRegistryTypes.match(
+  /Insert:\s*\{([\s\S]*?)\n\s*};?\s*\n\s*Update:/,
+)?.[1];
+const apiRegistryUpdate = apiRegistryTypes.match(
+  /Update:\s*\{([\s\S]*?)\n\s*};?\s*$/,
+)?.[1];
+
+if (!apiRegistryRow || !apiRegistryInsert || !apiRegistryUpdate) {
+  throw new Error(
+    "types Supabase: Row, Insert ou Update manque pour api_registry.",
+  );
+}
+
+const apiCategoryType = '"supabase" | "edge_function" | "coach_api" | "http"';
+const expectedApiRegistryShapes = [
+  [
+    "Row",
+    apiRegistryRow,
+    [
+      "active: boolean",
+      `category: ${apiCategoryType}`,
+      "config: Json",
+      "created_at: string",
+      "id: string",
+      "method: string | null",
+      "notes: string | null",
+      "service: string",
+      "target: string",
+      "updated_at: string",
+    ],
+  ],
+  [
+    "Insert",
+    apiRegistryInsert,
+    [
+      "active?: boolean",
+      `category: ${apiCategoryType}`,
+      "config?: Json",
+      "created_at?: string",
+      "id?: string",
+      "method?: string | null",
+      "notes?: string | null",
+      "service: string",
+      "target: string",
+      "updated_at?: string",
+    ],
+  ],
+  [
+    "Update",
+    apiRegistryUpdate,
+    [
+      "active?: boolean",
+      `category?: ${apiCategoryType}`,
+      "config?: Json",
+      "created_at?: string",
+      "id?: string",
+      "method?: string | null",
+      "notes?: string | null",
+      "service?: string",
+      "target?: string",
+      "updated_at?: string",
+    ],
+  ],
+];
+
+for (const [shapeName, shapeSource, invariants] of expectedApiRegistryShapes) {
+  for (const invariant of invariants) {
+    requireText(
+      shapeSource,
+      invariant,
+      `types Supabase api_registry ${shapeName}`,
+    );
+  }
+}
+
+for (const legacyColumn of [
+  "api_key_env:",
+  "endpoint_url:",
+  "is_active:",
+  "last_checked_at:",
+  "metadata:",
+  "service_name:",
+  "status:",
+]) {
+  if (apiRegistryTypes.includes(legacyColumn)) {
+    throw new Error(
+      `types Supabase api_registry: ancienne colonne encore présente: ${legacyColumn}`,
+    );
+  }
 }
 
 const legacyEdgeDeploy = read("supabase/scripts/deploy-edge-functions.sh");
