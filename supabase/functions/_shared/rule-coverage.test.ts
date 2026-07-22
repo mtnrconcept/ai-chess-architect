@@ -1,8 +1,13 @@
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
 import {
+  buildRuleCoverageAuditPrompt,
+  buildRuleCoverageAuditSystemPrompt,
+  buildRuleCoverageEvidencePathManifest,
   buildSignedGuidanceCompilation,
   evaluateRuleCoverage,
   normalizeRuleIntentContract,
+  RULE_COVERAGE_AUDIT_SCHEMA,
+  RULE_COVERAGE_EVIDENCE_PATH_PATTERN,
   type RuleIntentContract,
 } from "./rule-coverage.ts";
 import {
@@ -152,6 +157,66 @@ const signedGuidance = (): Record<string, unknown> => ({
   adjustments: [],
   remainingUncertainty: [],
 });
+
+Deno.test(
+  "rule-coverage: partage une grammaire stricte pour les preuves",
+  () => {
+    const evidenceSchema =
+      RULE_COVERAGE_AUDIT_SCHEMA.properties.requirements.items.properties
+        .evidencePaths;
+    assertEquals(
+      evidenceSchema.items.pattern,
+      RULE_COVERAGE_EVIDENCE_PATH_PATTERN,
+    );
+
+    const pattern = new RegExp(RULE_COVERAGE_EVIDENCE_PATH_PATTERN);
+    for (const path of [
+      "$.actions[0]",
+      "$.triggers[12]",
+      "$.triggers[1].conditions[2]",
+      "$.triggers[1].effects[2]",
+    ]) {
+      assert(pattern.test(path), path);
+    }
+    for (const path of [
+      "$.actions[0].cooldownTurns",
+      "$.triggers[0].effects[0].op",
+      "$.triggers[0].effects[0].arguments[0]",
+      "$.logic.effects[0]",
+      "$.triggers[*]",
+      "$.triggers[1000]",
+    ]) {
+      assert(!pattern.test(path), path);
+    }
+  },
+);
+
+Deno.test(
+  "rule-coverage: fournit le manifeste exact des preuves disponibles",
+  () => {
+    const manifest = buildRuleCoverageEvidencePathManifest(blueprint);
+    assertEquals(manifest, [
+      "$.actions[0]",
+      "$.triggers[0]",
+      "$.triggers[0].effects[0]",
+      "$.triggers[0].effects[1]",
+    ]);
+
+    const prompt = buildRuleCoverageAuditPrompt({
+      contract: contract(),
+      blueprint,
+    });
+    for (const path of manifest) assert(prompt.includes(path), path);
+    assert(prompt.includes("<BLUEPRINT_V2_VALIDE>"));
+    assert(prompt.includes("<CHEMINS_PREUVE_AUTORISES>"));
+    assert(!prompt.includes("<BLUEPRINT_COMPILE>"));
+
+    const systemPrompt = buildRuleCoverageAuditSystemPrompt();
+    assert(systemPrompt.includes("au moins un evidencePath"));
+    assert(systemPrompt.includes("$.triggers[N].conditions[M]"));
+    assert(systemPrompt.includes("Ne suffixe jamais"));
+  },
+);
 
 Deno.test("rule-coverage: bloque une adaptation non approuvée", () => {
   const result = evaluateRuleCoverage({
@@ -324,6 +389,105 @@ Deno.test(
     });
 
     assert(!result.assessment.complete);
+    assertEquals(result.diagnostics[0]?.code, "COVERAGE_EVIDENCE_PATH_INVALID");
+  },
+);
+
+Deno.test(
+  "rule-coverage: refuse tout mélange de preuves valides et invalides",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: {
+        ...contract(),
+        requirements: [contract().requirements[0]],
+      },
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "Une preuve valide masque une preuve feuille invalide.",
+        requirements: [
+          {
+            id: "freeze-enemy",
+            status: "implemented",
+            evidencePaths: [
+              "$.triggers[0].effects[0]",
+              "$.triggers[0].effects[0].op",
+            ],
+            explanation: "Le trigger applique le statut.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assert(!result.assessment.complete);
+    assertEquals(result.assessment.score, 0);
+    assertEquals(result.assessment.requirements[0].evidencePaths, []);
+    assertEquals(result.diagnostics[0]?.code, "COVERAGE_EVIDENCE_PATH_INVALID");
+  },
+);
+
+for (const [label, evidencePaths] of [
+  ["doublon", ["$.actions[0]", "$.actions[0]"]],
+  ["espace périphérique", [" $.actions[0]"]],
+  ["indice hors limites", ["$.actions[9]"]],
+  ["valeur non textuelle", [42]],
+  ["plus de huit chemins", Array.from({ length: 9 }, () => "$.actions[0]")],
+] as Array<[string, unknown[]]>) {
+  Deno.test(`rule-coverage: refuse une preuve invalide (${label})`, () => {
+    const result = evaluateRuleCoverage({
+      contract: {
+        ...contract(),
+        requirements: [contract().requirements[0]],
+      },
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "La preuve est structurellement invalide.",
+        requirements: [
+          {
+            id: "freeze-enemy",
+            status: "implemented",
+            evidencePaths,
+            explanation: "Preuve de test invalide.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assert(!result.assessment.complete);
+    assertEquals(result.diagnostics[0]?.code, "COVERAGE_EVIDENCE_PATH_INVALID");
+  });
+}
+
+Deno.test(
+  "rule-coverage: distingue une preuve vide d'une preuve invalide",
+  () => {
+    const result = evaluateRuleCoverage({
+      contract: {
+        ...contract(),
+        requirements: [contract().requirements[0]],
+      },
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "Aucune preuve n'est fournie.",
+        requirements: [
+          {
+            id: "freeze-enemy",
+            status: "implemented",
+            evidencePaths: [],
+            explanation: "Aucune preuve disponible.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
     assertEquals(result.diagnostics[0]?.code, "COVERAGE_EVIDENCE_MISSING");
   },
 );

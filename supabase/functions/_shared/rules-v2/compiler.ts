@@ -796,6 +796,19 @@ function analyzeBlueprint(
     }
 
     if (
+      (action.cooldownTurns > 0 || action.maxPerPiece > 0) &&
+      !action.requiresSelection
+    ) {
+      pushDiagnostic(
+        diagnostics,
+        "ACTION_PIECE_LIMIT_REQUIRES_SELECTION",
+        "error",
+        `${actionPath}.requiresSelection`,
+        "Un cooldown ou une limite par pièce exige une pièce source sélectionnée.",
+      );
+    }
+
+    if (
       action.cooldownTurns === 0 &&
       action.maxPerPiece === 0 &&
       !action.consumesTurn

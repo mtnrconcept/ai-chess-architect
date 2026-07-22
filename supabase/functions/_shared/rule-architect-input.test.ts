@@ -10,6 +10,30 @@ import {
   prepareRuleArchitectInput,
 } from "./rule-architect-input.ts";
 import { PromptSecurityError } from "./prompt-security.ts";
+import {
+  buildRuleArchitectSystemPrompt,
+  RULE_ACTION_SEMANTICS,
+} from "./rule-architect-prompt.ts";
+
+Deno.test(
+  "rule-architect-prompt: décrit le cooldown par pièce comme capacité directe",
+  () => {
+    const prompt = buildRuleArchitectSystemPrompt();
+
+    assert(prompt.includes(RULE_ACTION_SEMANTICS));
+    for (const fragment of [
+      "requiresSelection=true",
+      "cooldownTurns=N",
+      "0 à 20",
+      "séparément à chaque pièce",
+      'feasibility="direct"',
+      'adaptation=""',
+      "partagé, global ou par camp",
+    ]) {
+      assert(prompt.includes(fragment), fragment);
+    }
+  },
+);
 
 Deno.test(
   "rule-architect-input: ajoute un catalogue serveur vide quand aucun asset n'est validé",
