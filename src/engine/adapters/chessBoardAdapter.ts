@@ -1,11 +1,4 @@
-import type {
-  BoardAPI,
-  Piece,
-  PieceID,
-  Side,
-  SpriteId,
-  Tile,
-} from "../types";
+import type { BoardAPI, Piece, PieceID, Side, SpriteId, Tile } from "../types";
 import type { ChessPiece, Position } from "@/types/chess";
 
 type ChessPieceWithEngineId = ChessPiece & { __engineId?: PieceID };
@@ -58,7 +51,7 @@ export class ChessBoardAdapter implements BoardAPI {
   private decalChangeListener?: DecalChangeListener;
 
   constructor(board: ChessBoardSnapshot) {
-    this.board = cloneBoard(board);
+    this.board = board;
     this.rebuildPieceMap(board);
   }
 
@@ -196,7 +189,10 @@ export class ChessBoardAdapter implements BoardAPI {
   getPiece(id: PieceID): Piece {
     const entry = this.pieceMap.get(id);
     if (!entry) throw new Error(`Piece not found: ${id}`);
-    if (!entry.piece.specialState || typeof entry.piece.specialState !== "object") {
+    if (
+      !entry.piece.specialState ||
+      typeof entry.piece.specialState !== "object"
+    ) {
       entry.piece.specialState = {};
     }
 
@@ -229,13 +225,12 @@ export class ChessBoardAdapter implements BoardAPI {
     }
 
     const source = clonePosition(entry.position);
-    const nextBoard = cloneBoard(this.board);
-    nextBoard[source.row][source.col] = null;
+    this.board[source.row][source.col] = null;
 
-    const movedPiece = clonePiece(entry.piece);
+    const movedPiece = entry.piece;
     movedPiece.position = clonePosition(destination);
-    nextBoard[destination.row][destination.col] = movedPiece;
-    this.board = nextBoard;
+    movedPiece.hasMoved = true;
+    this.board[destination.row][destination.col] = movedPiece;
 
     this.positionMap.delete(this.positionToTile(source));
     this.positionMap.set(tile, id);
@@ -246,9 +241,7 @@ export class ChessBoardAdapter implements BoardAPI {
   removePiece(id: PieceID): void {
     const entry = this.pieceMap.get(id);
     if (!entry) return;
-    const nextBoard = cloneBoard(this.board);
-    nextBoard[entry.position.row][entry.position.col] = null;
-    this.board = nextBoard;
+    this.board[entry.position.row][entry.position.col] = null;
     this.pieceMap.delete(id);
     this.positionMap.delete(this.positionToTile(entry.position));
     this.emitBoardChange();
@@ -269,9 +262,7 @@ export class ChessBoardAdapter implements BoardAPI {
     const id = this.generatePieceId();
     piece.__engineId = id;
 
-    const nextBoard = cloneBoard(this.board);
-    nextBoard[position.row][position.col] = piece;
-    this.board = nextBoard;
+    this.board[position.row][position.col] = piece;
     this.pieceMap.set(id, { piece, position });
     this.positionMap.set(tile, id);
     this.emitBoardChange();
@@ -290,7 +281,10 @@ export class ChessBoardAdapter implements BoardAPI {
     if (!entry) throw new Error(`Piece not found: ${id}`);
     const safeKey = String(key).trim().slice(0, 80);
     if (!safeKey) throw new Error("Status key is required");
-    if (!entry.piece.specialState || typeof entry.piece.specialState !== "object") {
+    if (
+      !entry.piece.specialState ||
+      typeof entry.piece.specialState !== "object"
+    ) {
       entry.piece.specialState = {};
     }
     (entry.piece.specialState as Record<string, unknown>)[safeKey] =
@@ -301,7 +295,10 @@ export class ChessBoardAdapter implements BoardAPI {
   clearPieceStatus(id: PieceID, key: string): void {
     const entry = this.pieceMap.get(id);
     if (!entry) throw new Error(`Piece not found: ${id}`);
-    if (entry.piece.specialState && typeof entry.piece.specialState === "object") {
+    if (
+      entry.piece.specialState &&
+      typeof entry.piece.specialState === "object"
+    ) {
       delete (entry.piece.specialState as Record<string, unknown>)[key];
       this.emitBoardChange();
     }
@@ -309,7 +306,10 @@ export class ChessBoardAdapter implements BoardAPI {
 
   neighbors(tile: Tile, radius = 1): Tile[] {
     const origin = this.assertTile(tile);
-    const safeRadius = Math.max(1, Math.min(BOARD_SIZE - 1, Math.floor(radius)));
+    const safeRadius = Math.max(
+      1,
+      Math.min(BOARD_SIZE - 1, Math.floor(radius)),
+    );
     const result: Tile[] = [];
     for (let rowDelta = -safeRadius; rowDelta <= safeRadius; rowDelta += 1) {
       for (let colDelta = -safeRadius; colDelta <= safeRadius; colDelta += 1) {
@@ -377,7 +377,12 @@ export class ChessBoardAdapter implements BoardAPI {
       throw new Error("Invalid board snapshot.");
     }
 
-    this.board = cloneBoard(parsed.board);
+    const restoredBoard = cloneBoard(parsed.board);
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      for (let col = 0; col < BOARD_SIZE; col += 1) {
+        this.board[row][col] = restoredBoard[row][col];
+      }
+    }
     this.decals.clear();
     for (const entry of parsed.decals ?? []) {
       if (
@@ -398,7 +403,7 @@ export class ChessBoardAdapter implements BoardAPI {
   }
 
   updateBoard(newBoard: ChessBoardSnapshot): void {
-    this.board = cloneBoard(newBoard);
+    this.board = newBoard;
     this.rebuildPieceMap(newBoard);
   }
 }
