@@ -39,7 +39,7 @@ export const CONDITION_CATALOG: Record<ConditionOp, OperationSpec> = {
   "cooldown.ready": {
     args: {
       pieceId: opt("scalar"),
-      actionId: opt("scalar"),
+      actionId: opt("string"),
     },
   },
   "tile.isEmpty": { args: {} },
@@ -54,7 +54,7 @@ export const CONDITION_CATALOG: Record<ConditionOp, OperationSpec> = {
   "piece.exists": { args: {} },
   "piece.isSide": {
     args: {
-      side: req("string"),
+      side: req("scalar"),
     },
   },
   "piece.hasStatus": {
@@ -130,7 +130,7 @@ export const EFFECT_CATALOG: Record<EffectOp, OperationSpec> = {
   "cooldown.set": {
     args: {
       pieceId: req("scalar"),
-      actionId: req("scalar"),
+      actionId: req("string"),
       turns: req("number"),
     },
   },

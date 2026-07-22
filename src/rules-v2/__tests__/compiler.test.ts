@@ -221,6 +221,15 @@ describe("compileRuleBlueprint", () => {
 
   it("namespace l'identifiant d'action d'un cooldown", () => {
     const blueprint = structuredClone(validBlueprint);
+    blueprint.triggers[0].conditions.push({
+      id: "cooldown-ready",
+      op: "cooldown.ready",
+      arguments: [
+        arg("pieceId", "token", "$pieceId"),
+        arg("actionId", "string", "teleport"),
+      ],
+      negate: false,
+    });
     blueprint.triggers[0].effects.push({
       id: "set-cooldown",
       op: "cooldown.set",
@@ -237,6 +246,195 @@ describe("compileRuleBlueprint", () => {
     expect(result.compiledRule?.logic.effects[0].do[1].params?.actionId).toBe(
       "teleport-knight.teleport",
     );
+    expect(result.compiledRule?.logic.effects[0].if).toContainEqual([
+      "cooldown.ready",
+      {
+        pieceId: "$pieceId",
+        actionId: "teleport-knight.teleport",
+      },
+    ]);
+  });
+
+  it("refuse une condition cooldown vers une action non déclarée", () => {
+    const invalid = structuredClone(validBlueprint);
+    invalid.triggers[0].conditions.push({
+      id: "unknown-cooldown",
+      op: "cooldown.ready",
+      arguments: [arg("actionId", "string", "missing-action")],
+      negate: false,
+    });
+
+    const result = compileRuleBlueprint(invalid);
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics.some(
+        (item) => item.code === "UNKNOWN_COOLDOWN_ACTION",
+      ),
+    ).toBe(true);
+  });
+
+  it("exige une action explicite pour un cooldown de cycle de vie", () => {
+    const invalid = structuredClone(validBlueprint);
+    invalid.triggers[0].event = "lifecycle.onEnterTile";
+    invalid.triggers[0].actionId = "";
+    invalid.triggers[0].conditions.push({
+      id: "implicit-cooldown",
+      op: "cooldown.ready",
+      arguments: [],
+      negate: false,
+    });
+
+    const result = compileRuleBlueprint(invalid);
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics.some(
+        (item) => item.code === "COOLDOWN_ACTION_REQUIRED",
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["lifecycle.onTurnStart", "lifecycle.onUndo"] as const)(
+    "refuse cooldown.ready sans pièce source sur %s",
+    (event) => {
+      const invalid = structuredClone(validBlueprint);
+      invalid.triggers[0].event = event;
+      invalid.triggers[0].actionId = "";
+      invalid.triggers[0].conditions = [
+        {
+          id: "cooldown-ready",
+          op: "cooldown.ready",
+          arguments: [arg("actionId", "string", "teleport")],
+          negate: false,
+        },
+      ];
+      invalid.triggers[0].effects = [
+        {
+          id: "notice",
+          op: "ui.toast",
+          arguments: [arg("message", "string", "Test")],
+        },
+      ];
+
+      const result = compileRuleBlueprint(invalid);
+
+      expect(result.ok).toBe(false);
+      expect(
+        result.diagnostics.some(
+          (item) => item.code === "SOURCE_PIECE_UNAVAILABLE",
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it("refuse cooldown.ready sans sélection de pièce sur une action UI", () => {
+    const invalid = structuredClone(validBlueprint);
+    invalid.actions[0].requiresSelection = false;
+    invalid.triggers[0].conditions = [
+      {
+        id: "cooldown-ready",
+        op: "cooldown.ready",
+        arguments: [],
+        negate: false,
+      },
+    ];
+    invalid.triggers[0].effects = [
+      {
+        id: "notice",
+        op: "ui.toast",
+        arguments: [arg("message", "string", "Test")],
+      },
+    ];
+
+    const result = compileRuleBlueprint(invalid);
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics.some(
+        (item) => item.code === "SOURCE_PIECE_UNAVAILABLE",
+      ),
+    ).toBe(true);
+  });
+
+  it("refuse un token de condition indisponible pour l'événement", () => {
+    const invalid = structuredClone(validBlueprint);
+    invalid.triggers[0].event = "lifecycle.onEnterTile";
+    invalid.triggers[0].actionId = "";
+    invalid.triggers[0].conditions = [
+      {
+        id: "cooldown-ready",
+        op: "cooldown.ready",
+        arguments: [
+          arg("pieceId", "token", "$targetPieceId"),
+          arg("actionId", "string", "teleport"),
+        ],
+        negate: false,
+      },
+    ];
+    invalid.triggers[0].effects = [
+      {
+        id: "notice",
+        op: "ui.toast",
+        arguments: [arg("message", "string", "Test")],
+      },
+    ];
+
+    const result = compileRuleBlueprint(invalid);
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics.some(
+        (item) => item.code === "TOKEN_UNAVAILABLE_FOR_EVENT",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepte le côté courant pour piece.isSide", () => {
+    const blueprint = structuredClone(validBlueprint);
+    blueprint.triggers[0].conditions.push({
+      id: "current-side",
+      op: "piece.isSide",
+      arguments: [arg("side", "token", "$ctx.side")],
+      negate: false,
+    });
+
+    const result = compileRuleBlueprint(blueprint);
+
+    expect(result.ok).toBe(true);
+    expect(result.compiledRule?.logic.effects[0].if).toContainEqual([
+      "piece.isSide",
+      { side: "$ctx.side" },
+    ]);
+  });
+
+  it("refuse une valeur de côté non sémantique pour piece.isSide", () => {
+    const blueprint = structuredClone(validBlueprint);
+    blueprint.triggers[0].conditions.push({
+      id: "invalid-side",
+      op: "piece.isSide",
+      arguments: [arg("side", "number", 1)],
+      negate: false,
+    });
+
+    const result = compileRuleBlueprint(blueprint);
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics.some((item) => item.code === "SIDE_REFERENCE_INVALID"),
+    ).toBe(true);
+
+    blueprint.triggers[0].conditions[1].arguments[0] = arg(
+      "side",
+      "token",
+      "$pieceId",
+    );
+    const invalidTokenResult = compileRuleBlueprint(blueprint);
+    expect(
+      invalidTokenResult.diagnostics.some(
+        (item) => item.code === "SIDE_REFERENCE_INVALID",
+      ),
+    ).toBe(true);
   });
 
   it("refuse un provider de pièces pour une cible case", () => {

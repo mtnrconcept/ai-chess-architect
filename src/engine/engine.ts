@@ -21,6 +21,7 @@ import {
   createDeterministicRandom,
   EFFECT_OPS,
   PROVIDERS,
+  RULE_EVENTS,
   RuntimeBudget,
   RuntimeBudgetExceededError,
 } from "../rules-v2";
@@ -59,6 +60,11 @@ const BLOCKED_LEGACY_EFFECTS = new Set([
 const V2_CONDITIONS = new Set<string>(CONDITION_OPS);
 const V2_EFFECTS = new Set<string>(EFFECT_OPS);
 const V2_PROVIDERS = new Set<string>(PROVIDERS);
+const V2_LIFECYCLE_EVENTS = new Set<string>(
+  RULE_EVENTS.filter((event) => event !== "ui.action"),
+);
+const V2_COMPILED_ACTION_ID_PATTERN =
+  /^[a-z][a-z0-9-]{2,49}\.[a-z][a-z0-9-]{1,39}$/;
 
 const cloneRule = (rule: RuleJSON): RuleJSON =>
   JSON.parse(JSON.stringify(rule)) as RuleJSON;
@@ -92,6 +98,43 @@ const isV2ConditionTree = (value: unknown, depth = 0): boolean => {
     );
   }
   return typeof operation === "string" && V2_CONDITIONS.has(operation);
+};
+
+const scopeCooldownReadyConditionTree = (
+  value: unknown,
+  actionIds: ReadonlyMap<string, string>,
+  allowImplicitActionId: boolean,
+  depth = 0,
+): boolean => {
+  if (depth > 8) return false;
+  if (typeof value === "string") {
+    return value !== "cooldown.ready" || allowImplicitActionId;
+  }
+  if (!Array.isArray(value) || value.length === 0) return false;
+
+  const [operation, ...args] = value;
+  if (operation === "not" || operation === "and" || operation === "or") {
+    return args.every((item) =>
+      scopeCooldownReadyConditionTree(
+        item,
+        actionIds,
+        allowImplicitActionId,
+        depth + 1,
+      ),
+    );
+  }
+  if (operation !== "cooldown.ready") return true;
+
+  if (args.length === 0) return allowImplicitActionId;
+  const params = args[0];
+  if (args.length !== 1 || !isRecord(params)) return false;
+  if (!("actionId" in params)) return allowImplicitActionId;
+  if (typeof params.actionId !== "string") return false;
+
+  const scopedId = actionIds.get(params.actionId);
+  if (!scopedId) return false;
+  params.actionId = scopedId;
+  return true;
 };
 
 export class RuleEngine {
@@ -198,10 +241,30 @@ export class RuleEngine {
     }
 
     const actionIds = new Map<string, string>();
+    const cooldownActionIds = new Map<string, string>();
+    const blueprintRuleKey = rule.integration?.ruleArchitect?.blueprintRuleKey;
+    const legacyActionPrefix =
+      typeof blueprintRuleKey === "string" &&
+      /^[a-z][a-z0-9-]{2,49}$/.test(blueprintRuleKey)
+        ? `${blueprintRuleKey}.`
+        : null;
     for (const action of rule.ui?.actions ?? []) {
+      if (
+        typeof action.id !== "string" ||
+        !V2_COMPILED_ACTION_ID_PATTERN.test(action.id)
+      ) {
+        console.error(`[RuleEngine] Identifiant d'action V2 invalide.`);
+        return null;
+      }
       if (actionIds.has(action.id)) {
         console.error(
           `[RuleEngine] Action V2 dupliquée dans ${ownerId}: ${action.id}`,
+        );
+        return null;
+      }
+      if (cooldownActionIds.has(action.id)) {
+        console.error(
+          `[RuleEngine] Alias de cooldown ambigu dans ${ownerId}: ${action.id}`,
         );
         return null;
       }
@@ -214,15 +277,45 @@ export class RuleEngine {
       }
       const scopedId = `${ownerId}::${action.id}`;
       actionIds.set(action.id, scopedId);
+      cooldownActionIds.set(action.id, scopedId);
+      if (legacyActionPrefix && action.id.startsWith(legacyActionPrefix)) {
+        const legacyLocalId = action.id.slice(legacyActionPrefix.length);
+        if (/^[a-z][a-z0-9-]{1,39}$/.test(legacyLocalId)) {
+          const existingAlias = cooldownActionIds.get(legacyLocalId);
+          if (existingAlias && existingAlias !== scopedId) {
+            console.error(
+              `[RuleEngine] Alias de cooldown ambigu dans ${ownerId}: ${legacyLocalId}`,
+            );
+            return null;
+          }
+          cooldownActionIds.set(legacyLocalId, scopedId);
+        }
+      }
       action.id = scopedId;
     }
 
     for (const step of rule.logic?.effects ?? []) {
+      if (typeof step.when !== "string") {
+        console.error(`[RuleEngine] Événement V2 invalide dans ${ownerId}.`);
+        return null;
+      }
+      const isUIEvent = step.when.startsWith("ui.");
+      if (!isUIEvent && !V2_LIFECYCLE_EVENTS.has(step.when)) {
+        console.error(`[RuleEngine] Événement V2 inconnu dans ${ownerId}.`);
+        return null;
+      }
       if (step.if !== undefined && !isV2ConditionTree(step.if)) {
         console.error(`[RuleEngine] Condition hors catalogue dans ${ownerId}.`);
         return null;
       }
-      if (step.when.startsWith("ui.")) {
+      if (
+        step.if !== undefined &&
+        !scopeCooldownReadyConditionTree(step.if, cooldownActionIds, isUIEvent)
+      ) {
+        console.error(`[RuleEngine] Cooldown sans action dans ${ownerId}.`);
+        return null;
+      }
+      if (isUIEvent) {
         const originalId = step.when.slice(3);
         const scopedId = actionIds.get(originalId);
         if (!scopedId) {

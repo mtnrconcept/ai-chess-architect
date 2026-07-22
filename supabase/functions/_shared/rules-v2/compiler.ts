@@ -385,6 +385,7 @@ function compileCondition(
   condition: BlueprintCondition,
   path: string,
   diagnostics: RuleDiagnostic[],
+  ruleKey: string,
 ): unknown {
   const params = validateArguments(
     condition.op,
@@ -393,6 +394,13 @@ function compileCondition(
     path,
     diagnostics,
   );
+
+  if (
+    condition.op === "cooldown.ready" &&
+    typeof params.actionId === "string"
+  ) {
+    params.actionId = `${ruleKey}.${params.actionId}`;
+  }
 
   const descriptor: unknown =
     Object.keys(params).length === 0 ? condition.op : [condition.op, params];
@@ -464,6 +472,34 @@ function analyzeBlueprint(
     const conditionOps = new Set(
       trigger.conditions.map((condition) => condition.op),
     );
+
+    for (const [conditionIndex, condition] of trigger.conditions.entries()) {
+      if (condition.op !== "cooldown.ready") continue;
+
+      const actionArgument = condition.arguments.find(
+        (argument) => argument.name === "actionId",
+      );
+      if (!actionArgument && trigger.event !== "ui.action") {
+        pushDiagnostic(
+          diagnostics,
+          "COOLDOWN_ACTION_REQUIRED",
+          "error",
+          `${triggerPath}.conditions[${conditionIndex}].arguments.actionId`,
+          "Un cooldown de cycle de vie doit référencer une action déclarée.",
+        );
+      } else if (
+        actionArgument?.kind === "string" &&
+        !actionIds.has(actionArgument.stringValue)
+      ) {
+        pushDiagnostic(
+          diagnostics,
+          "UNKNOWN_COOLDOWN_ACTION",
+          "error",
+          `${triggerPath}.conditions[${conditionIndex}].arguments.actionId`,
+          "Le cooldown doit référencer une action déclarée dans ce blueprint.",
+        );
+      }
+    }
     const referencedAction =
       trigger.event === "ui.action"
         ? actionsById.get(trigger.actionId)
@@ -507,6 +543,23 @@ function analyzeBlueprint(
       }
     }
 
+    for (const [conditionIndex, condition] of trigger.conditions.entries()) {
+      for (const [argumentIndex, argument] of condition.arguments.entries()) {
+        if (
+          argument.kind === "token" &&
+          !availableTokens.has(argument.stringValue)
+        ) {
+          pushDiagnostic(
+            diagnostics,
+            "TOKEN_UNAVAILABLE_FOR_EVENT",
+            "error",
+            `${triggerPath}.conditions[${conditionIndex}].arguments[${argumentIndex}]`,
+            `Le token ${argument.stringValue} n'est pas disponible pour ${trigger.event}.`,
+          );
+        }
+      }
+    }
+
     for (const [effectIndex, effect] of trigger.effects.entries()) {
       for (const [argumentIndex, argument] of effect.arguments.entries()) {
         if (
@@ -526,6 +579,7 @@ function analyzeBlueprint(
 
     const needsSourcePiece =
       [...conditionOps].some((operation) => operation.startsWith("piece.")) ||
+      conditionOps.has("cooldown.ready") ||
       trigger.effects.some(
         (effect) =>
           effect.op === "piece.promote" &&
@@ -857,6 +911,7 @@ export function compileRuleBlueprint(input: unknown): CompilationResult {
         condition,
         `$.triggers[${triggerIndex}].conditions[${conditionIndex}]`,
         diagnostics,
+        blueprint.ruleKey,
       ),
     );
     const effects = trigger.effects.map((effect, effectIndex) =>
