@@ -24,6 +24,7 @@ declare
     {
       "ruleKey": "coverage-gate-test",
       "stateNamespace": "rules.coverageGateTest",
+      "sides": ["white", "black"],
       "actions": [
         {
           "id": "freeze-target",
@@ -65,6 +66,13 @@ declare
               "importance": "core",
               "feasibility": "direct",
               "approvedAdaptation": ""
+            },
+            {
+              "id": "both-sides",
+              "statement": "The rule is available to both sides.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": ""
             }
           ],
           "decisions": []
@@ -88,6 +96,14 @@ declare
               "status": "implemented",
               "evidencePaths": ["$.actions[0]"],
               "explanation": "The compiled action represents every signed clause.",
+              "adaptation": "",
+              "userApproved": false
+            },
+            {
+              "id": "both-sides",
+              "status": "implemented",
+              "evidencePaths": ["$.sides"],
+              "explanation": "The root scope includes both sides.",
               "adaptation": "",
               "userApproved": false
             }
@@ -299,6 +315,29 @@ begin
   exception
     when check_violation then
       if sqlerrm not like '%RULE_VERSION_COVERAGE_INCOMPLETE%' then
+        raise;
+      end if;
+  end;
+
+  v_invalid := jsonb_set(
+    v_valid_validation,
+    '{metrics,coverage,requirements,0,evidencePaths,0}',
+    '"$.triggers"'::jsonb
+  );
+  begin
+    insert into public.rule_versions (
+      id, blueprint_id, compilation_id, version_number, schema_version,
+      engine_version, legacy_rule_id, blueprint_json, rule_json,
+      content_hash, visibility, validation, created_by
+    ) values (
+      v_version_id, v_blueprint_id, v_compilation_id, 1, '2.0.0',
+      '2.0.0', 'coverage-gate@test-v1', v_blueprint, '{}'::jsonb,
+      repeat('c', 64), 'private', v_invalid, v_user_id
+    );
+    raise exception 'TRIGGER_COLLECTION_EVIDENCE_WAS_ACCEPTED';
+  exception
+    when check_violation then
+      if sqlerrm not like '%RULE_VERSION_COVERAGE_EVIDENCE_INVALID%' then
         raise;
       end if;
   end;

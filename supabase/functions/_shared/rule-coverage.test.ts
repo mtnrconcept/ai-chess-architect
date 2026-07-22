@@ -171,6 +171,7 @@ Deno.test(
 
     const pattern = new RegExp(RULE_COVERAGE_EVIDENCE_PATH_PATTERN);
     for (const path of [
+      "$.sides",
       "$.actions[0]",
       "$.triggers[12]",
       "$.triggers[1].conditions[2]",
@@ -182,6 +183,10 @@ Deno.test(
       "$.actions[0].cooldownTurns",
       "$.triggers[0].effects[0].op",
       "$.triggers[0].effects[0].arguments[0]",
+      "$.sides[0]",
+      "$.triggers",
+      "$.triggers.effects",
+      "$.summary",
       "$.logic.effects[0]",
       "$.triggers[*]",
       "$.triggers[1000]",
@@ -196,6 +201,7 @@ Deno.test(
   () => {
     const manifest = buildRuleCoverageEvidencePathManifest(blueprint);
     assertEquals(manifest, [
+      "$.sides",
       "$.actions[0]",
       "$.triggers[0]",
       "$.triggers[0].effects[0]",
@@ -213,8 +219,53 @@ Deno.test(
 
     const systemPrompt = buildRuleCoverageAuditSystemPrompt();
     assert(systemPrompt.includes("au moins un evidencePath"));
+    assert(systemPrompt.includes("$.sides"));
     assert(systemPrompt.includes("$.triggers[N].conditions[M]"));
     assert(systemPrompt.includes("Ne suffixe jamais"));
+    assert(systemPrompt.includes("camps éligibles"));
+  },
+);
+
+Deno.test(
+  "rule-coverage: prouve le périmètre autoritaire des deux camps",
+  () => {
+    const globalContract: RuleIntentContract = {
+      version: 1,
+      originalPrompt: "La règle vaut pour les deux camps.",
+      requirements: [
+        {
+          id: "both-sides",
+          statement: "La règle est disponible pour les deux camps.",
+          importance: "core",
+          feasibility: "direct",
+          approvedAdaptation: "",
+        },
+      ],
+      decisions: [],
+    };
+    const result = evaluateRuleCoverage({
+      contract: globalContract,
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary: "Le périmètre autoritaire des deux camps est couvert.",
+        requirements: [
+          {
+            id: "both-sides",
+            status: "implemented",
+            evidencePaths: ["$.sides"],
+            explanation: "Le périmètre racine contient les deux camps.",
+            adaptation: "",
+            userApproved: false,
+          },
+        ],
+      },
+    });
+
+    assert(result.assessment.complete);
+    assert(result.assessment.exactIntentPreserved);
+    assertEquals(result.assessment.score, 100);
+    assertEquals(result.diagnostics, []);
   },
 );
 

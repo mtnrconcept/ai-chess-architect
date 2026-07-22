@@ -45,6 +45,9 @@ CONTRAT AUTORITAIRE DES ACTIONS UI
 - Le runtime applique déjà cooldownTurns, maxPerPiece et consumesTurn. Pour une
   action UI, renseigne ces champs sans dupliquer leur comportement avec
   cooldown.ready, cooldown.set, state.* ou turn.end.
+- Le champ racine sides est le périmètre autoritaire appliqué par le runtime à
+  toutes les actions et tous les triggers. sides=["white","black"] réalise
+  directement une règle disponible pour les deux camps.
 `.trim();
 
 export function buildRuleArchitectSystemPrompt(): string {

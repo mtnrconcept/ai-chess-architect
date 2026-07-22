@@ -42,7 +42,7 @@ export interface RuleCoverageAssessment {
 }
 
 export const RULE_COVERAGE_EVIDENCE_PATH_PATTERN =
-  "^(?:\\$\\.actions\\[[0-9]{1,3}\\]|\\$\\.triggers\\[[0-9]{1,3}\\](?:\\.(?:conditions|effects)\\[[0-9]{1,3}\\])?)$";
+  "^(?:\\$\\.sides|\\$\\.actions\\[[0-9]{1,3}\\]|\\$\\.triggers\\[[0-9]{1,3}\\](?:\\.(?:conditions|effects)\\[[0-9]{1,3}\\])?)$";
 
 export interface RuleGuidanceSelections {
   answers: Record<string, string[]>;
@@ -493,7 +493,7 @@ export function buildRuleCoverageAuditPrompt(input: {
 export function buildRuleCoverageEvidencePathManifest(
   blueprint: RuleBlueprintV2,
 ): string[] {
-  const paths: string[] = [];
+  const paths: string[] = ["$.sides"];
 
   blueprint.actions.forEach((_action, actionIndex) => {
     paths.push(`$.actions[${actionIndex}]`);
@@ -532,12 +532,16 @@ Donne des evidencePaths JSON exacts vers le blueprint. Une description, un exemp
 ou une limitation ne prouve jamais à elle seule une mécanique. Ne marque jamais
 userApproved=true sans approvedAdaptation non vide dans l’exigence correspondante.
 Pour chaque statut implemented ou adapted, donne au moins un evidencePath et
-utilise exclusivement l'une de ces quatre formes, sans suffixe de champ :
+utilise exclusivement l'une de ces cinq formes, sans suffixe de champ :
+- $.sides
 - $.actions[N]
 - $.triggers[N]
 - $.triggers[N].conditions[M]
 - $.triggers[N].effects[M]
 où N et M sont les indices décimaux exacts dans le blueprint.
+Le champ racine $.sides est un périmètre autoritaire hérité par toutes les
+actions et tous les triggers. Il prouve les camps éligibles, mais ne prouve pas
+à lui seul qu'une pièce peut jouer hors de son tour.
 Sélectionne chaque chemin exclusivement dans le manifeste
 CHEMINS_PREUVE_AUTORISES. Ne suffixe jamais un chemin par .op, .id,
 .arguments ou un autre champ. Sans chemin du manifeste qui prouve réellement
