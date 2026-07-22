@@ -1,0 +1,61 @@
+name: Runtime Repair V3 AI Settings Source
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-ai-settings-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+      - name: Extract AI settings and component state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/pages/Play.tsx')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          needles = [
+              'type AiDifficulty',
+              'AI_MOVE_DELAY_RANGES',
+              'aiSearchDepth',
+              'const [opponentType',
+              'const [aiDifficulty',
+              'const [aiThinking',
+          ]
+          chunks = []
+          for needle in needles:
+              index = next((i for i, line in enumerate(lines) if needle in line), None)
+              if index is None:
+                  chunks.append(f'NOT FOUND: {needle}')
+                  continue
+              start = max(0, index - 35)
+              end = min(len(lines), index + 55)
+              chunks.append(
+                  f'## {needle}\n' +
+                  '\n'.join(f'{i + 1:04d}: {lines[i]}' for i in range(start, end))
+              )
+          Path('docs/runtime-ai-settings.txt').write_text('\n\n'.join(chunks), encoding='utf-8')
+          PY
+      - name: Commit source extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/runtime-ai-settings.txt
+          git commit -m 'chore(ai): capture existing AI settings'
+          git push origin HEAD:agent/runtime-repair-v3
