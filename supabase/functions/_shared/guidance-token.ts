@@ -31,14 +31,18 @@ const toBase64Url = (bytes: Uint8Array): string => {
     .replace(/=+$/g, "");
 };
 
-const fromBase64Url = (value: string): Uint8Array => {
+const fromBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new Error("GUIDANCE_TOKEN_ENCODING_INVALID");
   }
   const padded = value.replaceAll("-", "+").replaceAll("_", "/");
   const normalized = padded.padEnd(Math.ceil(padded.length / 4) * 4, "=");
   const binary = atob(normalized);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 };
 
 const importSigningKey = async (): Promise<CryptoKey> =>
