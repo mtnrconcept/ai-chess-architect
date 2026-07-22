@@ -1,0 +1,70 @@
+name: Runtime Repair V3 Apply
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - scripts/apply-runtime-repair-v3.py
+      - .github/workflows/runtime-repair-v3-apply.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runtime-repair-v3-apply
+  cancel-in-progress: true
+
+jobs:
+  apply-and-validate:
+    if: github.repository == 'mtnrconcept/ai-chess-architect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+
+      - name: Apply deterministic Play wiring
+        run: python3 scripts/apply-runtime-repair-v3.py
+
+      - name: Commit Play integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pages/Play.tsx
+          git commit -m 'fix(play): wire stable rule runtime and FX' 
+          git push origin HEAD:agent/runtime-repair-v3
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level moderate
+
+      - name: Run unit tests
+        run: pnpm test -- --run
+
+      - name: Type check
+        run: |
+          pnpm exec tsc --noEmit -p tsconfig.app.json
+          pnpm exec tsc --noEmit -p tsconfig.node.json
+
+      - name: Build production bundle
+        run: pnpm build
