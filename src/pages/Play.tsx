@@ -101,9 +101,11 @@ import {
   convertRuleJsonToChessRule,
 } from "@/lib/presetRulesAdapter";
 import { useRuleEngine } from "@/hooks/useRuleEngine";
-import { FxProvider, useFxTrigger } from "@/fx/context";
+import { FxProvider } from "@/fx/context";
 import type { RuleJSON } from "@/engine/types";
 import LiveCoachAvatar from "@/features/coach/LiveCoachAvatar";
+import RuleActionDock from "@/features/play/RuleActionDock";
+import RuleRuntimeBridge from "@/features/play/RuleRuntimeBridge";
 
 /* -------------------------------------------------------------------------- */
 /*                               Helpers locaux                               */
@@ -995,12 +997,57 @@ const Play = () => {
     return jsons;
   }, [combinedActiveRules]);
 
+  const handleRuleBoardChange = useCallback(
+    (nextBoard: (ChessPiece | null)[][]) => {
+      setGameState((previous) => {
+        if (previous.board === nextBoard) return previous;
+        return { ...previous, board: nextBoard };
+      });
+    },
+    [],
+  );
+
+  const handleRuleRuntimeError = useCallback(
+    (message: string) => {
+      safeToast({
+        title: "Règle interrompue",
+        description: message,
+        variant: "destructive",
+      });
+    },
+    [safeToast],
+  );
+
+  const handleRuleTurnEnd = useCallback(() => {
+    setGameState((previous) => {
+      if (previous.gameStatus !== "active" && previous.gameStatus !== "check") {
+        return previous;
+      }
+      const nextPlayer: PieceColor =
+        previous.currentPlayer === "white" ? "black" : "white";
+      return {
+        ...previous,
+        currentPlayer: nextPlayer,
+        turnNumber:
+          previous.currentPlayer === "black"
+            ? previous.turnNumber + 1
+            : previous.turnNumber,
+        movesThisTurn: 0,
+        selectedPiece: null,
+        validMoves: [],
+      };
+    });
+  }, []);
+
   const {
     onEnterTile,
     onMoveCommitted,
     onTurnStart,
     runUIAction,
+    tickCooldowns,
     boardAdapter,
+    uiActions,
+    vfxAdapter,
   } = useRuleEngine(gameState, activeRuleJsons, {
     matchSeed:
       locationState?.ruleArchitectMatchSeed ??
@@ -1008,13 +1055,18 @@ const Play = () => {
       "local-match",
     maxEffectsPerRuleEvent: 128,
     maxNestedDepth: 8,
+    onBoardChange: handleRuleBoardChange,
+    onRuntimeError: handleRuleRuntimeError,
+    onTurnEnd: handleRuleTurnEnd,
   });
 
-  // Déclenche l'événement de début de tour au montage
+  const lastRuleTurnSideRef = useRef<PieceColor | null>(null);
   useEffect(() => {
+    if (lastRuleTurnSideRef.current === gameState.currentPlayer) return;
+    if (lastRuleTurnSideRef.current !== null) tickCooldowns();
+    lastRuleTurnSideRef.current = gameState.currentPlayer;
     onTurnStart(gameState.currentPlayer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [gameState.currentPlayer, onTurnStart, tickCooldowns]);
 
   // À chaque nouveau coup, informer le moteur de règles et démarrer le tour suivant
   useEffect(() => {
@@ -1035,14 +1087,11 @@ const Play = () => {
 
     onMoveCommitted({ pieceId: movedPieceId, from: fromTile, to: toTile });
     onEnterTile(movedPieceId, toTile);
-    onTurnStart(gameState.currentPlayer);
   }, [
     boardAdapter,
     gameState.moveHistory,
-    gameState.currentPlayer,
     onEnterTile,
     onMoveCommitted,
-    onTurnStart,
   ]);
 
   const specialAbilities = useMemo<SpecialAbilityOption[]>(() => {
@@ -1678,11 +1727,13 @@ const Play = () => {
           "Le coach IA est indisponible pour le moment",
         );
         setCoachError(fallbackReason);
-        safeToast({
-          title: "Coach IA indisponible",
-          description: fallbackReason,
-          variant: "destructive",
-        });
+        if (trigger === "manual") {
+          safeToast({
+            title: "Analyse locale activée",
+            description:
+              "Le coach distant est temporairement indisponible. Voltus poursuit avec l’analyse embarquée.",
+          });
+        }
 
         const fallbackMessage = buildCoachFallbackMessage({
           board,
@@ -1791,12 +1842,29 @@ const Play = () => {
     });
   }, []);
 
+  const boardFxRef = useRef<HTMLDivElement>(null);
+  const toFxCellPosition = useCallback((cell: string) => {
+    const boardElement = boardFxRef.current;
+    const cellElement = boardElement?.querySelector<HTMLElement>(
+      `[data-chess-cell="${cell}"]`,
+    );
+    if (!boardElement || !cellElement) return { x: 0, y: 0 };
+    const boardRect = boardElement.getBoundingClientRect();
+    const cellRect = cellElement.getBoundingClientRect();
+    return {
+      x: cellRect.left - boardRect.left + cellRect.width / 2,
+      y: cellRect.top - boardRect.top + cellRect.height / 2,
+    };
+  }, []);
+
   /* ------------------------------------------------------------------------ */
   /*                              Rendu de la page                             */
   /* ------------------------------------------------------------------------ */
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-6">
+    <FxProvider boardRef={boardFxRef} toCellPos={toFxCellPosition}>
+      <RuleRuntimeBridge vfxAdapter={vfxAdapter} />
+      <main className="mx-auto w-full max-w-7xl px-4 py-6">
       <div className="mb-4 flex items-center gap-3">
         <Button
           variant="ghost"
@@ -1880,7 +1948,10 @@ const Play = () => {
 
       {/* Echiquier + Coach */}
       <section className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+        <div
+          ref={boardFxRef}
+          className="relative rounded-lg border border-white/10 bg-black/20 p-4"
+        >
           <ChessBoard
             board={gameState.board}
             selected={gameState.selectedPiece?.position || null}
@@ -1891,6 +1962,20 @@ const Play = () => {
             currentPlayer={gameState.currentPlayer}
             onSquareClick={handleSquareClick}
           />
+          <div className="mt-4">
+            <RuleActionDock
+              actions={uiActions}
+              boardAdapter={boardAdapter}
+              selectedPiecePosition={
+                gameState.selectedPiece?.position ?? null
+              }
+              currentPlayer={gameState.currentPlayer}
+              disabled={
+                gameState.gameStatus !== "active" || waitingForOpponent
+              }
+              runAction={runUIAction}
+            />
+          </div>
         </div>
 
         <aside id="coach-panel" className="flex min-h-[420px] max-h-[75vh] scroll-mt-24 flex-col rounded-lg border border-white/10 bg-black/25 p-4">
@@ -2150,12 +2235,13 @@ const Play = () => {
         enabled={coachEnabled}
         loading={coachLoading}
         message={latestCoachMessage}
-        error={coachError}
+        remoteUnavailable={Boolean(coachError)}
         moveCount={gameState.moveHistory.length}
         onOpen={openCoachPanel}
         onEnable={() => setCoachEnabled(true)}
       />
-    </main>
+      </main>
+    </FxProvider>
   );
 };
 
