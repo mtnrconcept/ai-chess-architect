@@ -48,7 +48,28 @@ export const validateGuidance = (value: unknown): Record<string, unknown> => {
         throw new Error("GUIDANCE_ADAPTATION_MISSING");
       }
       nonDirectRequirementIds.add(requirement.id);
+    } else if (
+      typeof requirement.adaptation !== "string" ||
+      requirement.adaptation.trim().length > 0
+    ) {
+      throw new Error("GUIDANCE_DIRECT_ADAPTATION_INVALID");
     }
+  }
+
+  const expectedFeasibility = [...nonDirectRequirementIds].some(
+    (requirementId) =>
+      (value.requirements as Array<Record<string, unknown>>).some(
+        (requirement) =>
+          requirement.id === requirementId &&
+          requirement.feasibility === "unsupported",
+      ),
+  )
+    ? "unsupported"
+    : nonDirectRequirementIds.size > 0
+      ? "adaptable"
+      : "direct";
+  if (value.feasibility !== expectedFeasibility) {
+    throw new Error("GUIDANCE_FEASIBILITY_MISMATCH");
   }
 
   const questionIds = new Set<string>();
@@ -117,6 +138,9 @@ export const validateGuidance = (value: unknown): Record<string, unknown> => {
         throw new Error("GUIDANCE_ADJUSTMENT_REQUIREMENT_UNKNOWN");
       }
       linkedRequirementIds.add(requirementId);
+      if (!nonDirectRequirementIds.has(requirementId)) {
+        throw new Error("GUIDANCE_ADJUSTMENT_REQUIREMENT_DIRECT");
+      }
       if (nonDirectRequirementIds.has(requirementId)) {
         coveredNonDirectRequirementIds.add(requirementId);
       }

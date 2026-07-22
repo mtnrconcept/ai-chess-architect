@@ -138,3 +138,56 @@ Deno.test(
     );
   },
 );
+
+Deno.test(
+  "rule-guidance-validation: recalcule la faisabilité globale depuis les exigences",
+  () => {
+    const guidance = directGuidance();
+    guidance.feasibility = "adaptable";
+
+    assertThrows(
+      () => validateGuidance(guidance),
+      Error,
+      "GUIDANCE_FEASIBILITY_MISMATCH",
+    );
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: refuse d'adapter une exigence déclarée directe",
+  () => {
+    const guidance = directGuidance();
+    const requirements = guidance.requirements as Array<
+      Record<string, unknown>
+    >;
+    requirements[0].adaptation = "Utiliser un délai partagé.";
+
+    assertThrows(
+      () => validateGuidance(guidance),
+      Error,
+      "GUIDANCE_DIRECT_ADAPTATION_INVALID",
+    );
+  },
+);
+
+Deno.test(
+  "rule-guidance-validation: refuse un ajustement relié à une exigence directe",
+  () => {
+    const guidance = directGuidance();
+    guidance.adjustments = [
+      {
+        id: "shared-cooldown",
+        label: "Cooldown partagé",
+        description: "Remplacer la limite par pièce par une limite partagée.",
+        recommended: false,
+        requirementIds: ["freeze-target"],
+      },
+    ];
+
+    assertThrows(
+      () => validateGuidance(guidance),
+      Error,
+      "GUIDANCE_ADJUSTMENT_REQUIREMENT_DIRECT",
+    );
+  },
+);

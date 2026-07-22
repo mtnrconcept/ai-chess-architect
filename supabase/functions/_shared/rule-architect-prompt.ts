@@ -25,6 +25,28 @@ const catalogLines = (
     })
     .join("\n");
 
+export const RULE_ACTION_SEMANTICS = `
+CONTRAT AUTORITAIRE DES ACTIONS UI
+- Avec requiresSelection=true, cooldownTurns=N (N entier de 0 à 20) applique
+  directement N débuts de tour moteur de recharge, séparément à chaque pièce
+  qui utilise l'action. Cette capacité est exacte et ne doit jamais être
+  remplacée par un cooldown partagé, global ou par camp. Dans le guidage, une
+  telle exigence est feasibility="direct", adaptation="" et n'est liée à aucun
+  adjustment.
+- maxPerPiece=N limite directement chaque pièce à N utilisations ; la valeur 0
+  signifie aucune limite totale supplémentaire.
+- consumesTurn=true termine directement le tour après une exécution réussie.
+- requiresSelection=true fournit la pièce source ; pieceTypes limite les types
+  autorisés et sides limite les camps.
+- provider.neighborsEmpty et provider.emptyTilesInRadius ciblent exactement les
+  cases vides à une case de la pièce source. provider.tilesInRadius cible toutes
+  les cases à une case. Ces rayons ne sont pas configurables.
+- provider.anyEmptyTile cible toute case vide du plateau.
+- Le runtime applique déjà cooldownTurns, maxPerPiece et consumesTurn. Pour une
+  action UI, renseigne ces champs sans dupliquer leur comportement avec
+  cooldown.ready, cooldown.set, state.* ou turn.end.
+`.trim();
+
 export function buildRuleArchitectSystemPrompt(): string {
   return `
 Tu es le compilateur de conception de Voltus Chess.
@@ -80,6 +102,8 @@ Règles impératives :
     phrase exploitable. Ne laisse jamais ces listes vides.
 19. Les actions et triggers doivent réellement exprimer la règle. Les textes
     descriptifs ne remplacent jamais la logique compilable.
+
+${RULE_ACTION_SEMANTICS}
 
 Providers autorisés :
 ${PROVIDERS.map((provider) => `- ${provider}`).join("\n")}

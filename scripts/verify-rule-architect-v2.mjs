@@ -68,6 +68,46 @@ if (/Condition inconnue[\s\S]{0,200}return true/.test(registry)) {
 
 console.log("Rule Architect V2 : invariants vérifiés.");
 
+const guidanceSource = fs.readFileSync(
+  path.join(
+    root,
+    "supabase",
+    "functions",
+    "generate-rule-questions",
+    "index.ts",
+  ),
+  "utf8",
+);
+const architectPromptSource = fs.readFileSync(
+  path.join(
+    root,
+    "supabase",
+    "functions",
+    "_shared",
+    "rule-architect-prompt.ts",
+  ),
+  "utf8",
+);
+
+for (const invariant of [
+  "RULE_ACTION_SEMANTICS",
+  "cooldownTurns=N",
+  'feasibility="direct"',
+  'adaptation=""',
+]) {
+  if (!architectPromptSource.includes(invariant)) {
+    throw new Error(`Contrat natif d'action manquant: ${invariant}`);
+  }
+}
+if (
+  !guidanceSource.includes("import { RULE_ACTION_SEMANTICS }") ||
+  !guidanceSource.includes("${RULE_ACTION_SEMANTICS}")
+) {
+  throw new Error(
+    "Le guidage IA n'intègre plus le contrat autoritaire des actions UI.",
+  );
+}
+
 const requiredRuntimeFiles = [
   "src/engine/bootstrap.ts",
   "src/engine/engine.ts",

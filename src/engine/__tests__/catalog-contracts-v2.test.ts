@@ -659,6 +659,44 @@ describe("Rule Architect V2 catalog contracts", () => {
     expect(lifecycleEngine.getRules()).toHaveLength(0);
   });
 
+  it("isole le cooldown natif pour chaque pièce sélectionnée", () => {
+    const registry = createRegistry();
+    const { contracts } = createHarness();
+    const rule = versionedRule("per-piece-cooldown@v1", [
+      {
+        action: "state.inc",
+        params: { path: "count", by: 1, default: 0 },
+      },
+    ]);
+    rule.ui = {
+      actions: [
+        {
+          id: "per-piece-cooldown.teleport",
+          label: "Téléporter",
+          availability: { requiresSelection: true },
+          targeting: { mode: "none" },
+          cooldown: { perPiece: 3 },
+          consumesTurn: true,
+        },
+      ],
+    };
+    rule.logic!.effects![0].when = "ui.per-piece-cooldown.teleport";
+
+    const engine = new RuleEngine(contracts, registry);
+    engine.loadRules([rule]);
+    const actionId = engine.getUIActions()[0].id;
+
+    expect(engine.runUIAction(actionId, "source").ok).toBe(true);
+    expect(engine.runUIAction(actionId, "source").ok).toBe(false);
+    expect(engine.runUIAction(actionId, "ally").ok).toBe(true);
+
+    engine.onTurnStart("black");
+    engine.onTurnStart("white");
+    expect(engine.runUIAction(actionId, "source").ok).toBe(false);
+    engine.onTurnStart("black");
+    expect(engine.runUIAction(actionId, "source").ok).toBe(true);
+  });
+
   it("refuse les identifiants d'action V2 mal formés sans planter", () => {
     const registry = createRegistry();
     const { contracts } = createHarness();

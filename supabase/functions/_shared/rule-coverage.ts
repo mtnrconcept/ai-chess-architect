@@ -41,6 +41,9 @@ export interface RuleCoverageAssessment {
   requirements: RuleRequirementCoverage[];
 }
 
+export const RULE_COVERAGE_EVIDENCE_PATH_PATTERN =
+  "^(?:\\$\\.actions\\[[0-9]{1,3}\\]|\\$\\.triggers\\[[0-9]{1,3}\\](?:\\.(?:conditions|effects)\\[[0-9]{1,3}\\])?)$";
+
 export interface RuleGuidanceSelections {
   answers: Record<string, string[]>;
   acceptedAdjustmentIds: string[];
@@ -82,7 +85,12 @@ export const RULE_COVERAGE_AUDIT_SCHEMA = {
           evidencePaths: {
             type: "array",
             maxItems: 8,
-            items: { type: "string", minLength: 3, maxLength: 160 },
+            items: {
+              type: "string",
+              minLength: 3,
+              maxLength: 160,
+              pattern: RULE_COVERAGE_EVIDENCE_PATH_PATTERN,
+            },
           },
           explanation: { type: "string", minLength: 5, maxLength: 400 },
           adaptation: { type: "string", maxLength: 400 },
@@ -465,15 +473,42 @@ export function buildRuleCoverageAuditPrompt(input: {
   contract: RuleIntentContract;
   blueprint: RuleBlueprintV2;
 }): string {
+  const evidencePaths = buildRuleCoverageEvidencePathManifest(input.blueprint);
+
   return [
     "<CONTRAT_INTENTION_UTILISATEUR>",
     JSON.stringify(input.contract),
     "</CONTRAT_INTENTION_UTILISATEUR>",
-    "<BLUEPRINT_COMPILE>",
+    "<BLUEPRINT_V2_VALIDE>",
     JSON.stringify(input.blueprint),
-    "</BLUEPRINT_COMPILE>",
+    "</BLUEPRINT_V2_VALIDE>",
+    "<CHEMINS_PREUVE_AUTORISES>",
+    JSON.stringify(evidencePaths),
+    "</CHEMINS_PREUVE_AUTORISES>",
+    "Choisis chaque evidencePath exclusivement dans ce manifeste, sans le modifier ni lui ajouter de suffixe.",
     "Audite chaque exigence par son id exact. Ne fusionne et n’omets aucune exigence.",
   ].join("\n");
+}
+
+export function buildRuleCoverageEvidencePathManifest(
+  blueprint: RuleBlueprintV2,
+): string[] {
+  const paths: string[] = [];
+
+  blueprint.actions.forEach((_action, actionIndex) => {
+    paths.push(`$.actions[${actionIndex}]`);
+  });
+  blueprint.triggers.forEach((trigger, triggerIndex) => {
+    paths.push(`$.triggers[${triggerIndex}]`);
+    trigger.conditions.forEach((_condition, conditionIndex) => {
+      paths.push(`$.triggers[${triggerIndex}].conditions[${conditionIndex}]`);
+    });
+    trigger.effects.forEach((_effect, effectIndex) => {
+      paths.push(`$.triggers[${triggerIndex}].effects[${effectIndex}]`);
+    });
+  });
+
+  return paths;
 }
 
 export function buildRuleCoverageAuditSystemPrompt(): string {
@@ -496,6 +531,17 @@ contradictoire ou adaptée sans accord, elle ne peut jamais être implemented.
 Donne des evidencePaths JSON exacts vers le blueprint. Une description, un exemple
 ou une limitation ne prouve jamais à elle seule une mécanique. Ne marque jamais
 userApproved=true sans approvedAdaptation non vide dans l’exigence correspondante.
+Pour chaque statut implemented ou adapted, donne au moins un evidencePath et
+utilise exclusivement l'une de ces quatre formes, sans suffixe de champ :
+- $.actions[N]
+- $.triggers[N]
+- $.triggers[N].conditions[M]
+- $.triggers[N].effects[M]
+où N et M sont les indices décimaux exacts dans le blueprint.
+Sélectionne chaque chemin exclusivement dans le manifeste
+CHEMINS_PREUVE_AUTORISES. Ne suffixe jamais un chemin par .op, .id,
+.arguments ou un autre champ. Sans chemin du manifeste qui prouve réellement
+l'exigence, n'utilise pas implemented ou adapted.
 Pour le statut adapted, recopie approvedAdaptation mot pour mot dans adaptation ;
 toute autre adaptation sera rejetée.
 exactIntentPreserved vaut true uniquement si toutes les exigences sont implemented,
@@ -536,11 +582,39 @@ function resolveEvidencePath(root: unknown, path: string): unknown {
   return cursor;
 }
 
-const LOGIC_EVIDENCE_PATH =
-  /^(?:\$\.actions\[\d{1,3}\]|\$\.triggers\[\d{1,3}\](?:\.(?:conditions|effects)\[\d{1,3}\])?)$/;
+const LOGIC_EVIDENCE_PATH = new RegExp(RULE_COVERAGE_EVIDENCE_PATH_PATTERN);
 
 const isLogicEvidencePath = (path: string): boolean =>
   LOGIC_EVIDENCE_PATH.test(path);
+
+function validateEvidencePaths(
+  value: unknown,
+  blueprint: RuleBlueprintV2,
+): { paths: string[]; invalid: boolean } {
+  if (!Array.isArray(value) || value.length > 8) {
+    return { paths: [], invalid: true };
+  }
+
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const rawPath of value) {
+    if (
+      typeof rawPath !== "string" ||
+      rawPath.length < 3 ||
+      rawPath.length > 160 ||
+      rawPath !== rawPath.trim() ||
+      seen.has(rawPath) ||
+      !isLogicEvidencePath(rawPath) ||
+      resolveEvidencePath(blueprint, rawPath) === undefined
+    ) {
+      return { paths: [], invalid: true };
+    }
+    seen.add(rawPath);
+    paths.push(rawPath);
+  }
+
+  return { paths, invalid: false };
+}
 
 const parseCoverageStatus = (
   value: unknown,
@@ -587,11 +661,10 @@ export function evaluateRuleCoverage(input: {
     const item = byId.get(requirement.id);
     const status =
       parseCoverageStatus(item?.status) ?? "clarification_required";
-    const evidencePaths = uniqueTexts(item?.evidencePaths, 8, 160).filter(
-      (path) =>
-        isLogicEvidencePath(path) &&
-        resolveEvidencePath(input.blueprint, path) !== undefined,
-    );
+    const evidenceValidation = item
+      ? validateEvidencePaths(item.evidencePaths, input.blueprint)
+      : { paths: [], invalid: false };
+    const evidencePaths = evidenceValidation.paths;
     const explanation =
       cleanText(item?.explanation, 400) ||
       "Aucune preuve de couverture exploitable n’a été fournie.";
@@ -606,10 +679,11 @@ export function evaluateRuleCoverage(input: {
       status === "implemented" &&
       (adaptation.length > 0 || auditClaimsUserApproval);
     const covered =
-      (status === "implemented" &&
+      !evidenceValidation.invalid &&
+      ((status === "implemented" &&
         hasImplementationEvidence &&
         !implementedStatusMasksAdaptation) ||
-      (status === "adapted" && hasImplementationEvidence && userApproved);
+        (status === "adapted" && hasImplementationEvidence && userApproved));
 
     if (covered) {
       achievedWeight += weight;
@@ -617,13 +691,15 @@ export function evaluateRuleCoverage(input: {
       diagnostics.push({
         code: implementedStatusMasksAdaptation
           ? "COVERAGE_IMPLEMENTATION_STATUS_INVALID"
-          : status === "adapted" && !userApproved
-            ? "COVERAGE_ADAPTATION_NOT_APPROVED"
-            : status === "unsupported"
-              ? "COVERAGE_UNSUPPORTED"
-              : status === "implemented" && !hasImplementationEvidence
-                ? "COVERAGE_EVIDENCE_MISSING"
-                : "COVERAGE_CLARIFICATION_REQUIRED",
+          : evidenceValidation.invalid
+            ? "COVERAGE_EVIDENCE_PATH_INVALID"
+            : status === "adapted" && !userApproved
+              ? "COVERAGE_ADAPTATION_NOT_APPROVED"
+              : status === "unsupported"
+                ? "COVERAGE_UNSUPPORTED"
+                : status === "implemented" && !hasImplementationEvidence
+                  ? "COVERAGE_EVIDENCE_MISSING"
+                  : "COVERAGE_CLARIFICATION_REQUIRED",
         severity: "error",
         path: `$.coverage.${requirement.id}`,
         message: `Exigence non couverte : ${requirement.statement}`,

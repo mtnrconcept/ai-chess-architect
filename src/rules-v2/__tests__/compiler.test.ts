@@ -104,6 +104,7 @@ describe("compileRuleBlueprint", () => {
       "ctx.hasTargetTile",
       "tile.isEmpty",
     ]);
+    expect(result.compiledRule?.ui.actions[0].cooldown?.perPiece).toBe(3);
   });
 
   it("refuse les clés dangereuses dans l'état initial", () => {
@@ -462,6 +463,35 @@ describe("compileRuleBlueprint", () => {
     expect(
       result.diagnostics.some(
         (item) => item.code === "TARGET_PROVIDER_REQUIRES_PIECE",
+      ),
+    ).toBe(true);
+  });
+
+  it("exige une sélection pour un cooldown ou une limite par pièce", () => {
+    const invalid = structuredClone(validBlueprint);
+    invalid.actions[0].requiresSelection = false;
+
+    const result = compileRuleBlueprint(invalid);
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics.some(
+        (item) => item.code === "ACTION_PIECE_LIMIT_REQUIRES_SELECTION",
+      ),
+    ).toBe(true);
+  });
+
+  it("exige aussi une sélection pour une limite par pièce sans cooldown", () => {
+    const invalid = structuredClone(validBlueprint);
+    invalid.actions[0].requiresSelection = false;
+    invalid.actions[0].cooldownTurns = 0;
+
+    const result = compileRuleBlueprint(invalid);
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics.some(
+        (item) => item.code === "ACTION_PIECE_LIMIT_REQUIRES_SELECTION",
       ),
     ).toBe(true);
   });

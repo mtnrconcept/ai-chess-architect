@@ -4,6 +4,7 @@ import { createStructuredResponse } from "../_shared/openai-responses.ts";
 import { requireSafeRulePrompt } from "../_shared/prompt-security.ts";
 import { issueGuidanceToken } from "../_shared/guidance-token.ts";
 import { classifyGuidanceRuntimeFailure } from "../_shared/guidance-failure.ts";
+import { RULE_ACTION_SEMANTICS } from "../_shared/rule-architect-prompt.ts";
 import {
   decorateLegacyGuidanceDraft,
   LEGACY_GUIDANCE_SESSION_TTL_SECONDS,
@@ -197,12 +198,17 @@ OBJECTIF PRODUIT
   connues.
 - Si des diagnostics d’une précédente compilation sont fournis, transforme-les en
   questions ou ajustements précis afin que la prochaine compilation réussisse.
+- Ne transforme jamais une capacité directe du contrat autoritaire ci-dessous en
+  adaptation. Si l'utilisateur a déjà donné sa valeur exacte, ne redemande pas de
+  choisir une variante partagée ou approximative.
 
 CAPACITÉS FERMÉES DU MOTEUR
 Événements : ${RULE_EVENTS.join(", ")}
 Conditions : ${CONDITION_OPS.join(", ")}
 Effets : ${EFFECT_OPS.join(", ")}
 Ciblage : ${PROVIDERS.join(", ")}
+
+${RULE_ACTION_SEMANTICS}
 
 Les animations sont cosmétiques : elles peuvent accompagner un effet mais ne
 modifient jamais seules l’état de la partie. Les demandes de monde ouvert, vidéo
