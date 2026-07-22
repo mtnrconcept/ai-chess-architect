@@ -1,7 +1,7 @@
 // src/pages/VariantsIA.tsx
 // UI complète : saisie et génération via edge function Supabase
 
-import React, { useState, useCallback } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { OssClient, ChatMessage } from "../lib/ai/ossClient";
 
 const SYSTEM_PROMPT =

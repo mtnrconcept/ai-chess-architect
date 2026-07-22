@@ -256,6 +256,7 @@ Deno.serve(async (request) => {
       schema: GUIDANCE_SCHEMA as unknown as Record<string, unknown>,
       reasoningEffort: "medium",
       timeoutMs: 85_000,
+      signal: request.signal,
     });
 
     const validatedGuidance = validateGuidance(response.value);

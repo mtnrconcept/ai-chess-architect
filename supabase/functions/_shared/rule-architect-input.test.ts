@@ -131,3 +131,62 @@ Deno.test(
     );
   },
 );
+
+Deno.test(
+  "rule-architect-input: réutilise exactement l'asset serveur imposé",
+  async () => {
+    const managedAsset = {
+      resourceId:
+        "cinematic.carry.asset_0123456789abcdef0123456789abcdef01234567.png",
+      assetId: "asset_0123456789abcdef0123456789abcdef01234567.png",
+      storagePath: "managed/asset_0123456789abcdef0123456789abcdef01234567.png",
+      motion: "carry" as const,
+      label: "Dragon",
+      sourcePageUrl: "https://commons.wikimedia.org/wiki/File:Dragon.png",
+      sourceAssetUrl:
+        "https://upload.wikimedia.org/wikipedia/commons/a/a1/Dragon.png",
+      licenseShortName: "CC0",
+      attribution: "",
+      contentType: "image/png" as const,
+      width: 512,
+      height: 512,
+      sha256: "0".repeat(64),
+      moderationModel: "omni-moderation-latest",
+    };
+    const prepared = await prepareRuleArchitectInput(
+      "SYSTEME DE TEST",
+      "Une animation de dragon accompagne la capture.",
+      "signed-guidance",
+      managedAsset,
+    );
+
+    assertEquals(prepared.managedAsset, managedAsset);
+    assert(prepared.systemPrompt.includes(managedAsset.resourceId));
+  },
+);
+
+Deno.test(
+  "rule-architect-input: réutilise null sans relancer le resolver",
+  async () => {
+    let fetchCalls = 0;
+    const impossibleFetch = (() => {
+      fetchCalls += 1;
+      throw new Error("Le resolver ne doit pas être appelé.");
+    }) as typeof fetch;
+
+    const prepared = await prepareRuleArchitectInput(
+      "SYSTEME DE TEST",
+      "Une animation de dragon accompagne la capture.",
+      "signed-guidance",
+      null,
+      undefined,
+      impossibleFetch,
+    );
+
+    assertEquals(fetchCalls, 0);
+    assertEquals(prepared.managedAsset, null);
+    assert(
+      prepared.systemPrompt.includes("Aucun asset externe n'a été validé"),
+    );
+  },
+);

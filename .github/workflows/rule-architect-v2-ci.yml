@@ -161,6 +161,7 @@ jobs:
             supabase/functions/_shared/rule-coverage.test.ts \
             supabase/functions/_shared/rule-architect-input.test.ts \
             supabase/functions/_shared/rule-assets.test.ts \
+            supabase/functions/_shared/rule-blueprint-repair.test.ts \
             supabase/functions/_shared/rule-blueprint-normalizer.test.ts \
             supabase/functions/compile-chess-rule/replay-state.test.ts \
             supabase/functions/process-chess-move/protocol.test.ts \

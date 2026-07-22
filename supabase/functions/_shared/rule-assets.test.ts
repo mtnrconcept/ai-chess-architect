@@ -1,4 +1,9 @@
-import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertThrows,
+} from "jsr:@std/assert@1";
 import {
   buildAssetModerationRequest,
   detectManagedCinematicMotion,
@@ -8,6 +13,8 @@ import {
   isAllowedCommonsAssetUrl,
   managedRuleAssetSearchEnabled,
   parseAssetModerationResponse,
+  persistAsset,
+  resolveManagedRuleAsset,
 } from "./rule-assets.ts";
 
 const writeUint32BE = (bytes: Uint8Array, offset: number, value: number) => {
@@ -56,13 +63,172 @@ const webpBytes = (width: number, height: number, animated = false) => {
   return bytes;
 };
 
-Deno.test("rule-assets: active le courtier par défaut et respecte l’opt-out", () => {
-  assertEquals(managedRuleAssetSearchEnabled(undefined), true);
-  assertEquals(managedRuleAssetSearchEnabled("true"), true);
-  assertEquals(managedRuleAssetSearchEnabled("false"), false);
-  assertEquals(managedRuleAssetSearchEnabled("0"), false);
-  assertEquals(managedRuleAssetSearchEnabled("OFF"), false);
+Deno.test(
+  "rule-assets: active le courtier par défaut et respecte l’opt-out",
+  () => {
+    assertEquals(managedRuleAssetSearchEnabled(undefined), true);
+    assertEquals(managedRuleAssetSearchEnabled("true"), true);
+    assertEquals(managedRuleAssetSearchEnabled("false"), false);
+    assertEquals(managedRuleAssetSearchEnabled("0"), false);
+    assertEquals(managedRuleAssetSearchEnabled("OFF"), false);
+  },
+);
+
+Deno.test("rule-assets: propage une deadline déjà expirée", async () => {
+  const controller = new AbortController();
+  controller.abort(new DOMException("deadline", "AbortError"));
+
+  await assertRejects(
+    () =>
+      resolveManagedRuleAsset(
+        "Un dragon arrive et emporte la pièce.",
+        fetch,
+        controller.signal,
+      ),
+    DOMException,
+    "deadline",
+  );
 });
+
+Deno.test("rule-assets: annule aussi la lecture d'un corps HTTP", async () => {
+  const previous = {
+    apiKey: Deno.env.get("OPENAI_API_KEY"),
+    serviceRole: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    supabaseUrl: Deno.env.get("SUPABASE_URL"),
+  };
+  Deno.env.set("OPENAI_API_KEY", "test-key");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-role");
+  Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+
+  let bodyStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    bodyStarted = resolve;
+  });
+  const stalledFetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyStarted();
+        const abort = () =>
+          controller.error(
+            init?.signal?.reason ?? new DOMException("aborted", "AbortError"),
+          );
+        if (init?.signal?.aborted) abort();
+        else init?.signal?.addEventListener("abort", abort, { once: true });
+      },
+    });
+    return Promise.resolve(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }) as typeof fetch;
+
+  const controller = new AbortController();
+  try {
+    const pending = resolveManagedRuleAsset(
+      "Un dragon arrive et emporte la pièce.",
+      stalledFetch,
+      controller.signal,
+    );
+    await started;
+    controller.abort(new DOMException("deadline", "AbortError"));
+    await assertRejects(() => pending, DOMException, "deadline");
+  } finally {
+    for (const [name, value] of [
+      ["OPENAI_API_KEY", previous.apiKey],
+      ["SUPABASE_SERVICE_ROLE_KEY", previous.serviceRole],
+      ["SUPABASE_URL", previous.supabaseUrl],
+    ] as const) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+});
+
+Deno.test(
+  "rule-assets: un retry répare un upload committé avant abort",
+  async () => {
+    const bytes = pngBytes(256, 256);
+    const inspection = inspectRasterImage(bytes);
+    assert(inspection);
+
+    let uploadCount = 0;
+    let objectStored = false;
+    let metadataInserted = false;
+    const emptySelect = () => {
+      const chain = {
+        eq: () => chain,
+        maybeSingle: () => Promise.resolve({ data: null, error: null }),
+      };
+      return chain;
+    };
+    const fakeClient = {
+      storage: {
+        from: () => ({
+          upload: async (
+            _path: string,
+            _bytes: Uint8Array,
+            options: { upsert?: boolean },
+          ) => {
+            uploadCount += 1;
+            objectStored = true;
+            assertEquals(options.upsert, true);
+            if (uploadCount === 1) {
+              throw new DOMException("deadline", "AbortError");
+            }
+            return { error: null };
+          },
+        }),
+      },
+      from: () => ({
+        select: emptySelect,
+        insert: () => {
+          metadataInserted = true;
+          return Promise.resolve({ error: null });
+        },
+      }),
+    } as unknown as Parameters<typeof persistAsset>[0];
+    const args: Parameters<typeof persistAsset> = [
+      fakeClient,
+      {
+        providerFileId: "12345",
+        title: "Dragon",
+        sourcePageUrl: "https://commons.wikimedia.org/wiki/File:Dragon.png",
+        sourceAssetUrl:
+          "https://upload.wikimedia.org/wikipedia/commons/a/a1/Dragon.png",
+        licenseShortName: "CC0",
+        attribution: "Public domain",
+      },
+      "dragon illustration",
+      bytes,
+      inspection,
+      "a".repeat(64),
+      "carry",
+      {
+        approved: true,
+        id: "modr_safe",
+        model: "omni-moderation-latest",
+        flagged: false,
+        flaggedCategories: [],
+      },
+    ];
+
+    await assertRejects(() => persistAsset(...args), DOMException, "deadline");
+    assertEquals(
+      { objectStored, metadataInserted },
+      {
+        objectStored: true,
+        metadataInserted: false,
+      },
+    );
+
+    const repaired = await persistAsset(...args);
+    assertEquals(uploadCount, 2);
+    assertEquals(metadataInserted, true);
+    assertEquals(repaired?.storagePath, `managed/asset_${"a".repeat(40)}.png`);
+  },
+);
 
 Deno.test("rule-assets: extrait une requête visuelle bornée", () => {
   const query = extractAssetSearchQuery(
@@ -84,12 +250,15 @@ Deno.test("rule-assets: accepte un acteur visuel non prélisté", () => {
   assert(query?.includes("violet"));
 });
 
-Deno.test("rule-assets: ne lance aucune recherche pour une règle non visuelle", () => {
-  assertEquals(
-    extractAssetSearchQuery("Les cavaliers peuvent avancer de deux cases."),
-    null,
-  );
-});
+Deno.test(
+  "rule-assets: ne lance aucune recherche pour une règle non visuelle",
+  () => {
+    assertEquals(
+      extractAssetSearchQuery("Les cavaliers peuvent avancer de deux cases."),
+      null,
+    );
+  },
+);
 
 Deno.test("rule-assets: choisit un preset d'animation déclaratif", () => {
   assertEquals(
@@ -133,115 +302,127 @@ Deno.test("rule-assets: limite les licences à CC0 et domaine public", () => {
   assert(!isAllowedAssetLicense("All rights reserved"));
 });
 
-Deno.test("rule-assets: inspecte les dimensions réelles des formats raster", () => {
-  assertEquals(inspectRasterImage(pngBytes(512, 256)), {
-    contentType: "image/png",
-    extension: "png",
-    width: 512,
-    height: 256,
-    animated: false,
-  });
-  assertEquals(inspectRasterImage(jpegBytes(640, 480)), {
-    contentType: "image/jpeg",
-    extension: "jpg",
-    width: 640,
-    height: 480,
-    animated: false,
-  });
-  assertEquals(inspectRasterImage(webpBytes(1024, 768)), {
-    contentType: "image/webp",
-    extension: "webp",
-    width: 1024,
-    height: 768,
-    animated: false,
-  });
-});
+Deno.test(
+  "rule-assets: inspecte les dimensions réelles des formats raster",
+  () => {
+    assertEquals(inspectRasterImage(pngBytes(512, 256)), {
+      contentType: "image/png",
+      extension: "png",
+      width: 512,
+      height: 256,
+      animated: false,
+    });
+    assertEquals(inspectRasterImage(jpegBytes(640, 480)), {
+      contentType: "image/jpeg",
+      extension: "jpg",
+      width: 640,
+      height: 480,
+      animated: false,
+    });
+    assertEquals(inspectRasterImage(webpBytes(1024, 768)), {
+      contentType: "image/webp",
+      extension: "webp",
+      width: 1024,
+      height: 768,
+      animated: false,
+    });
+  },
+);
 
-Deno.test("rule-assets: détecte les rasters animés et rejette les scripts", () => {
-  assertEquals(inspectRasterImage(pngBytes(256, 256, true))?.animated, true);
-  assertEquals(inspectRasterImage(webpBytes(256, 256, true))?.animated, true);
-  assertEquals(
-    inspectRasterImage(new TextEncoder().encode("<script>alert(1)</script>")),
-    null,
-  );
-  assertEquals(
-    inspectRasterImage(
-      new TextEncoder().encode('<svg onload="fetch(\"https://evil\")"></svg>'),
-    ),
-    null,
-  );
-});
+Deno.test(
+  "rule-assets: détecte les rasters animés et rejette les scripts",
+  () => {
+    assertEquals(inspectRasterImage(pngBytes(256, 256, true))?.animated, true);
+    assertEquals(inspectRasterImage(webpBytes(256, 256, true))?.animated, true);
+    assertEquals(
+      inspectRasterImage(new TextEncoder().encode("<script>alert(1)</script>")),
+      null,
+    );
+    assertEquals(
+      inspectRasterImage(
+        new TextEncoder().encode('<svg onload="fetch("https://evil")"></svg>'),
+      ),
+      null,
+    );
+  },
+);
 
-Deno.test("rule-assets: construit une modération multimodale uniquement pour Commons", () => {
-  const url =
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Dragon.png/1024px-Dragon.png";
-  assertEquals(buildAssetModerationRequest("dragon illustration", url), {
-    model: "omni-moderation-latest",
-    input: [
-      {
-        type: "text",
-        text: "Asset visuel candidat pour une règle de jeu d'échecs: dragon illustration",
-      },
-      {
-        type: "image_url",
-        image_url: { url },
-      },
-    ],
-  });
-
-  assertThrows(
-    () => buildAssetModerationRequest("dragon", "https://evil.example/a.png"),
-    Error,
-    "ASSET_MODERATION_URL_REJECTED",
-  );
-});
-
-Deno.test("rule-assets: accepte uniquement une réponse de modération non signalée", () => {
-  assertEquals(
-    parseAssetModerationResponse({
-      id: "modr_safe",
+Deno.test(
+  "rule-assets: construit une modération multimodale uniquement pour Commons",
+  () => {
+    const url =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Dragon.png/1024px-Dragon.png";
+    assertEquals(buildAssetModerationRequest("dragon illustration", url), {
       model: "omni-moderation-latest",
-      results: [
+      input: [
         {
-          flagged: false,
-          categories: {
-            sexual: false,
-            violence: false,
-          },
+          type: "text",
+          text: "Asset visuel candidat pour une règle de jeu d'échecs: dragon illustration",
+        },
+        {
+          type: "image_url",
+          image_url: { url },
         },
       ],
-    }),
-    {
-      approved: true,
-      id: "modr_safe",
-      model: "omni-moderation-latest",
-      flagged: false,
-      flaggedCategories: [],
-    },
-  );
+    });
 
-  assertEquals(
-    parseAssetModerationResponse({
-      id: "modr_blocked",
-      model: "omni-moderation-latest",
-      results: [
-        {
-          flagged: true,
-          categories: {
-            sexual: true,
-            violence: false,
+    assertThrows(
+      () => buildAssetModerationRequest("dragon", "https://evil.example/a.png"),
+      Error,
+      "ASSET_MODERATION_URL_REJECTED",
+    );
+  },
+);
+
+Deno.test(
+  "rule-assets: accepte uniquement une réponse de modération non signalée",
+  () => {
+    assertEquals(
+      parseAssetModerationResponse({
+        id: "modr_safe",
+        model: "omni-moderation-latest",
+        results: [
+          {
+            flagged: false,
+            categories: {
+              sexual: false,
+              violence: false,
+            },
           },
-        },
-      ],
-    }),
-    {
-      approved: false,
-      id: "modr_blocked",
-      model: "omni-moderation-latest",
-      flagged: true,
-      flaggedCategories: ["sexual"],
-    },
-  );
+        ],
+      }),
+      {
+        approved: true,
+        id: "modr_safe",
+        model: "omni-moderation-latest",
+        flagged: false,
+        flaggedCategories: [],
+      },
+    );
 
-  assertEquals(parseAssetModerationResponse({ results: [] }), null);
-});
+    assertEquals(
+      parseAssetModerationResponse({
+        id: "modr_blocked",
+        model: "omni-moderation-latest",
+        results: [
+          {
+            flagged: true,
+            categories: {
+              sexual: true,
+              violence: false,
+            },
+          },
+        ],
+      }),
+      {
+        approved: false,
+        id: "modr_blocked",
+        model: "omni-moderation-latest",
+        flagged: true,
+        flaggedCategories: ["sexual"],
+      },
+    );
+
+    assertEquals(parseAssetModerationResponse({ results: [] }), null);
+  },
+);
