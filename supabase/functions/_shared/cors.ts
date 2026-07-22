@@ -8,20 +8,24 @@ type CorsOverrides = {
 };
 
 const DEFAULT_ALLOWED_ORIGINS = [
+  "https://ai-chess-architect.vercel.app",
+  "https://ai-chess-architect-mtnrconcepts-projects.vercel.app",
+  "https://ai-chess-architect-mtnrconcept-mtnrconcepts-projects.vercel.app",
   "https://1e794698-feca-4fca-ab3b-11990c0b270d.lovableproject.com",
   "https://ai-chess-architect.lovable.app",
   "https://preview--ai-chess-architect.lovable.app",
   "http://localhost:5173",
 ];
 
-// Broad allow-list patterns to support dynamic preview URLs
-// e.g. id-preview--<id>.lovable.app or preview--<slug>.lovable.app
+// Dynamic previews stay restricted to this repository/project. Never accept a
+// platform-wide wildcard because authenticated Edge functions use cookies and
+// bearer tokens supplied by the browser.
 const DEFAULT_ALLOWED_ORIGIN_PATTERNS: RegExp[] = [
-  /^https:\/\/([a-z0-9-]+--)?[a-z0-9-]+\.lovable\.app$/i,
-  /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/i,
+  /^https:\/\/ai-chess-architect-[a-z0-9-]+-mtnrconcepts-projects\.vercel\.app$/i,
+  /^https:\/\/([a-z0-9-]+--)?ai-chess-architect\.lovable\.app$/i,
+  /^https:\/\/1e794698-feca-4fca-ab3b-11990c0b270d\.lovableproject\.com$/i,
   /^http:\/\/localhost(?::\d+)?$/i,
 ];
-
 
 const envOrigins = Deno.env
   .get("CORS_ORIGIN")
@@ -41,6 +45,7 @@ const DEFAULT_ALLOW_HEADERS = [
   "Prefer",
   "X-Client-Info",
   "x-client-info",
+  "x-supabase-api-version",
 ] as const;
 
 const DEFAULT_ALLOW_CREDENTIALS = true;
@@ -62,11 +67,6 @@ const resolveAllowedOrigin = (
 };
 
 const buildCorsHeaders = (overrides?: CorsOverrides, request?: Request) => {
-  const requestedHeaders = request?.headers
-    .get("access-control-request-headers")
-    ?.split(",")
-    .map((header) => header.trim())
-    .filter((header) => header.length > 0);
   const requestOrigin = request?.headers.get("origin");
 
   const allowHeaders = Array.from(

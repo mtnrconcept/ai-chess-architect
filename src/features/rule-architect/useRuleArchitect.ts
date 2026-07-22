@@ -9,6 +9,12 @@ import {
 import { createRequestKey } from "./request-key";
 import type { RuleGuidanceSelections } from "./guidance-api";
 import type { CompileRuleResponse, PublishedRuleVersion } from "@/rules-v2";
+import {
+  loadRuleArchitectSession,
+  persistRuleArchitectWorkflow,
+  resolveRuleArchitectRequestAttempt,
+  type PersistedRuleArchitectSession,
+} from "./rule-architect-session";
 
 export type RuleArchitectPhase =
   | "idle"
@@ -27,15 +33,33 @@ export type RuleArchitectCompileFailure = {
   newRequestRequired: boolean;
 };
 
-export function useRuleArchitect() {
-  const [phase, setPhase] = useState<RuleArchitectPhase>("idle");
+const restoredPhase = (
+  session: PersistedRuleArchitectSession | null,
+): RuleArchitectPhase => {
+  if (session?.workflow.lobby) return "ready";
+  if (session?.workflow.publication) return "published";
+  if (session?.workflow.compilation) return "review";
+  return "idle";
+};
+
+export function useRuleArchitect(
+  initialSession: PersistedRuleArchitectSession | null | undefined = undefined,
+) {
+  const restoredSession = useRef(
+    initialSession === undefined ? loadRuleArchitectSession() : initialSession,
+  ).current;
+  const [phase, setPhase] = useState<RuleArchitectPhase>(() =>
+    restoredPhase(restoredSession),
+  );
   const [compilation, setCompilation] = useState<CompileRuleResponse | null>(
-    null,
+    restoredSession?.workflow.compilation ?? null,
   );
   const [publication, setPublication] = useState<PublishedRuleVersion | null>(
-    null,
+    restoredSession?.workflow.publication ?? null,
   );
-  const [lobby, setLobby] = useState<CreatedRuleLobbyResponse | null>(null);
+  const [lobby, setLobby] = useState<CreatedRuleLobbyResponse | null>(
+    restoredSession?.workflow.lobby ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [compileFailure, setCompileFailure] =
     useState<RuleArchitectCompileFailure | null>(null);
@@ -43,14 +67,10 @@ export function useRuleArchitect() {
   const compileInFlight = useRef<Promise<CompileRuleResponse> | null>(null);
   const publishInFlight = useRef<Promise<PublishedRuleVersion> | null>(null);
   const lobbyInFlight = useRef<Promise<CreatedRuleLobbyResponse> | null>(null);
-  const compileAttempt = useRef<{
-    fingerprint: string;
-    requestKey: string;
-  } | null>(null);
-  const lobbyAttempt = useRef<{
-    fingerprint: string;
-    requestKey: string;
-  } | null>(null);
+  const compileAttempt = useRef(
+    restoredSession?.workflow.compileAttempt ?? null,
+  );
+  const lobbyAttempt = useRef(restoredSession?.workflow.lobbyAttempt ?? null);
 
   const compile = useCallback(
     (
@@ -69,13 +89,20 @@ export function useRuleArchitect() {
         guidanceToken ?? null,
         guidanceSelections ?? null,
       ]);
-      if (compileAttempt.current?.fingerprint !== fingerprint) {
-        compileAttempt.current = {
-          fingerprint,
-          requestKey: createRequestKey(),
-        };
-      }
+      compileAttempt.current = resolveRuleArchitectRequestAttempt(
+        compileAttempt.current,
+        fingerprint,
+        createRequestKey,
+      );
       const requestKey = compileAttempt.current.requestKey;
+
+      persistRuleArchitectWorkflow({
+        compilation: null,
+        publication: null,
+        lobby: null,
+        compileAttempt: compileAttempt.current,
+        lobbyAttempt: null,
+      });
 
       setPhase("compiling");
       setError(null);
@@ -95,6 +122,7 @@ export function useRuleArchitect() {
           });
           setCompilation(result);
           setPhase("review");
+          persistRuleArchitectWorkflow({ compilation: result });
           return result;
         } catch (caught) {
           const failure: RuleArchitectCompileFailure =
@@ -117,6 +145,7 @@ export function useRuleArchitect() {
 
           if (failure.newRequestRequired) {
             compileAttempt.current = null;
+            persistRuleArchitectWorkflow({ compileAttempt: null });
           }
           setCompileFailure(failure);
           setError(failure.message);
@@ -165,6 +194,7 @@ export function useRuleArchitect() {
           });
           setPublication(result);
           setPhase("published");
+          persistRuleArchitectWorkflow({ publication: result });
           return result;
         } catch (caught) {
           const message =
@@ -205,13 +235,16 @@ export function useRuleArchitect() {
       }
 
       const fingerprint = JSON.stringify([publication.versionId, name, mode]);
-      if (lobbyAttempt.current?.fingerprint !== fingerprint) {
-        lobbyAttempt.current = {
-          fingerprint,
-          requestKey: createRequestKey(),
-        };
-      }
+      lobbyAttempt.current = resolveRuleArchitectRequestAttempt(
+        lobbyAttempt.current,
+        fingerprint,
+        createRequestKey,
+      );
       const requestKey = lobbyAttempt.current.requestKey;
+      persistRuleArchitectWorkflow({
+        lobby: null,
+        lobbyAttempt: lobbyAttempt.current,
+      });
 
       setPhase("creating-lobby");
       setError(null);
@@ -226,6 +259,7 @@ export function useRuleArchitect() {
           });
           setLobby(result);
           setPhase("ready");
+          persistRuleArchitectWorkflow({ lobby: result });
           return result;
         } catch (caught) {
           const message =
@@ -266,6 +300,13 @@ export function useRuleArchitect() {
     setCompileFailure(null);
     compileAttempt.current = null;
     lobbyAttempt.current = null;
+    persistRuleArchitectWorkflow({
+      compilation: null,
+      publication: null,
+      lobby: null,
+      compileAttempt: null,
+      lobbyAttempt: null,
+    });
   }, []);
 
   return {

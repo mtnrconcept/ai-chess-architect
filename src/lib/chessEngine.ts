@@ -8,6 +8,7 @@ import {
   ChessRule,
   RuleCondition,
 } from "@/types/chess";
+import { isRuntimeStatusActive } from "@/engine/runtime-status";
 
 type MoveGenerationPurpose = "movement" | "attack";
 
@@ -324,6 +325,9 @@ export class ChessEngine {
     gameState: GameState,
     options: MoveGenerationOptions = {},
   ): Position[] {
+    if (isRuntimeStatusActive(piece.specialState, "frozen")) {
+      return [];
+    }
     const baseMoves = this.getBaseMoves(board, piece, gameState, options);
     return this.applyRulesToMoves(baseMoves, piece, gameState, options);
   }

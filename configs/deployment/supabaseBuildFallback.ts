@@ -22,7 +22,6 @@ export const ruleArchitectPreviewGuards = Object.freeze({
   ...sharedVercelGuards,
   VERCEL_ENV: "preview",
   VERCEL_TARGET_ENV: "preview",
-  VERCEL_GIT_COMMIT_REF: "feat/rule-architect-v2",
 } as const);
 
 export const ruleArchitectProductionGuards = Object.freeze({
@@ -65,6 +64,13 @@ const matchesGuards = (
     ([key, expectedValue]) => environment[key] === expectedValue,
   );
 
+const isNonProductionGitRef = (environment: BuildEnvironment): boolean => {
+  const gitRef = environment.VERCEL_GIT_COMMIT_REF?.trim();
+  return Boolean(
+    gitRef && gitRef !== ruleArchitectProductionGuards.VERCEL_GIT_COMMIT_REF,
+  );
+};
+
 /**
  * Resolves a public Supabase target only for this exact Vercel project and Git
  * source. Any partial explicit VITE_SUPABASE_* configuration stays fail-closed
@@ -75,7 +81,10 @@ export const resolveSupabaseBuildFallback = (
 ): SupabaseBuildFallback | null => {
   if (hasAnyExplicitSupabaseValue(environment)) return null;
 
-  if (matchesGuards(environment, ruleArchitectPreviewGuards)) {
+  if (
+    matchesGuards(environment, ruleArchitectPreviewGuards) &&
+    isNonProductionGitRef(environment)
+  ) {
     return ruleArchitectStagingSupabase;
   }
 

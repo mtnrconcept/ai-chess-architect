@@ -6,19 +6,16 @@ import type {
   PublishedRuleVersion,
 } from "@/rules-v2";
 import type { RuleGuidanceSelections } from "./guidance-api";
+import {
+  compileRuleResponseSchema,
+  createdRuleLobbyResponseSchema,
+  functionEnvelopeSchema,
+  publishedRuleVersionSchema,
+} from "./edge-response-schemas";
 
 export type CreatedRuleLobbyResponse = Omit<CreatedRuleLobby, "matchSeed"> & {
   matchSeed: number | null;
 };
-
-interface FunctionEnvelope<T> {
-  success: boolean;
-  error?: string;
-  code?: string;
-  retryable?: boolean;
-  newRequestRequired?: boolean;
-  data?: T;
-}
 
 export type RuleArchitectApiErrorDetails = {
   code?: string | null;
@@ -120,14 +117,38 @@ const parseFunctionInvokeError = async (
   return new RuleArchitectApiError(message || fallback);
 };
 
+const invalidResponseError = (fallback: string): RuleArchitectApiError =>
+  new RuleArchitectApiError(
+    `${fallback} Le service a renvoyé une réponse invalide. Réessaie.`,
+    {
+      code: "INVALID_EDGE_RESPONSE",
+      retryable: true,
+      newRequestRequired: false,
+    },
+  );
+
 const unwrap = <T>(
-  payload: FunctionEnvelope<T> | null,
+  payload: unknown,
+  parseData: (
+    value: unknown,
+  ) => { success: true; data: unknown } | { success: false },
   fallback: string,
 ): T => {
-  if (!payload?.success || payload.data === undefined) {
-    throw errorFromPayload(payload, fallback);
+  const envelope = functionEnvelopeSchema.safeParse(payload);
+  if (!envelope.success) {
+    throw invalidResponseError(fallback);
   }
-  return payload.data;
+
+  if (!envelope.data.success || envelope.data.data === undefined) {
+    throw errorFromPayload(envelope.data, fallback);
+  }
+
+  const parsedData = parseData(envelope.data.data);
+  if (!parsedData.success) {
+    throw invalidResponseError(fallback);
+  }
+
+  return parsedData.data as T;
 };
 
 export async function compileChessRule(input: {
@@ -153,7 +174,8 @@ export async function compileChessRule(input: {
   }
 
   return unwrap<CompileRuleResponse>(
-    data as FunctionEnvelope<CompileRuleResponse>,
+    data,
+    (value) => compileRuleResponseSchema.safeParse(value),
     "La compilation de la règle a échoué.",
   );
 }
@@ -178,7 +200,8 @@ export async function publishRuleVersion(input: {
   }
 
   return unwrap<PublishedRuleVersion>(
-    data as FunctionEnvelope<PublishedRuleVersion>,
+    data,
+    (value) => publishedRuleVersionSchema.safeParse(value),
     "La publication de la règle a échoué.",
   );
 }
@@ -205,7 +228,8 @@ export async function createRuleLobby(input: {
   }
 
   return unwrap<CreatedRuleLobbyResponse>(
-    data as FunctionEnvelope<CreatedRuleLobbyResponse>,
+    data,
+    (value) => createdRuleLobbyResponseSchema.safeParse(value),
     "La création du lobby a échoué.",
   );
 }

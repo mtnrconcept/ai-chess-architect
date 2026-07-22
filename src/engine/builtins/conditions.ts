@@ -1,5 +1,6 @@
 import type { EngineContext } from "../registry";
 import { Registry } from "../registry";
+import { isRuntimeStatusActive } from "../runtime-status";
 
 const FORBIDDEN_PATH_SEGMENTS = new Set([
   "__proto__",
@@ -51,21 +52,6 @@ const readStatePath = (
     current = (current as Record<string, unknown>)[segment];
   }
   return current;
-};
-
-const isStatusActive = (
-  statuses: Record<string, unknown> | undefined,
-  key: unknown,
-): boolean => {
-  if (!statuses || typeof key !== "string" || !key) {
-    return false;
-  }
-
-  const status = statuses[key];
-  if (status && typeof status === "object" && "active" in status) {
-    return Boolean((status as { active?: boolean }).active);
-  }
-  return Boolean(status);
 };
 
 export function registerBuiltinConditions(registry: Registry): void {
@@ -138,7 +124,7 @@ export function registerBuiltinConditions(registry: Registry): void {
     }
     try {
       const piece = ctx.engine.board.getPiece(ctx.targetPieceId);
-      return !isStatusActive(piece.statuses, "frozen");
+      return !isRuntimeStatusActive(piece.statuses, "frozen");
     } catch {
       return false;
     }
@@ -167,12 +153,12 @@ export function registerBuiltinConditions(registry: Registry): void {
   registry.registerCondition("piece.hasStatus", (ctx, ...args) => {
     const key = argument(ctx, args, "key", 0);
     const pieceId = ctx.pieceId ?? ctx.piece?.id;
-    if (!pieceId) {
+    if (!pieceId || typeof key !== "string") {
       return false;
     }
     try {
       const piece = ctx.engine.board.getPiece(pieceId);
-      return isStatusActive(piece.statuses, key);
+      return isRuntimeStatusActive(piece.statuses, key);
     } catch {
       return false;
     }
@@ -180,12 +166,12 @@ export function registerBuiltinConditions(registry: Registry): void {
 
   registry.registerCondition("target.hasStatus", (ctx, ...args) => {
     const key = argument(ctx, args, "key", 0);
-    if (!ctx.targetPieceId) {
+    if (!ctx.targetPieceId || typeof key !== "string") {
       return false;
     }
     try {
       const piece = ctx.engine.board.getPiece(ctx.targetPieceId);
-      return isStatusActive(piece.statuses, key);
+      return isRuntimeStatusActive(piece.statuses, key);
     } catch {
       return false;
     }

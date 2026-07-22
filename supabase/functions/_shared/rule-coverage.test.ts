@@ -5,7 +5,21 @@ import {
   normalizeRuleIntentContract,
   type RuleIntentContract,
 } from "./rule-coverage.ts";
+import {
+  MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH,
+  MAX_USER_RULE_PROMPT_LENGTH,
+  requireSafeRulePrompt,
+  requireSafeSignedRuleCompilerPrompt,
+} from "./prompt-security.ts";
 import type { RuleBlueprintV2 } from "./rules-v2/index.ts";
+
+const safeTextOfLength = (length: number): string => {
+  const fragment = "Le cavalier applique une mécanique bornée et testable. ";
+  const value = fragment
+    .repeat(Math.ceil(length / fragment.length))
+    .slice(0, length);
+  return value.endsWith(" ") ? `${value.slice(0, -1)}x` : value;
+};
 
 const blueprint: RuleBlueprintV2 = {
   schemaVersion: "2.0.0",
@@ -249,6 +263,42 @@ Deno.test(
 );
 
 Deno.test(
+  "rule-coverage: refuse un statut implemented qui masque une adaptation",
+  () => {
+    const approvedAdaptation = "Utiliser l’effet visuel géré disponible.";
+    const result = evaluateRuleCoverage({
+      contract: {
+        ...contract(approvedAdaptation),
+        requirements: [contract(approvedAdaptation).requirements[1]],
+      },
+      blueprint,
+      audit: {
+        exactIntentPreserved: true,
+        summary:
+          "L’audit prétend que l’adaptation est une implémentation exacte.",
+        requirements: [
+          {
+            id: "ice-animation",
+            status: "implemented",
+            evidencePaths: ["$.triggers[0].effects[1]"],
+            explanation: "Une animation gérée remplace l’effet demandé.",
+            adaptation: approvedAdaptation,
+            userApproved: true,
+          },
+        ],
+      },
+    });
+
+    assert(!result.assessment.complete);
+    assert(!result.assessment.exactIntentPreserved);
+    assertEquals(
+      result.diagnostics[0]?.code,
+      "COVERAGE_IMPLEMENTATION_STATUS_INVALID",
+    );
+  },
+);
+
+Deno.test(
   "rule-coverage: une description seule ne prouve pas une mécanique",
   () => {
     const result = evaluateRuleCoverage({
@@ -332,7 +382,45 @@ Deno.test(
           item.statement.includes("Gel équilibré"),
       ),
     );
-    assert(result.compilerPrompt.length <= 6_000);
+    assert(
+      result.compilerPrompt.length <= MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH,
+    );
+  },
+);
+
+Deno.test(
+  "rule-coverage: accepte prompt utilisateur et draft de 6000 caractères",
+  () => {
+    const originalPrompt = safeTextOfLength(MAX_USER_RULE_PROMPT_LENGTH);
+    const guidance = signedGuidance();
+    guidance.draftPrompt = safeTextOfLength(MAX_USER_RULE_PROMPT_LENGTH);
+
+    const result = buildSignedGuidanceCompilation({
+      originalPrompt,
+      guidance,
+      selections: {
+        answers: {
+          "freeze-duration": ["two-turns"],
+          "freeze-cooldown": ["three-turns"],
+        },
+        acceptedAdjustmentIds: [],
+      },
+    });
+
+    assertEquals(
+      result.contract.originalPrompt.length,
+      MAX_USER_RULE_PROMPT_LENGTH,
+    );
+    assert(result.compilerPrompt.length > MAX_USER_RULE_PROMPT_LENGTH);
+    assert(
+      result.compilerPrompt.length <= MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH,
+    );
+    assert(requireSafeRulePrompt(originalPrompt).safe);
+    const firstPass = requireSafeSignedRuleCompilerPrompt(
+      result.compilerPrompt,
+    );
+    assert(firstPass.safe);
+    assert(requireSafeSignedRuleCompilerPrompt(firstPass.sanitizedPrompt).safe);
   },
 );
 

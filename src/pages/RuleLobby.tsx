@@ -33,6 +33,7 @@ import {
   type RuleLobbyDetails,
   type RuleLobbySummary,
 } from "@/features/rule-architect/lobby-api";
+import { getRuleLobbyLaunchBlockReason } from "@/features/rule-architect/lobby-launch-policy";
 
 const dateLabel = (value: string): string => {
   const date = new Date(value);
@@ -177,6 +178,16 @@ export default function RuleLobby() {
 
     try {
       const runtime = await getRuleLobbyRuntime(lobby.lobbyId);
+      const launchBlockReason = getRuleLobbyLaunchBlockReason(runtime.mode);
+
+      if (launchBlockReason) {
+        toast({
+          title: "Partie multijoueur en attente",
+          description: launchBlockReason,
+          variant: "destructive",
+        });
+        return;
+      }
 
       const customRules = runtime.rules.map((entry) =>
         convertRuleJsonToChessRule(entry.ruleJson),
@@ -415,19 +426,32 @@ export default function RuleLobby() {
                 )}
 
                 {lobby.status === "matched" && lobby.isParticipant && (
-                  <Button
-                    size="lg"
-                    className="w-full gap-2"
-                    disabled={busyId === lobby.lobbyId}
-                    onClick={() => void launchGame()}
-                  >
-                    {busyId === lobby.lobbyId ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Swords className="h-4 w-4" />
+                  <div className="space-y-2">
+                    {lobby.mode === "player" && (
+                      <p
+                        role="status"
+                        className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
+                      >
+                        Le lancement joueur attend le runtime serveur
+                        autoritaire. Ce lobby reste conservé.
+                      </p>
                     )}
-                    Lancer la partie
-                  </Button>
+                    <Button
+                      size="lg"
+                      className="w-full gap-2"
+                      disabled={busyId === lobby.lobbyId}
+                      onClick={() => void launchGame()}
+                    >
+                      {busyId === lobby.lobbyId ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Swords className="h-4 w-4" />
+                      )}
+                      {lobby.mode === "player"
+                        ? "Vérifier la disponibilité"
+                        : "Lancer la partie"}
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>

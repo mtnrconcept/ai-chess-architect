@@ -1,6 +1,14 @@
-const MAX_RULE_PROMPT_LENGTH = 6_000;
+export const MAX_USER_RULE_PROMPT_LENGTH = 6_000;
 
-const BIDI_AND_ZERO_WIDTH = /[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+// The signed compiler envelope contains the already-validated user prompt,
+// requirements, selected decisions and the generated draft. It is necessarily
+// larger than the user-authored prompt, but it must remain bounded before being
+// sent to the model. Keep this separate from MAX_USER_RULE_PROMPT_LENGTH so a
+// public caller can never use the internal budget to submit a larger prompt.
+export const MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH = 64_000;
+
+const BIDI_AND_ZERO_WIDTH =
+  /[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
 const DISALLOWED_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const HTML_TAG = /<\/?[a-z][^>]{0,500}>/gi;
 const UNTRUSTED_URI =
@@ -66,8 +74,7 @@ const THREAT_RULES: readonly ThreatRule[] = [
   {
     code: "encoded-payload",
     score: 4,
-    pattern:
-      /(?:\b[A-Za-z0-9+/]{300,}={0,2}\b|\b(?:0x)?[0-9a-fA-F]{400,}\b)/,
+    pattern: /(?:\b[A-Za-z0-9+/]{300,}={0,2}\b|\b(?:0x)?[0-9a-fA-F]{400,}\b)/,
   },
 ];
 
@@ -93,19 +100,20 @@ export class PromptSecurityError extends Error {
 
 const unique = <T>(items: T[]): T[] => [...new Set(items)];
 
-export function assessRulePromptSecurity(
+const assessPromptSecurity = (
   rawPrompt: string,
-): PromptSecurityAssessment {
+  maxLength: number,
+): PromptSecurityAssessment => {
   const reasons: string[] = [];
   let score = 0;
 
   const normalized = String(rawPrompt ?? "").normalize("NFKC");
-  if (normalized.length > MAX_RULE_PROMPT_LENGTH) {
+  if (normalized.length > maxLength) {
     reasons.push("oversized-prompt");
     score += 4;
   }
 
-  const bounded = normalized.slice(0, MAX_RULE_PROMPT_LENGTH);
+  const bounded = normalized.slice(0, maxLength);
 
   BIDI_AND_ZERO_WIDTH.lastIndex = 0;
   if (BIDI_AND_ZERO_WIDTH.test(bounded)) {
@@ -137,7 +145,8 @@ export function assessRulePromptSecurity(
     "[URL EXTERNE SUPPRIMÉE]",
   );
 
-  const managedResourceMatches = sanitizedPrompt.match(MANAGED_RESOURCE_ID) ?? [];
+  const managedResourceMatches =
+    sanitizedPrompt.match(MANAGED_RESOURCE_ID) ?? [];
   MANAGED_RESOURCE_ID.lastIndex = 0;
   sanitizedPrompt = sanitizedPrompt.replace(
     MANAGED_RESOURCE_ID,
@@ -162,10 +171,37 @@ export function assessRulePromptSecurity(
     removedUrlCount: urlMatches.length,
     removedManagedResourceCount: managedResourceMatches.length,
   };
+};
+
+export function assessRulePromptSecurity(
+  rawPrompt: string,
+): PromptSecurityAssessment {
+  return assessPromptSecurity(rawPrompt, MAX_USER_RULE_PROMPT_LENGTH);
 }
 
-export function requireSafeRulePrompt(rawPrompt: string): PromptSecurityAssessment {
+export function assessSignedRuleCompilerPromptSecurity(
+  rawPrompt: string,
+): PromptSecurityAssessment {
+  return assessPromptSecurity(
+    rawPrompt,
+    MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH,
+  );
+}
+
+export function requireSafeRulePrompt(
+  rawPrompt: string,
+): PromptSecurityAssessment {
   const assessment = assessRulePromptSecurity(rawPrompt);
+  if (!assessment.safe) {
+    throw new PromptSecurityError(assessment.reasons);
+  }
+  return assessment;
+}
+
+export function requireSafeSignedRuleCompilerPrompt(
+  rawPrompt: string,
+): PromptSecurityAssessment {
+  const assessment = assessSignedRuleCompilerPromptSecurity(rawPrompt);
   if (!assessment.safe) {
     throw new PromptSecurityError(assessment.reasons);
   }

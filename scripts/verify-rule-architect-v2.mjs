@@ -82,6 +82,10 @@ const requiredRuntimeFiles = [
   "supabase/functions/join-rule-lobby-v2/index.ts",
   "supabase/migrations/20260719230000_rule_architect_v2.sql",
   "supabase/migrations/20260722120000_rule_version_coverage_gate.sql",
+  "supabase/migrations/20260722130000_harden_rule_version_coverage_gate.sql",
+  "supabase/migrations/20260722140000_fail_closed_custom_pvp_runtime.sql",
+  "supabase/rollbacks/20260722140000_fail_closed_custom_pvp_runtime.down.sql",
+  "supabase/tests/rule_version_coverage_gate.sql",
 ];
 
 for (const relative of requiredRuntimeFiles) {

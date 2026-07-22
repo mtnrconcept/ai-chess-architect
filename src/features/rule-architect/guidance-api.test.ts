@@ -1,12 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const invoke = vi.hoisted(() => vi.fn());
 
 vi.mock("@/integrations/supabase/client", () => ({
-  requireSupabaseClient: vi.fn(),
+  requireSupabaseClient: () => ({
+    functions: { invoke },
+  }),
 }));
 
 import {
   buildGuidedRulePrompt,
   buildRuleIntentContract,
+  requestRuleGuidance,
   type RuleGuidanceResponse,
 } from "./guidance-api";
 
@@ -109,6 +114,10 @@ const selections = {
 };
 
 describe("Rule Architect guidance contract", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
   it("records an adaptation only after explicit acceptance", () => {
     const rejected = buildRuleIntentContract({
       originalPrompt: "Le fou gèle une cible avec une cinématique de glace.",
@@ -143,5 +152,48 @@ describe("Rule Architect guidance contract", () => {
     expect(prompt).toContain(
       "N’adapte que les ajustements explicitement acceptés",
     );
+  });
+
+  it("accepts a complete guidance envelope", async () => {
+    invoke.mockResolvedValue({
+      data: { success: true, data: guidance },
+      error: null,
+    });
+
+    await expect(
+      requestRuleGuidance({ prompt: "Le fou gèle une cible." }),
+    ).resolves.toEqual(guidance);
+  });
+
+  it("turns invalid selection bounds into a recoverable analysis error", async () => {
+    invoke.mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          ...guidance,
+          questions: guidance.questions.map((question, index) =>
+            index === 0
+              ? { ...question, maxSelections: question.choices.length + 1 }
+              : question,
+          ),
+        },
+      },
+      error: null,
+    });
+
+    await expect(
+      requestRuleGuidance({ prompt: "Le fou gèle une cible." }),
+    ).rejects.toThrow("réponse invalide");
+  });
+
+  it("rejects a malformed success envelope without leaking raw data", async () => {
+    invoke.mockResolvedValue({
+      data: { success: "yes", data: guidance },
+      error: null,
+    });
+
+    await expect(
+      requestRuleGuidance({ prompt: "Le fou gèle une cible." }),
+    ).rejects.toThrow("Relance l’analyse");
   });
 });

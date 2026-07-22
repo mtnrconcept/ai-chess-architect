@@ -2,6 +2,7 @@ import {
   assertManagedAssetReferences,
   prepareRuleArchitectInput,
   type PreparedRuleArchitectInput,
+  type RuleArchitectPromptSource,
 } from "./rule-architect-input.ts";
 
 interface OpenAIUsage {
@@ -136,6 +137,7 @@ export async function createStructuredResponse(input: {
   schemaName: string;
   schema: Record<string, unknown>;
   reasoningEffort: "low" | "medium" | "high";
+  ruleArchitectPromptSource?: RuleArchitectPromptSource;
   timeoutMs?: number;
 }): Promise<StructuredResponseResult> {
   const preparedInput:
@@ -145,7 +147,11 @@ export async function createStructuredResponse(input: {
         userPrompt: string;
       } =
     input.schemaName === "rule_blueprint_v2"
-      ? await prepareRuleArchitectInput(input.systemPrompt, input.userPrompt)
+      ? await prepareRuleArchitectInput(
+          input.systemPrompt,
+          input.userPrompt,
+          input.ruleArchitectPromptSource,
+        )
       : {
           systemPrompt: input.systemPrompt,
           userPrompt: input.userPrompt,

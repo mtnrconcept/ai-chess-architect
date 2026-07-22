@@ -16,6 +16,59 @@ declare
     'f0000000-0000-4000-8000-000000000030';
   v_version_b constant uuid :=
     'f0000000-0000-4000-8000-000000000031';
+  v_validation constant jsonb := $json$
+    {
+      "metrics": {
+        "coverageContractVersion": 1,
+        "intentContract": {
+          "version": 1,
+          "originalPrompt": "[redacted]",
+          "originalPromptHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "requirements": [
+            {
+              "id": "test-action",
+              "statement": "The rule exposes one deterministic test action.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": ""
+            },
+            {
+              "id": "request-fidelity",
+              "statement": "Every signed clause is represented by compiled logic.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": ""
+            }
+          ],
+          "decisions": []
+        },
+        "coverage": {
+          "complete": true,
+          "exactIntentPreserved": true,
+          "score": 100,
+          "summary": "The deterministic test action is implemented.",
+          "requirements": [
+            {
+              "id": "test-action",
+              "status": "implemented",
+              "evidencePaths": ["$.actions[0]"],
+              "explanation": "The first action provides the required behavior.",
+              "adaptation": "",
+              "userApproved": false
+            },
+            {
+              "id": "request-fidelity",
+              "status": "implemented",
+              "evidencePaths": ["$.actions[0]"],
+              "explanation": "The compiled action represents every signed clause.",
+              "adaptation": "",
+              "userApproved": false
+            }
+          ]
+        }
+      }
+    }
+  $json$::jsonb;
   v_hash_a text;
   v_hash_b text;
 begin
@@ -43,6 +96,7 @@ begin
     status,
     blueprint,
     compiled_rule,
+    metrics,
     content_hash,
     request_key
   )
@@ -54,8 +108,9 @@ begin
       'prompt-a',
       'test-model',
       'validated',
-      '{"ruleKey":"hash-a","stateNamespace":"hash-a"}'::jsonb,
+      '{"ruleKey":"hash-a","stateNamespace":"hash-a","actions":[{"id":"test-action"}]}'::jsonb,
       '{}'::jsonb,
+      v_validation -> 'metrics',
       'same-semantic-content-hash',
       'f0000000-0000-4000-8000-000000000040'
     ),
@@ -66,8 +121,9 @@ begin
       'prompt-b',
       'test-model',
       'validated',
-      '{"ruleKey":"hash-b","stateNamespace":"hash-b"}'::jsonb,
+      '{"ruleKey":"hash-b","stateNamespace":"hash-b","actions":[{"id":"test-action"}]}'::jsonb,
       '{}'::jsonb,
+      v_validation -> 'metrics',
       'same-semantic-content-hash',
       'f0000000-0000-4000-8000-000000000041'
     );
@@ -113,6 +169,7 @@ begin
     rule_json,
     content_hash,
     visibility,
+    validation,
     created_by
   )
   values
@@ -124,10 +181,11 @@ begin
       '2.0.0',
       '2.0.0',
       'hash-a@test-v1',
-      '{"ruleKey":"hash-a","stateNamespace":"hash-a"}'::jsonb,
+      '{"ruleKey":"hash-a","stateNamespace":"hash-a","actions":[{"id":"test-action"}]}'::jsonb,
       '{"meta":{},"logic":{}}'::jsonb,
       'same-semantic-content-hash',
       'private',
+      v_validation,
       v_user_id
     ),
     (
@@ -138,10 +196,11 @@ begin
       '2.0.0',
       '2.0.0',
       'hash-b@test-v1',
-      '{"ruleKey":"hash-b","stateNamespace":"hash-b"}'::jsonb,
+      '{"ruleKey":"hash-b","stateNamespace":"hash-b","actions":[{"id":"test-action"}]}'::jsonb,
       '{"meta":{},"logic":{}}'::jsonb,
       'same-semantic-content-hash',
       'private',
+      v_validation,
       v_user_id
     );
 

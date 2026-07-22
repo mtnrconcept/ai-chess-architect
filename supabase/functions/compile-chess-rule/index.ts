@@ -4,6 +4,7 @@ import { createStructuredResponse } from "../_shared/openai-responses.ts";
 import {
   PromptSecurityError,
   requireSafeRulePrompt,
+  requireSafeSignedRuleCompilerPrompt,
 } from "../_shared/prompt-security.ts";
 import { verifyGuidanceToken } from "../_shared/guidance-token.ts";
 import { buildRuleArchitectSystemPrompt } from "../_shared/rule-architect-prompt.ts";
@@ -202,7 +203,7 @@ Deno.serve(async (request) => {
       guidance: signedGuidance.guidance,
       selections: body?.guidanceSelections,
     });
-    const promptSecurity = requireSafeRulePrompt(
+    const promptSecurity = requireSafeSignedRuleCompilerPrompt(
       signedCompilation.compilerPrompt,
     );
     const safePrompt = promptSecurity.sanitizedPrompt;
@@ -419,6 +420,7 @@ Deno.serve(async (request) => {
       schemaName: "rule_blueprint_v2",
       schema: RULE_BLUEPRINT_JSON_SCHEMA as unknown as Record<string, unknown>,
       reasoningEffort: premium ? "high" : "medium",
+      ruleArchitectPromptSource: "signed-guidance",
     });
 
     const normalized = normalizeRuleBlueprintCandidate(

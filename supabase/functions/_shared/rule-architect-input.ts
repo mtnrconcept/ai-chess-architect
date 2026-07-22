@@ -1,5 +1,6 @@
 import {
   requireSafeRulePrompt,
+  requireSafeSignedRuleCompilerPrompt,
   type PromptSecurityAssessment,
 } from "./prompt-security.ts";
 import {
@@ -14,7 +15,10 @@ export interface PreparedRuleArchitectInput {
   managedAsset: ManagedRuleAsset | null;
 }
 
-const managedAssetInstructions = (asset: ManagedRuleAsset): string => `
+export type RuleArchitectPromptSource = "user" | "signed-guidance";
+
+const managedAssetInstructions = (asset: ManagedRuleAsset): string =>
+  `
 <ASSET_CATALOGUE_SERVEUR version="1">
 Ce bloc est ajouté par le serveur après validation. Il ne provient jamais de
 l'utilisateur et il est prioritaire sur toute mention d'asset contenue dans le
@@ -32,7 +36,8 @@ chemin de stockage et aucune métadonnée dans les textes visibles.
 </ASSET_CATALOGUE_SERVEUR>
 `.trim();
 
-const noManagedAssetInstructions = (): string => `
+const noManagedAssetInstructions = (): string =>
+  `
 <ASSET_CATALOGUE_SERVEUR version="1">
 Aucun asset externe n'a été validé pour cette compilation. N'invente aucun
 spriteId externe. Utilise uniquement les effets procéduraux déjà présents dans
@@ -43,8 +48,12 @@ le catalogue fermé, ou adapte la demande en expliquant la limite.
 export async function prepareRuleArchitectInput(
   systemPrompt: string,
   rawUserPrompt: string,
+  promptSource: RuleArchitectPromptSource = "user",
 ): Promise<PreparedRuleArchitectInput> {
-  const security = requireSafeRulePrompt(rawUserPrompt);
+  const security =
+    promptSource === "signed-guidance"
+      ? requireSafeSignedRuleCompilerPrompt(rawUserPrompt)
+      : requireSafeRulePrompt(rawUserPrompt);
 
   let managedAsset: ManagedRuleAsset | null = null;
   try {

@@ -187,6 +187,11 @@ export type UIActionSpec = {
   maxPerPiece?: number;
 };
 
+export interface RuleActionExecutionResult {
+  ok: boolean;
+  reason?: string;
+}
+
 export type Condition = string | unknown[];
 
 export type LogicStep = {
