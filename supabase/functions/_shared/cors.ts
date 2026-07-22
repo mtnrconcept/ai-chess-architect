@@ -112,9 +112,10 @@ const asCorsOverrides = (value: unknown): CorsOverrides | undefined =>
     ? (value as CorsOverrides)
     : undefined;
 
-export function withCors(res: Response): Response {
+export function withCors(res: Response, req?: Request): Response {
   const h = new Headers(res.headers);
-  for (const [k, v] of baseHeaders.entries()) h.set(k, v);
+  const corsHeaders = req ? buildCorsHeaders(undefined, req) : baseHeaders;
+  for (const [k, v] of corsHeaders.entries()) h.set(k, v);
   return new Response(res.body, { status: res.status, headers: h });
 }
 

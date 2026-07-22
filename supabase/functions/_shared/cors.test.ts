@@ -1,5 +1,5 @@
 import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
-import { preflightIfOptions } from "./cors.ts";
+import { preflightIfOptions, withCors } from "./cors.ts";
 
 const preflight = (origin: string, requestedHeaders = "authorization") => {
   const response = preflightIfOptions(
@@ -52,3 +52,20 @@ Deno.test("cors legacy: n'autorise pas un en-tête arbitraire demandé", () => {
     false,
   );
 });
+
+Deno.test(
+  "cors legacy: conserve l'origine autorisée sur la réponse réelle",
+  () => {
+    const origin =
+      "https://ai-chess-architect-git-fix-runtime-mtnrconcepts-projects.vercel.app";
+    const request = new Request(
+      "https://example.test/functions/v1/sync-tournaments",
+      { method: "POST", headers: { origin } },
+    );
+
+    const response = withCors(new Response("ok"), request);
+
+    assertEquals(response.headers.get("access-control-allow-origin"), origin);
+    assertEquals(response.headers.get("vary"), "Origin");
+  },
+);

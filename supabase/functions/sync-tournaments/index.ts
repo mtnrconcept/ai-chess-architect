@@ -147,6 +147,7 @@ const handleErrorResponse = (
       status,
       headers: { "Content-Type": "application/json" },
     }),
+    request,
   );
 };
 
@@ -436,6 +437,7 @@ serve(async (request: Request): Promise<Response> => {
         status: 405,
         headers: { "Content-Type": "application/json" },
       }),
+      request,
     );
   }
 
@@ -445,6 +447,7 @@ serve(async (request: Request): Promise<Response> => {
         status: 500,
         headers: { "Content-Type": "application/json" },
       }),
+      request,
     );
   }
 
@@ -501,6 +504,7 @@ serve(async (request: Request): Promise<Response> => {
           headers: { "Content-Type": "application/json" },
         },
       ),
+      request,
     );
   } catch (error) {
     return handleErrorResponse(request, error);
