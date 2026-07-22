@@ -186,7 +186,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 };
 
 // Hook colocated with the provider to preserve the public module API.
-// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
