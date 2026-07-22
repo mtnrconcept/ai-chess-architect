@@ -8,20 +8,22 @@ type CorsOverrides = {
 };
 
 const DEFAULT_ALLOWED_ORIGINS = [
+  "https://ai-chess-architect.vercel.app",
+  "https://ai-chess-architect-mtnrconcepts-projects.vercel.app",
+  "https://ai-chess-architect-mtnrconcept-mtnrconcepts-projects.vercel.app",
   "https://1e794698-feca-4fca-ab3b-11990c0b270d.lovableproject.com",
   "https://ai-chess-architect.lovable.app",
   "https://preview--ai-chess-architect.lovable.app",
   "http://localhost:5173",
 ];
 
-// Broad allow-list patterns to support dynamic preview URLs
-// e.g. id-preview--<id>.lovable.app or preview--<slug>.lovable.app
+// Preview patterns are restricted to the known project and platform domains.
 const DEFAULT_ALLOWED_ORIGIN_PATTERNS: RegExp[] = [
-  /^https:\/\/([a-z0-9-]+--)?[a-z0-9-]+\.lovable\.app$/i,
+  /^https:\/\/ai-chess-architect-[a-z0-9-]+-mtnrconcepts-projects\.vercel\.app$/i,
+  /^https:\/\/([a-z0-9-]+--)?ai-chess-architect\.lovable\.app$/i,
   /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/i,
   /^http:\/\/localhost(?::\d+)?$/i,
 ];
-
 
 const envOrigins = Deno.env
   .get("CORS_ORIGIN")
@@ -41,6 +43,7 @@ const DEFAULT_ALLOW_HEADERS = [
   "Prefer",
   "X-Client-Info",
   "x-client-info",
+  "x-supabase-api-version",
 ] as const;
 
 const DEFAULT_ALLOW_CREDENTIALS = true;
@@ -53,7 +56,6 @@ const resolveAllowedOrigin = (
   if (ALLOWED_ORIGINS.includes("*")) return "*";
   if (requestOrigin) {
     if (ALLOWED_ORIGINS.includes(requestOrigin)) return requestOrigin;
-    // If the origin matches one of our broad patterns, echo it back
     if (DEFAULT_ALLOWED_ORIGIN_PATTERNS.some((re) => re.test(requestOrigin))) {
       return requestOrigin;
     }
@@ -62,15 +64,19 @@ const resolveAllowedOrigin = (
 };
 
 const buildCorsHeaders = (overrides?: CorsOverrides, request?: Request) => {
-  const requestedHeaders = request?.headers
-    .get("access-control-request-headers")
-    ?.split(",")
-    .map((header) => header.trim())
-    .filter((header) => header.length > 0);
+  const requestedHeaders =
+    request?.headers
+      .get("access-control-request-headers")
+      ?.split(",")
+      .map((header) => header.trim())
+      .filter((header) => header.length > 0) ?? [];
   const requestOrigin = request?.headers.get("origin");
 
   const allowHeaders = Array.from(
-    new Set(overrides?.headers ?? DEFAULT_ALLOW_HEADERS),
+    new Set([
+      ...(overrides?.headers ?? DEFAULT_ALLOW_HEADERS),
+      ...requestedHeaders,
+    ]),
   )
     .map((header) => header.trim())
     .filter((header) => header.length > 0)
@@ -84,11 +90,10 @@ const buildCorsHeaders = (overrides?: CorsOverrides, request?: Request) => {
       overrides?.methods ?? DEFAULT_ALLOW_METHODS
     ).join(","),
     "Access-Control-Allow-Headers": allowHeaders,
+    "Access-Control-Max-Age": "86400",
   });
 
-  if (allowOrigin !== "*") {
-    headers.set("Vary", "Origin");
-  }
+  if (allowOrigin !== "*") headers.set("Vary", "Origin");
 
   if (overrides?.allowCredentials ?? DEFAULT_ALLOW_CREDENTIALS) {
     if (allowOrigin !== "*") {
@@ -129,10 +134,8 @@ export function preflightIfOptions(
   return null;
 }
 
-// Helper qui combine JSON + CORS automatiquement
-// Supporte deux signatures pour rétrocompatibilité :
-// - Nouvelle : jsonResponse(data, status)
-// - Ancienne : jsonResponse(req, data, options, ...)
+// Helper combining JSON and CORS automatically. It keeps both historical
+// signatures because several deployed functions still use them.
 export function jsonResponse(...args: unknown[]): Response {
   if (!isRequest(args[0])) {
     const data = args[0];
@@ -141,16 +144,12 @@ export function jsonResponse(...args: unknown[]): Response {
 
     for (let i = 1; i < args.length; i++) {
       const candidate = args[i];
-      if (typeof candidate === "number") {
-        status = candidate;
-      } else if (isRequest(candidate)) {
-        req = candidate;
-      }
+      if (typeof candidate === "number") status = candidate;
+      else if (isRequest(candidate)) req = candidate;
     }
 
     const headers = buildCorsHeaders(undefined, req);
     headers.set("Content-Type", "application/json");
-
     return new Response(JSON.stringify(data), { status, headers });
   }
 
@@ -165,15 +164,11 @@ export function jsonResponse(...args: unknown[]): Response {
   for (const [key, value] of corsHeaders.entries()) {
     headers.set(key, value);
   }
-
   headers.set("Content-Type", "application/json");
-
   return new Response(JSON.stringify(data), { ...options, status, headers });
 }
 
-// Backward compatibility aliases
 export function handleOptions(...args: unknown[]): Response | null {
-  // Accepte handleOptions(req) ou handleOptions(req, corsOptions)
   const req = args[0];
   if (!isRequest(req)) return null;
   const overrides = asCorsOverrides(args[1]);
@@ -199,7 +194,6 @@ export function corsResponse(...args: unknown[]): Response {
     for (const [key, value] of corsHeaders.entries()) {
       headers.set(key, value);
     }
-
     return new Response(body as BodyInit, { ...init, headers });
   }
 
