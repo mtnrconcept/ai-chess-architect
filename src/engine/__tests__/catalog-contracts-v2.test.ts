@@ -308,6 +308,32 @@ describe("Rule Architect V2 catalog contracts", () => {
     }
   });
 
+  it("résout $ctx.side avant d'évaluer piece.isSide", () => {
+    const registry = createRegistry();
+    const { contracts } = createHarness();
+    const context = contextFor(contracts);
+    context.side = "white";
+
+    expect(
+      registry.runCondition(["piece.isSide", { side: "$ctx.side" }], context),
+    ).toBe(true);
+
+    context.side = "black";
+    expect(
+      registry.runCondition(["piece.isSide", { side: "$ctx.side" }], context),
+    ).toBe(false);
+
+    context.side = "white";
+    expect(
+      registry.runCondition(["piece.isSide", { side: "white" }], context),
+    ).toBe(true);
+
+    delete context.side;
+    expect(
+      registry.runCondition(["piece.isSide", { side: "$ctx.side" }], context),
+    ).toBe(false);
+  });
+
   it("respecte le type de cible de chaque provider exposé", () => {
     const registry = createRegistry();
     const { contracts } = createHarness();
@@ -516,6 +542,218 @@ describe("Rule Architect V2 catalog contracts", () => {
     expect(new Set(namespaces).size).toBe(2);
     expect(actionIds).toContain("shared@v1::shared.action");
     expect(actionIds).toContain("shared@v2::shared.action");
+  });
+
+  it("isole cooldown.ready et cooldown.set entre deux versions", () => {
+    const registry = createRegistry();
+    const { contracts, state } = createHarness();
+    const cooldownRule = (ruleId: string): RuleJSON => {
+      const rule = versionedRule(ruleId, [
+        {
+          action: "state.inc",
+          params: { path: "count", by: 1, default: 0 },
+        },
+        {
+          action: "cooldown.set",
+          params: {
+            pieceId: "$pieceId",
+            actionId: "shared.action",
+            turns: 2,
+          },
+        },
+      ]);
+      rule.ui = {
+        actions: [
+          {
+            id: "shared.action",
+            label: "Action de cooldown",
+            targeting: { mode: "none" },
+            consumesTurn: false,
+          },
+        ],
+      };
+      rule.logic.effects[0].if = [
+        "and",
+        [
+          "not",
+          [
+            "not",
+            [
+              "cooldown.ready",
+              { pieceId: "$pieceId", actionId: "shared.action" },
+            ],
+          ],
+        ],
+      ];
+      rule.logic.effects[0].onFail = "skip";
+      return rule;
+    };
+
+    const engine = new RuleEngine(contracts, registry, {
+      matchSeed: "cooldown-scope",
+    });
+    engine.loadRules([
+      cooldownRule("cooldown@v1"),
+      cooldownRule("cooldown@v2"),
+    ]);
+    contracts.cooldown.set("source", "cooldown@v1::shared.action", 2);
+
+    engine.onEnterTile("source", "b3");
+
+    expect(state.getOrInit("rules.shared::cooldown@v1", {})).not.toMatchObject({
+      count: 1,
+    });
+    expect(state.getOrInit("rules.shared::cooldown@v2", {})).toMatchObject({
+      count: 1,
+    });
+    expect(
+      contracts.cooldown.isReady("source", "cooldown@v2::shared.action"),
+    ).toBe(false);
+  });
+
+  it("réserve le cooldown implicite aux actions UI", () => {
+    const registry = createRegistry();
+    const { contracts, state } = createHarness();
+    const uiRule = versionedRule("implicit-ui@v1", [
+      {
+        action: "state.inc",
+        params: { path: "count", by: 1, default: 0 },
+      },
+    ]);
+    uiRule.integration!.ruleArchitect!.blueprintRuleKey = "implicit-ui";
+    uiRule.ui = {
+      actions: [
+        {
+          id: "implicit-ui.action",
+          label: "Action implicite",
+          availability: { requiresSelection: true },
+          targeting: { mode: "none" },
+          consumesTurn: false,
+        },
+      ],
+    };
+    uiRule.logic!.effects![0].when = "ui.implicit-ui.action";
+    uiRule.logic!.effects![0].if = "cooldown.ready";
+
+    const engine = new RuleEngine(contracts, registry);
+    engine.loadRules([uiRule]);
+    const scopedActionId = engine.getUIActions()[0].id;
+    contracts.cooldown.set("source", scopedActionId, 2);
+
+    expect(engine.runUIAction(scopedActionId, "source").ok).toBe(false);
+    contracts.cooldown.set("source", scopedActionId, 0);
+    expect(engine.runUIAction(scopedActionId, "source").ok).toBe(true);
+    expect(state.getOrInit("rules.shared::implicit-ui@v1", {})).toMatchObject({
+      count: 1,
+    });
+
+    const lifecycleRule = versionedRule("implicit-lifecycle@v1", [
+      {
+        action: "state.inc",
+        params: { path: "count", by: 1, default: 0 },
+      },
+    ]);
+    lifecycleRule.logic!.effects![0].if = ["not", "cooldown.ready"];
+    const lifecycleEngine = new RuleEngine(contracts, registry);
+    lifecycleEngine.loadRules([lifecycleRule]);
+    expect(lifecycleEngine.getRules()).toHaveLength(0);
+  });
+
+  it("refuse les identifiants d'action V2 mal formés sans planter", () => {
+    const registry = createRegistry();
+    const { contracts } = createHarness();
+    const invalid = versionedRule("invalid-action@v1", [
+      { action: "ui.toast", params: { message: "Test" } },
+    ]);
+    invalid.ui = {
+      actions: [
+        {
+          id: 42 as unknown as string,
+          label: "Action invalide",
+          targeting: { mode: "none" },
+          consumesTurn: false,
+        },
+      ],
+    };
+    const engine = new RuleEngine(contracts, registry);
+
+    expect(() => engine.loadRules([invalid])).not.toThrow();
+    expect(engine.getRules()).toHaveLength(0);
+  });
+
+  it("accepte uniquement l'alias cooldown historique dérivé du ruleKey", () => {
+    const registry = createRegistry();
+    const { contracts, state } = createHarness();
+    const rule = versionedRule("legacy-cooldown@v1", [
+      {
+        action: "state.inc",
+        params: { path: "count", by: 1, default: 0 },
+      },
+      {
+        action: "cooldown.set",
+        params: {
+          pieceId: "$pieceId",
+          actionId: "shared.action",
+          turns: 2,
+        },
+      },
+    ]);
+    rule.integration!.ruleArchitect!.blueprintRuleKey = "shared";
+    rule.ui = {
+      actions: [
+        {
+          id: "shared.action",
+          label: "Action historique",
+          targeting: { mode: "none" },
+          consumesTurn: false,
+        },
+      ],
+    };
+    rule.logic!.effects![0].if = [
+      "cooldown.ready",
+      { pieceId: "$pieceId", actionId: "action" },
+    ];
+
+    const engine = new RuleEngine(contracts, registry);
+    engine.loadRules([rule]);
+    engine.onEnterTile("source", "b3");
+
+    expect(
+      state.getOrInit("rules.shared::legacy-cooldown@v1", {}),
+    ).toMatchObject({ count: 1 });
+    expect(
+      contracts.cooldown.isReady("source", "legacy-cooldown@v1::shared.action"),
+    ).toBe(false);
+
+    const tampered = structuredClone(rule);
+    tampered.meta.ruleId = "legacy-cooldown@v2";
+    tampered.integration!.ruleArchitect!.blueprintRuleKey = "other";
+    const rejectedEngine = new RuleEngine(contracts, registry);
+    rejectedEngine.loadRules([tampered]);
+    expect(rejectedEngine.getRules()).toHaveLength(0);
+
+    const ambiguous = structuredClone(rule);
+    ambiguous.meta.ruleId = "legacy-cooldown@v3";
+    ambiguous.ui!.actions!.unshift({
+      id: "action",
+      label: "Collision historique",
+      targeting: { mode: "none" },
+      consumesTurn: false,
+    });
+    const ambiguousEngine = new RuleEngine(contracts, registry);
+    ambiguousEngine.loadRules([ambiguous]);
+    expect(ambiguousEngine.getRules()).toHaveLength(0);
+
+    const positional = structuredClone(rule);
+    positional.meta.ruleId = "legacy-cooldown@v4";
+    positional.logic!.effects![0].if = [
+      "cooldown.ready",
+      "$pieceId",
+      "shared.action",
+    ];
+    const positionalEngine = new RuleEngine(contracts, registry);
+    positionalEngine.loadRules([positional]);
+    expect(positionalEngine.getRules()).toHaveLength(0);
   });
 
   it("refuse une règle V2 altérée avec un effet hors catalogue", () => {
