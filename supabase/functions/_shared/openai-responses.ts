@@ -41,6 +41,14 @@ export interface StructuredResponseResult {
   usage: OpenAIUsage | null;
 }
 
+export function resolveStructuredResponseTimeout(timeoutMs?: number): number {
+  const requested =
+    typeof timeoutMs === "number" && Number.isFinite(timeoutMs)
+      ? Math.trunc(timeoutMs)
+      : 55_000;
+  return Math.min(90_000, Math.max(10_000, requested));
+}
+
 const extractOutputText = (payload: OpenAIResponsePayload): string | null => {
   if (typeof payload.output_text === "string" && payload.output_text.trim()) {
     return payload.output_text;
@@ -140,6 +148,7 @@ export async function createStructuredResponse(input: {
   ruleArchitectPromptSource?: RuleArchitectPromptSource;
   timeoutMs?: number;
 }): Promise<StructuredResponseResult> {
+  const timeoutMs = resolveStructuredResponseTimeout(input.timeoutMs);
   const preparedInput:
     | PreparedRuleArchitectInput
     | {
@@ -195,10 +204,6 @@ export async function createStructuredResponse(input: {
   };
 
   let lastError = "Erreur OpenAI inconnue.";
-  const timeoutMs = Math.min(
-    90_000,
-    Math.max(10_000, input.timeoutMs ?? 55_000),
-  );
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

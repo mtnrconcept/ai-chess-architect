@@ -254,7 +254,7 @@ Deno.serve(async (request) => {
       schemaName: "rule_guidance_v1",
       schema: GUIDANCE_SCHEMA as unknown as Record<string, unknown>,
       reasoningEffort: "medium",
-      timeoutMs: 45_000,
+      timeoutMs: 85_000,
     });
 
     const validatedGuidance = validateGuidance(response.value);
@@ -316,13 +316,22 @@ Deno.serve(async (request) => {
     const authFailure =
       message === "AUTH_REQUIRED" || message === "AUTH_INVALID";
     const invalidPrompt = message.startsWith("PROMPT_");
+    const providerTimeout =
+      /^OpenAI n'a pas répondu dans les \d+ secondes\.$/.test(message);
+    const internalFailureCode = authFailure
+      ? "AUTHENTICATION_FAILED"
+      : invalidPrompt
+        ? "PROMPT_REJECTED"
+        : providerTimeout
+          ? "OPENAI_TIMEOUT"
+          : message === "OPENAI_API_KEY_MISSING"
+            ? "OPENAI_CONFIGURATION_MISSING"
+            : message.startsWith("GUIDANCE_COMPAT_")
+              ? "GUIDANCE_COMPATIBILITY_FAILED"
+              : "GUIDANCE_FAILED";
 
     console.error("[generate-rule-questions]", {
-      code: authFailure
-        ? "AUTHENTICATION_FAILED"
-        : invalidPrompt
-          ? "PROMPT_REJECTED"
-          : "GUIDANCE_FAILED",
+      code: internalFailureCode,
     });
 
     return jsonResponse(
@@ -340,6 +349,7 @@ Deno.serve(async (request) => {
           : invalidPrompt
             ? "Cette demande contient des instructions non autorisées. Reformule uniquement la règle de jeu."
             : "L’assistant n’a pas pu préparer les questions. Réessaie avec la même idée.",
+        retryable: providerTimeout,
       },
     );
   }
