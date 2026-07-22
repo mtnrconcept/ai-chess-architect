@@ -1,0 +1,143 @@
+status=1
+head=4b4a7dcd63bace3d1f59eb8c48210ff9e78149f3
+
+
+> vite_react_shadcn_ts@0.0.0 test /home/runner/work/ai-chess-architect/ai-chess-architect
+> vitest --run
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90m/home/runner/work/ai-chess-architect/ai-chess-architect[39m
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ [32m✓[39m src/features/play-hub/platform-api.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 29[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/supabase-adapter.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 36[2mms[22m[39m
+[90mstderr[2m | src/engine/__tests__/catalog-contracts-v2.test.ts[2m > [22m[2mRule Architect V2 catalog contracts[2m > [22m[2mexécute chaque effet V2 avec un contrat valide et refuse les paramètres manquants
+[22m[39m[RuleEngine] Erreur dans l'effet piece.move: Error: Paramètre pieceId invalide.
+    at fail [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/builtins/effects.ts:14:9[90m)[39m
+    at stringParam [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/builtins/effects.ts:28:12[90m)[39m
+    at pieceParam [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/builtins/effects.ts:72:14[90m)[39m
+    at [90m/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/builtins/effects.ts:219:21
+    at Registry.runEffect [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/registry.ts:176:22[90m)[39m
+    at [90m/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/__tests__/catalog-contracts-v2.test.ts:360:16
+    at [90mfile:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+    at [90mfile:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+    at runWithTimeout [90m(file:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:39:7[90m)[39m
+    at runTest [90m(file:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1056:17[90m)[39m
+
+[90mstderr[2m | src/engine/__tests__/catalog-contracts-v2.test.ts[2m > [22m[2mRule Architect V2 catalog contracts[2m > [22m[2mrestaure les mutations lorsque le budget est dépassé
+[22m[39m[RuleEngine] Budget d'exécution dépassé: RuntimeBudgetExceededError: Budget d'exécution dépassé (2/1).
+    at RuntimeBudget.charge [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/rules-v2/runtime-budget.ts:26:13[90m)[39m
+    at Registry.runEffect [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/registry.ts:153:17[90m)[39m
+    at RuleEngine.evaluateLogicBlock [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/engine.ts:599:43[90m)[39m
+    at RuleEngine.dispatchLifecycle [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/engine.ts:510:28[90m)[39m
+    at RuleEngine.onEnterTile [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/engine.ts:268:10[90m)[39m
+    at [90m/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/engine/__tests__/catalog-contracts-v2.test.ts:459:12
+    at [90mfile:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+    at [90mfile:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+    at runWithTimeout [90m(file:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:39:7[90m)[39m
+    at runTest [90m(file:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1056:17[90m)[39m {
+  consumed: [33m2[39m,
+  limit: [33m1[39m
+}
+
+[90mstderr[2m | src/engine/__tests__/catalog-contracts-v2.test.ts[2m > [22m[2mRule Architect V2 catalog contracts[2m > [22m[2mrefuse une règle V2 altérée avec un effet hors catalogue
+[22m[39m[RuleEngine] Effet hors catalogue dans tampered@v1: state.pushUndo
+
+ [31m❯[39m src/engine/__tests__/catalog-contracts-v2.test.ts [2m([22m[2m9 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[90m 98[2mms[22m[39m
+[31m   [31m×[31m Rule Architect V2 catalog contracts[2m > [22mpersiste invisibilité et statuts dans le plateau réel, y compris après snapshot[90m 7[2mms[22m[31m[39m
+[31m     → expected false to be true // Object.is equality[39m
+ [32m✓[39m src/lib/chessRuleToRuleJsonConverter.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/rules-v2/__tests__/compiler.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 30[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/session.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 32[2mms[22m[39m
+ [32m✓[39m src/features/rule-architect/useRuleArchitect.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+[90mstderr[2m | src/lib/supabase/functions.test.ts[2m > [22m[2minvokeRuleGeneratorChat[2m > [22m[2mfalls back to the heuristic pipeline when the edge function fails
+[22m[39m[ruleGenerator] Supabase indisponible, utilisation du pipeline local. network
+
+[90mstderr[2m | src/lib/supabase/functions.test.ts[2m > [22m[2minvokeRuleGeneratorChat[2m > [22m[2mpropagates pipeline failures with a descriptive error
+[22m[39m[ruleGenerator] Le pipeline local a échoué Error: Pipeline crash
+    at Proxy.<anonymous> [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/lib/supabase/functions.test.ts:185:13[90m)[39m
+    at Proxy.mockCall [90m(file:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[90m)[39m
+    at Proxy.spy [90m(file:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+    at buildPipelineReadyResult [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/lib/supabase/functions.ts:379:20[90m)[39m
+    at buildLocalPipelineFallback [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/lib/supabase/functions.ts:432:12[90m)[39m
+    at invokeRuleGeneratorChat [90m(/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/lib/supabase/functions.ts:717:22[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m
+    at [90m/home/runner/work/ai-chess-architect/ai-chess-architect/[39msrc/lib/supabase/functions.test.ts:190:5
+    at [90mfile:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+    at runTest [90m(file:///home/runner/work/ai-chess-architect/ai-chess-architect/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1056:11[90m)[39m
+
+ [32m✓[39m src/lib/supabase/functions.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 54[2mms[22m[39m
+[90mstderr[2m | src/engine/__tests__/hardening-v2.test.ts[2m > [22m[2mRuleEngine V2 hardening[2m > [22m[2méchoue fermé pour une condition inconnue
+[22m[39m[RuleEngine] Condition inconnue: condition.inconnue
+
+[90mstderr[2m | src/engine/__tests__/hardening-v2.test.ts[2m > [22m[2mRuleEngine V2 hardening[2m > [22m[2mrefuse tout le bloc avant une mutation si un effet est inconnu
+[22m[39m[RuleEngine] Bloc refusé avant exécution : effet invalide effect.inconnu.
+
+[90mstderr[2m | src/engine/__tests__/hardening-v2.test.ts[2m > [22m[2mRuleEngine V2 hardening[2m > [22m[2mbloque les anciens effets récursifs même s'ils sont enregistrés
+[22m[39m[RuleEngine] Bloc refusé avant exécution : effet invalide composite.
+
+ [32m✓[39m src/engine/__tests__/hardening-v2.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/integrations/supabase/client.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 118[2mms[22m[39m
+ [32m✓[39m src/engine/hazards/hazards.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/move-api.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 25[2mms[22m[39m
+ [32m✓[39m src/rules-v2/__tests__/managed-cinematic-compiler.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/features/rule-architect/api.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/state-machine.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/lib/aiRuleTransformer.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/engine/registry.test.ts [2m([22m[2m1 test[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m configs/deployment/supabaseBuildFallback.test.ts [2m([22m[2m17 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/clock-presence.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/command-outbox.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/pages/Leaderboard.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 33[2mms[22m[39m
+ [32m✓[39m src/features/rules-pipeline/__tests__/pipeline.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 20[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/event-stream.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 24[2mms[22m[39m
+ [32m✓[39m src/features/play-hub/progression.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/features/play-hub/daily-puzzles.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/validation.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/features/play-hub/ServerDailyPuzzleCard.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 33[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/fen.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/engine/__tests__/capture-context.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m src/features/play-hub/matchmaking-state.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m apps/coach-worker/tests/pipeline.test.ts [2m([22m[2m1 test[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/terminal-actions.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/identity.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/pages/MultiplayerMatch.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 26[2mms[22m[39m
+ [32m✓[39m configs/security/permissionsPolicy.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/engine/__tests__/managed-cinematic-assets.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/runtime-rng.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/features/rule-architect/CompilationRecoveryActions.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 24[2mms[22m[39m
+ [32m✓[39m src/rules-v2/__tests__/deterministic-rng.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/features/play-hub/StandardRoomsCard.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/features/multiplayer/__tests__/match-bootstrap.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m src/features/play-hub/invite.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m src/features/rule-architect/request-key.test.ts [2m([22m[2m1 test[22m[2m)[22m[90m 5[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 1 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/engine/__tests__/catalog-contracts-v2.test.ts[2m > [22mRule Architect V2 catalog contracts[2m > [22mpersiste invisibilité et statuts dans le plateau réel, y compris après snapshot
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m src/engine/__tests__/catalog-contracts-v2.test.ts:[2m414:38[22m[39m
+    [90m412| [39m
+    [90m413| [39m    [35mconst[39m snapshot [33m=[39m board[33m.[39m[34mserialize[39m()[33m;[39m
+    [90m414| [39m    [34mexpect[39m(rawBoard[[34m6[39m][[34m0[39m][33m?.[39misHidden)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                                     [31m^[39m
+    [90m415| [39m    [34mexpect[39m(rawBoard[[34m6[39m][[34m0[39m][33m?.[39mspecialState[33m?.[39mshielded)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m416| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m42 passed[39m[22m[90m (43)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m218 passed[39m[22m[90m (219)[39m
+[2m   Start at [22m 00:26:49
+[2m   Duration [22m 6.90s[2m (transform 2.11s, setup 0ms, collect 5.14s, tests 837ms, environment 10ms, prepare 4.35s)[22m
+
+
+::error file=/home/runner/work/ai-chess-architect/ai-chess-architect/src/engine/__tests__/catalog-contracts-v2.test.ts,title=src/engine/__tests__/catalog-contracts-v2.test.ts > Rule Architect V2 catalog contracts > persiste invisibilité et statuts dans le plateau réel%2C y compris après snapshot,line=414,column=38::AssertionError: expected false to be true // Object.is equality%0A%0A- Expected%0A+ Received%0A%0A- true%0A+ false%0A%0A ❯ src/engine/__tests__/catalog-contracts-v2.test.ts:414:38%0A%0A
+ ELIFECYCLE  Test failed. See above for more details.
