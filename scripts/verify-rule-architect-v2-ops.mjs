@@ -331,6 +331,20 @@ for (const columnName of [
   );
 }
 
+const retentionCronMigration = read(
+  "supabase/migrations/20260720184000_rule_architect_retention_cron.sql",
+).toLowerCase();
+requireText(
+  retentionCronMigration,
+  "create extension if not exists pg_cron",
+  "migration de rétention",
+);
+requireText(
+  retentionCronMigration,
+  "cron.schedule(",
+  "migration de rétention",
+);
+
 console.log(
   "Rule Architect V2 : garde-fous frontend, CI, Vercel et SQL vérifiés.",
 );

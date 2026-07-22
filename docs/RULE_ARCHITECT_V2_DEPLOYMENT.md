@@ -151,8 +151,8 @@ rôle serveur mais ne sont modifiables qu'au travers des RPC propriétaires.
 
 ### Cron de rétention obligatoire
 
-Après validation de `pg_cron` sur staging, programmer une exécution quotidienne
-de la purge. Exemple à adapter aux conventions du projet :
+La migration de rétention active `pg_cron` de façon idempotente et programme une
+exécution quotidienne de la purge. Sur staging, vérifier le job équivalent :
 
 ```sql
 select cron.schedule(
@@ -164,7 +164,7 @@ select cron.schedule(
 
 Vérifier dans `cron.job` qu'une seule tâche active existe, exécuter une fois sur
 des données de test expirées et créer une alerte si la tâche échoue. Ne pas
-activer l'extension ou créer le job en production avant ce test staging.
+promouvoir la migration en production avant ce test staging.
 
 ## 4. Tests RLS, concurrence et OpenAI
 
