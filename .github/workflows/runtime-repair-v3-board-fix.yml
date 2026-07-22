@@ -1,0 +1,104 @@
+name: Runtime Repair V3 Board Fix
+
+on:
+  push:
+    branches:
+      - agent/runtime-repair-v3
+    paths:
+      - .github/workflows/runtime-repair-v3-board-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/runtime-repair-v3
+          fetch-depth: 0
+
+      - name: Restore source-board mirroring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/engine/adapters/chessBoardAdapter.ts')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  '    this.board = cloneBoard(board);\n    this.rebuildPieceMap(board);',
+                  '    this.board = board;\n    this.rebuildPieceMap(board);',
+                  'constructor mirror',
+              ),
+              (
+                  '''    const source = clonePosition(entry.position);\n    const nextBoard = cloneBoard(this.board);\n    nextBoard[source.row][source.col] = null;\n\n    const movedPiece = clonePiece(entry.piece);\n    movedPiece.position = clonePosition(destination);\n    nextBoard[destination.row][destination.col] = movedPiece;\n    this.board = nextBoard;''',
+                  '''    const source = clonePosition(entry.position);\n    this.board[source.row][source.col] = null;\n\n    const movedPiece = entry.piece;\n    movedPiece.position = clonePosition(destination);\n    movedPiece.hasMoved = true;\n    this.board[destination.row][destination.col] = movedPiece;''',
+                  'move mirror',
+              ),
+              (
+                  '''    const nextBoard = cloneBoard(this.board);\n    nextBoard[entry.position.row][entry.position.col] = null;\n    this.board = nextBoard;''',
+                  '''    this.board[entry.position.row][entry.position.col] = null;''',
+                  'remove mirror',
+              ),
+              (
+                  '''    const nextBoard = cloneBoard(this.board);\n    nextBoard[position.row][position.col] = piece;\n    this.board = nextBoard;''',
+                  '''    this.board[position.row][position.col] = piece;''',
+                  'spawn mirror',
+              ),
+              (
+                  '''    this.board = cloneBoard(parsed.board);\n    this.decals.clear();''',
+                  '''    const restoredBoard = cloneBoard(parsed.board);\n    for (let row = 0; row < BOARD_SIZE; row += 1) {\n      for (let col = 0; col < BOARD_SIZE; col += 1) {\n        this.board[row][col] = restoredBoard[row][col];\n      }\n    }\n    this.decals.clear();''',
+                  'deserialize mirror',
+              ),
+              (
+                  '''  updateBoard(newBoard: ChessBoardSnapshot): void {\n    this.board = cloneBoard(newBoard);\n    this.rebuildPieceMap(newBoard);\n  }''',
+                  '''  updateBoard(newBoard: ChessBoardSnapshot): void {\n    this.board = newBoard;\n    this.rebuildPieceMap(newBoard);\n  }''',
+                  'update mirror',
+              ),
+          ]
+
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run targeted runtime contract tests
+        run: pnpm test -- --run src/engine/__tests__/catalog-contracts-v2.test.ts
+
+      - name: Run full unit suite
+        run: pnpm test -- --run
+
+      - name: Type check and build
+        run: |
+          pnpm exec tsc --noEmit -p tsconfig.app.json
+          pnpm exec tsc --noEmit -p tsconfig.node.json
+          pnpm build
+
+      - name: Commit validated repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/engine/adapters/chessBoardAdapter.ts
+          git commit -m 'fix(runtime): mirror engine mutations into the live board'
+          git push origin HEAD:agent/runtime-repair-v3
