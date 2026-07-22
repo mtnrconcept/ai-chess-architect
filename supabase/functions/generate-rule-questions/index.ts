@@ -3,6 +3,7 @@ import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
 import { requireSafeRulePrompt } from "../_shared/prompt-security.ts";
 import { issueGuidanceToken } from "../_shared/guidance-token.ts";
+import { classifyGuidanceRuntimeFailure } from "../_shared/guidance-failure.ts";
 import {
   decorateLegacyGuidanceDraft,
   LEGACY_GUIDANCE_SESSION_TTL_SECONDS,
@@ -316,19 +317,13 @@ Deno.serve(async (request) => {
     const authFailure =
       message === "AUTH_REQUIRED" || message === "AUTH_INVALID";
     const invalidPrompt = message.startsWith("PROMPT_");
-    const providerTimeout =
-      /^OpenAI n'a pas répondu dans les \d+ secondes\.$/.test(message);
+    const runtimeFailureCode = classifyGuidanceRuntimeFailure(message);
+    const providerTimeout = runtimeFailureCode === "OPENAI_TIMEOUT";
     const internalFailureCode = authFailure
       ? "AUTHENTICATION_FAILED"
       : invalidPrompt
         ? "PROMPT_REJECTED"
-        : providerTimeout
-          ? "OPENAI_TIMEOUT"
-          : message === "OPENAI_API_KEY_MISSING"
-            ? "OPENAI_CONFIGURATION_MISSING"
-            : message.startsWith("GUIDANCE_COMPAT_")
-              ? "GUIDANCE_COMPATIBILITY_FAILED"
-              : "GUIDANCE_FAILED";
+        : runtimeFailureCode;
 
     console.error("[generate-rule-questions]", {
       code: internalFailureCode,
@@ -343,7 +338,7 @@ Deno.serve(async (request) => {
           ? "AUTHENTICATION_FAILED"
           : invalidPrompt
             ? "PROMPT_REJECTED"
-            : "GUIDANCE_FAILED",
+            : runtimeFailureCode,
         error: authFailure
           ? "Authentification requise."
           : invalidPrompt
