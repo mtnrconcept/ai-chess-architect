@@ -32,11 +32,7 @@ for (const relativePath of runtimeTargets) {
   }
 }
 
-const sourceTargets = [
-  "src",
-  "scripts",
-  ".github/workflows",
-];
+const sourceTargets = ["src", "scripts", ".github/workflows"];
 const forbiddenVariable = /VITE_[A-Z0-9_]*(?:SERVICE_ROLE|OPENAI_API_KEY)/;
 
 const visit = (relativePath) => {
@@ -53,9 +49,7 @@ const visit = (relativePath) => {
       continue;
     }
     if (forbiddenVariable.test(read(child))) {
-      throw new Error(
-        `${child}: secret serveur exposé par un nom VITE_.`,
-      );
+      throw new Error(`${child}: secret serveur exposé par un nom VITE_.`);
     }
   }
 };
@@ -113,11 +107,7 @@ if (/catch\s*\([^)]*\)[\s\S]{0,180}LOVABLE_DEPLOY_HEADERS/.test(lovableHook)) {
 }
 
 const edgeAuth = read("supabase/functions/_shared/auth-v2.ts");
-requireText(
-  edgeAuth,
-  'npm:@supabase/supabase-js@2.110.7',
-  "auth Edge V2",
-);
+requireText(edgeAuth, "npm:@supabase/supabase-js@2.110.7", "auth Edge V2");
 
 for (const functionName of [
   "compile-chess-rule",
@@ -125,6 +115,7 @@ for (const functionName of [
   "create-rule-lobby-v2",
   "join-rule-lobby-v2",
   "process-chess-move",
+  "integration-health",
 ]) {
   const handler = read(`supabase/functions/${functionName}/index.ts`);
   if (/console\.error\([^\n]*message/.test(handler)) {
@@ -134,9 +125,7 @@ for (const functionName of [
   }
 }
 
-const deploymentWorkflow = read(
-  ".github/workflows/deploy-edge-functions.yml",
-);
+const deploymentWorkflow = read(".github/workflows/deploy-edge-functions.yml");
 requireText(deploymentWorkflow, "workflow_dispatch:", "workflow Edge");
 requireText(deploymentWorkflow, "2.109.1", "workflow Edge");
 requireText(
@@ -144,11 +133,7 @@ requireText(
   "database_migration_confirmed",
   "workflow Edge",
 );
-requireText(
-  deploymentWorkflow,
-  "retention_cron_confirmed",
-  "workflow Edge",
-);
+requireText(deploymentWorkflow, "retention_cron_confirmed", "workflow Edge");
 if (/^\s{2}push:/m.test(deploymentWorkflow)) {
   throw new Error(
     "workflow Edge: le déploiement automatique sur push est interdit.",
@@ -162,20 +147,14 @@ if (
     "workflow Edge: le token ne doit pas être global et le CLI doit être invoqué à une version npm exacte.",
   );
 }
-requireText(
-  deploymentWorkflow,
-  "persist-credentials: false",
-  "workflow Edge",
-);
+requireText(deploymentWorkflow, "persist-credentials: false", "workflow Edge");
 requireText(
   deploymentWorkflow,
   'npx --offline --yes "supabase@${SUPABASE_CLI_VERSION}"',
   "workflow Edge",
 );
 
-const validationWorkflow = read(
-  ".github/workflows/rule-architect-v2-ci.yml",
-);
+const validationWorkflow = read(".github/workflows/rule-architect-v2-ci.yml");
 if (/^\s+paths:/m.test(validationWorkflow)) {
   throw new Error(
     "workflow CI V2: aucun filtre paths ne doit pouvoir éviter les contrôles.",
@@ -187,16 +166,54 @@ requireText(
   "workflow CI V2",
 );
 
+for (const testPath of [
+  "src/engine/adapters/matchAdapter.test.ts",
+  "src/contexts/auth-session.test.ts",
+  "src/features/rule-architect/lobby-launch-policy.test.ts",
+  "src/lib/__tests__/aiOpponent.test.ts",
+  "src/routing/route-error.test.ts",
+]) {
+  requireText(validationWorkflow, testPath, "workflow CI V2");
+}
+
+const denoCheckBlock = validationWorkflow.match(
+  /deno check --node-modules-dir=manual[\s\S]*?2>&1 \| tee deno-check\.log/,
+)?.[0];
+if (!denoCheckBlock) {
+  throw new Error(
+    "workflow CI V2: le bloc de typecheck Deno protégé est introuvable.",
+  );
+}
+
+for (const edgeEntrypoint of [
+  "supabase/functions/create-rule-lobby-v2/index.ts",
+  "supabase/functions/join-rule-lobby-v2/index.ts",
+  "supabase/functions/integration-health/index.ts",
+]) {
+  requireText(
+    denoCheckBlock,
+    edgeEntrypoint,
+    "typecheck Edge du runtime PvP personnalisé",
+  );
+}
+
 for (const forbiddenBootstrap of [
   ".rule-architect-v2",
   "bootstrap-diagnostic.txt",
   ".github/workflows/apply-rule-architect-v2-bootstrap.yml",
 ]) {
   if (fs.existsSync(path.join(root, forbiddenBootstrap))) {
-    throw new Error(
-      `${forbiddenBootstrap}: artefact de bootstrap interdit.`,
-    );
+    throw new Error(`${forbiddenBootstrap}: artefact de bootstrap interdit.`);
   }
+}
+
+const deployedFunctionsBlock = deploymentWorkflow.match(
+  /functions=\([\s\S]*?\n\s*\)/,
+)?.[0];
+if (!deployedFunctionsBlock) {
+  throw new Error(
+    "workflow Edge: la liste explicite des fonctions à déployer est introuvable.",
+  );
 }
 
 for (const functionName of [
@@ -205,13 +222,118 @@ for (const functionName of [
   "create-rule-lobby-v2",
   "join-rule-lobby-v2",
   "process-chess-move",
+  "integration-health",
 ]) {
-  requireText(deploymentWorkflow, functionName, "workflow Edge");
+  requireText(
+    deployedFunctionsBlock,
+    functionName,
+    "allowlist du workflow Edge",
+  );
 }
 
-const legacyEdgeDeploy = read(
-  "supabase/scripts/deploy-edge-functions.sh",
-);
+const generatedSupabaseTypes = read("src/integrations/supabase/types.ts");
+const apiRegistryTypes = generatedSupabaseTypes.match(
+  /api_registry:\s*\{([\s\S]*?)Relationships:\s*\[\]/,
+)?.[1];
+if (!apiRegistryTypes) {
+  throw new Error("types Supabase: le schéma api_registry est introuvable.");
+}
+
+const apiRegistryRow = apiRegistryTypes.match(
+  /Row:\s*\{([\s\S]*?)\n\s*};?\s*\n\s*Insert:/,
+)?.[1];
+const apiRegistryInsert = apiRegistryTypes.match(
+  /Insert:\s*\{([\s\S]*?)\n\s*};?\s*\n\s*Update:/,
+)?.[1];
+const apiRegistryUpdate = apiRegistryTypes.match(
+  /Update:\s*\{([\s\S]*?)\n\s*};?\s*$/,
+)?.[1];
+
+if (!apiRegistryRow || !apiRegistryInsert || !apiRegistryUpdate) {
+  throw new Error(
+    "types Supabase: Row, Insert ou Update manque pour api_registry.",
+  );
+}
+
+const apiCategoryType = '"supabase" | "edge_function" | "coach_api" | "http"';
+const expectedApiRegistryShapes = [
+  [
+    "Row",
+    apiRegistryRow,
+    [
+      "active: boolean",
+      `category: ${apiCategoryType}`,
+      "config: Json",
+      "created_at: string",
+      "id: string",
+      "method: string | null",
+      "notes: string | null",
+      "service: string",
+      "target: string",
+      "updated_at: string",
+    ],
+  ],
+  [
+    "Insert",
+    apiRegistryInsert,
+    [
+      "active?: boolean",
+      `category: ${apiCategoryType}`,
+      "config?: Json",
+      "created_at?: string",
+      "id?: string",
+      "method?: string | null",
+      "notes?: string | null",
+      "service: string",
+      "target: string",
+      "updated_at?: string",
+    ],
+  ],
+  [
+    "Update",
+    apiRegistryUpdate,
+    [
+      "active?: boolean",
+      `category?: ${apiCategoryType}`,
+      "config?: Json",
+      "created_at?: string",
+      "id?: string",
+      "method?: string | null",
+      "notes?: string | null",
+      "service?: string",
+      "target?: string",
+      "updated_at?: string",
+    ],
+  ],
+];
+
+for (const [shapeName, shapeSource, invariants] of expectedApiRegistryShapes) {
+  for (const invariant of invariants) {
+    requireText(
+      shapeSource,
+      invariant,
+      `types Supabase api_registry ${shapeName}`,
+    );
+  }
+}
+
+for (const legacyColumn of [
+  "api_key_env:",
+  "endpoint_url:",
+  "is_active:",
+  "last_checked_at:",
+  "metadata:",
+  "service_name:",
+  "status:",
+]) {
+  if (apiRegistryTypes.includes(legacyColumn)) {
+    throw new Error(
+      `types Supabase api_registry: ancienne colonne encore présente: ${legacyColumn}`,
+    );
+  }
+}
+
+const legacyEdgeDeploy = read("supabase/scripts/deploy-edge-functions.sh");
 requireText(
   legacyEdgeDeploy,
   "SUPABASE_PROJECT_REF_CONFIRMATION",
@@ -234,9 +356,7 @@ if (
   !Array.isArray(vercel.rewrites) ||
   vercel.rewrites[0]?.destination !== "/index.html"
 ) {
-  throw new Error(
-    "vercel.json: le fallback SPA Vite est absent.",
-  );
+  throw new Error("vercel.json: le fallback SPA Vite est absent.");
 }
 
 const migration = read(
@@ -339,11 +459,116 @@ requireText(
   "create extension if not exists pg_cron",
   "migration de rétention",
 );
-requireText(
-  retentionCronMigration,
-  "cron.schedule(",
-  "migration de rétention",
-);
+requireText(retentionCronMigration, "cron.schedule(", "migration de rétention");
+
+const hardenedCoverageGate = read(
+  "supabase/migrations/20260722130000_harden_rule_version_coverage_gate.sql",
+).toLowerCase();
+for (const invariant of [
+  "is distinct from 'true'::jsonb",
+  "is distinct from 'array'",
+  "jsonb_path_exists(",
+  "('strict ' ||",
+  "rule_version_coverage_evidence_invalid",
+  "rule_version_coverage_adaptation_invalid",
+  "rule_version_compilation_proof_mismatch",
+  "compilation.metrics = new.validation",
+  "rule_version_historical_coverage_contract_unsupported",
+  "rule_version_legacy_compilation_proof_mismatch",
+  "compilation.user_id = version.created_by",
+  "compilation.blueprint = version.blueprint_json",
+  "compilation.content_hash = version.content_hash",
+  "compilation.metrics = version.validation",
+  "legacy_precontract_uncertified=%",
+  "rule_versions_coverage_historical_audit",
+]) {
+  requireText(
+    hardenedCoverageGate,
+    invariant,
+    "garde-fou de couverture renforcé",
+  );
+}
+
+const customPvpRuntimeGate = read(
+  "supabase/migrations/20260722140000_fail_closed_custom_pvp_runtime.sql",
+).toLowerCase();
+for (const invariant of [
+  "create or replace function private.enforce_custom_pvp_runtime_availability()",
+  "custom_pvp_runtime_not_authoritative",
+  "new.rule_set_hash is not null",
+  "new.mode = 'player'",
+  "tg_op = 'insert'",
+  "new.status = 'matched'",
+  "new.opponent_id is not null",
+  "set search_path = ''",
+  "revoke all on function private.enforce_custom_pvp_runtime_availability()",
+  "from public, anon, authenticated",
+  "lobbies_custom_pvp_runtime_gate",
+  "before insert or update of mode, rule_set_hash, status, opponent_id",
+]) {
+  requireText(
+    customPvpRuntimeGate,
+    invariant,
+    "garde-fou du runtime pvp personnalisé",
+  );
+}
+
+for (const functionName of ["create-rule-lobby-v2", "join-rule-lobby-v2"]) {
+  const handler = read(`supabase/functions/${functionName}/index.ts`);
+  for (const invariant of [
+    "CUSTOM_PVP_RUNTIME_NOT_AUTHORITATIVE",
+    "jsonResponse(request, 409",
+  ]) {
+    requireText(
+      handler,
+      invariant,
+      `${functionName}: refus fail-closed du runtime PvP personnalisé`,
+    );
+  }
+}
+
+const coverageGateTest = read(
+  "supabase/tests/rule_version_coverage_gate.sql",
+).toLowerCase();
+for (const expectedCase of [
+  "empty_coverage_was_accepted",
+  "missing_complete_was_accepted",
+  "string_contract_version_was_accepted",
+  "unknown_engine_was_accepted",
+  "invalid_decision_was_accepted",
+  "empty_requirement_id_was_accepted",
+  "padded_requirement_id_was_accepted",
+  "duplicate_requirement_id_was_accepted",
+  "mismatched_requirement_id_was_accepted",
+  "missing_fidelity_requirement_was_accepted",
+  "missing_evidence_was_accepted",
+  "description_evidence_was_accepted",
+  "lax_jsonpath_structure_was_accepted",
+  "nonexistent_evidence_was_accepted",
+  "unsupported_status_was_accepted",
+  "implemented_status_masked_adaptation",
+  "inconsistent_exact_intent_was_accepted",
+  "unapproved_adaptation_was_accepted",
+  "mismatched_compilation_proof_was_accepted",
+  "mismatched_compilation_blueprint_was_accepted",
+  "mismatched_compilation_metrics_was_accepted",
+  "unvalidated_compilation_was_accepted",
+  "valid_coverage_was_rejected",
+  "valid_adapted_coverage_was_rejected",
+  "valid_historical_replay_was_rejected",
+  "valid_legacy_precontract_proof_was_rejected",
+  "legacy_precontract_was_certified",
+  "legacy_precontract_trigger_bypass_was_accepted",
+  "invalid_v1_historical_replay_was_accepted",
+  "legacy_proof_mismatch_was_accepted",
+  "v1_proof_mismatch_was_accepted",
+]) {
+  requireText(
+    coverageGateTest,
+    expectedCase,
+    "test SQL du garde-fou de couverture",
+  );
+}
 
 console.log(
   "Rule Architect V2 : garde-fous frontend, CI, Vercel et SQL vérifiés.",

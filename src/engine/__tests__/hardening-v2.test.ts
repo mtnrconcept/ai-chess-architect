@@ -255,4 +255,163 @@ describe("RuleEngine V2 hardening", () => {
 
     expect(executionOrder).toEqual(["high", "low"]);
   });
+
+  it("applique automatiquement les scopes de pièce et de camp aux lifecycle", () => {
+    const registry = new Registry();
+    const executed: string[] = [];
+    registry.registerEffect("test.matching", () => {
+      executed.push("matching");
+    });
+    registry.registerEffect("test.wrong-piece", () => {
+      executed.push("wrong-piece");
+    });
+    registry.registerEffect("test.wrong-side", () => {
+      executed.push("wrong-side");
+    });
+
+    const scopedRule = (
+      ruleId: string,
+      affectedPieces: string[],
+      sides: Array<"white" | "black">,
+      action: string,
+    ) => {
+      const rule = lifecycleRule([{ action }]);
+      rule.meta.ruleId = ruleId;
+      rule.scope = { affectedPieces, sides };
+      return rule;
+    };
+
+    const engine = new RuleEngine(createContracts(), registry);
+    engine.loadRules([
+      scopedRule("matching", ["pawn"], ["white"], "test.matching"),
+      scopedRule("wrong-piece", ["knight"], ["white"], "test.wrong-piece"),
+      scopedRule("wrong-side", ["pawn"], ["black"], "test.wrong-side"),
+    ]);
+
+    engine.onEnterTile("pawn-a2", "a3");
+
+    expect(executed).toEqual(["matching"]);
+  });
+
+  it("évalue le scope d’une promotion sur le type source", () => {
+    const registry = new Registry();
+    const promoted = vi.fn();
+    registry.registerEffect("test.promoted", promoted);
+    const contracts = createContracts();
+    contracts.board.getPiece = (id: string) => ({
+      id,
+      type: "queen",
+      side: "white",
+      tile: "a8",
+      statuses: {},
+    });
+    const rule = lifecycleRule([{ action: "test.promoted" }]);
+    rule.scope = { affectedPieces: ["pawn"], sides: ["white"] };
+    rule.logic!.effects![0].when = "lifecycle.onPromote";
+
+    const engine = new RuleEngine(contracts, registry);
+    engine.loadRules([rule]);
+    engine.onPromote("pawn-a7", "pawn", "queen");
+
+    expect(promoted).toHaveBeenCalledTimes(1);
+  });
+
+  it("applique le scope de camp aux lifecycle sans pièce source", () => {
+    const registry = new Registry();
+    const onTurn = vi.fn();
+    registry.registerEffect("status.tickAll", () => true);
+    registry.registerEffect("test.turn-start", onTurn);
+    const rule = lifecycleRule([{ action: "test.turn-start" }]);
+    rule.scope = { affectedPieces: ["knight"], sides: ["white"] };
+    rule.logic!.effects![0].when = "lifecycle.onTurnStart";
+
+    const engine = new RuleEngine(createContracts(), registry);
+    engine.loadRules([rule]);
+    engine.onTurnStart("white");
+    engine.onTurnStart("black");
+
+    expect(onTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("échoue fermé si la pièce source d’un lifecycle est introuvable", () => {
+    const registry = new Registry();
+    const executed = vi.fn();
+    registry.registerEffect("test.must-not-run", executed);
+    const contracts = createContracts();
+    contracts.board.getPiece = () => {
+      throw new Error("missing piece");
+    };
+    const rule = lifecycleRule([{ action: "test.must-not-run" }]);
+    rule.scope = { affectedPieces: ["any"], sides: ["white", "black"] };
+
+    const engine = new RuleEngine(contracts, registry);
+    engine.loadRules([rule]);
+    engine.onEnterTile("missing", "a3");
+
+    expect(executed).not.toHaveBeenCalled();
+  });
+
+  it("décrémente les cooldowns une seule fois au début du tour", () => {
+    const registry = new Registry();
+    registry.registerEffect("status.tickAll", () => true);
+    const contracts = createContracts();
+    const engine = new RuleEngine(contracts, registry);
+
+    engine.onTurnStart("white");
+
+    expect(contracts.cooldown.tickAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("retourne un échec lorsque la validation ou l’exécution UI échoue", () => {
+    const registry = new Registry();
+    registry.registerProvider("provider.allowed", () => ["a3"]);
+    registry.registerEffect("test.success", () => true);
+    registry.registerEffect("test.failure", () => false);
+    const engine = new RuleEngine(createContracts(), registry);
+    const actionRule = (
+      ruleId: string,
+      actionId: string,
+      effect: string,
+    ): RuleJSON => ({
+      meta: { ruleId, ruleName: ruleId, isActive: true },
+      scope: { affectedPieces: ["pawn"], sides: ["white"] },
+      ui: {
+        actions: [
+          {
+            id: actionId,
+            label: actionId,
+            availability: { requiresSelection: true, pieceTypes: ["pawn"] },
+            targeting: {
+              mode: "tile",
+              validTilesProvider: "provider.allowed",
+            },
+          },
+        ],
+      },
+      state: { namespace: `rules.${ruleId}`, initial: {} },
+      logic: {
+        effects: [
+          {
+            id: `${actionId}.step`,
+            when: `ui.${actionId}`,
+            do: { action: effect },
+          },
+        ],
+      },
+    });
+    engine.loadRules([
+      actionRule("success", "success.action", "test.success"),
+      actionRule("failure", "failure.action", "test.failure"),
+    ]);
+
+    expect(engine.runUIAction("success.action", "pawn-a2", "h8")).toMatchObject(
+      { ok: false },
+    );
+    expect(engine.runUIAction("failure.action", "pawn-a2", "a3")).toMatchObject(
+      { ok: false },
+    );
+    expect(engine.runUIAction("success.action", "pawn-a2", "a3")).toEqual({
+      ok: true,
+    });
+  });
 });

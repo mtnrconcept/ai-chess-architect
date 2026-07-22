@@ -61,11 +61,16 @@ jobs:
           pnpm exec vitest run
           src/rules-v2
           src/engine/__tests__
+          src/engine/adapters/matchAdapter.test.ts
+          src/contexts/auth-session.test.ts
           src/features/rule-architect
+          src/features/rule-architect/lobby-launch-policy.test.ts
           src/features/play-hub
           src/features/multiplayer
+          src/lib/__tests__/aiOpponent.test.ts
           src/pages/Leaderboard.test.tsx
           src/pages/MultiplayerMatch.test.tsx
+          src/routing/route-error.test.ts
           src/integrations/supabase/client.test.ts
           configs/deployment/supabaseBuildFallback.test.ts
 
@@ -118,7 +123,7 @@ jobs:
           deno-version: v2.9.3
           cache: true
 
-      - name: Type-check seven Edge entrypoints
+      - name: Type-check eight Edge entrypoints
         shell: bash
         run: |
           set -o pipefail
@@ -130,6 +135,7 @@ jobs:
             supabase/functions/create-rule-lobby-v2/index.ts \
             supabase/functions/join-rule-lobby-v2/index.ts \
             supabase/functions/process-chess-move/index.ts \
+            supabase/functions/integration-health/index.ts \
             2>&1 | tee deno-check.log
 
       - name: Upload Deno diagnostics on failure
@@ -144,9 +150,11 @@ jobs:
       - name: Test Edge replay, CORS, guidance, managed assets, and STANDARD move guards
         run: |
           deno test --node-modules-dir=manual --allow-env \
+            supabase/functions/_shared/cors.test.ts \
             supabase/functions/_shared/cors-v2.test.ts \
             supabase/functions/_shared/guidance-token.test.ts \
             supabase/functions/_shared/prompt-security.test.ts \
+            supabase/functions/_shared/rule-guidance-validation.test.ts \
             supabase/functions/_shared/rule-coverage.test.ts \
             supabase/functions/_shared/rule-architect-input.test.ts \
             supabase/functions/_shared/rule-assets.test.ts \

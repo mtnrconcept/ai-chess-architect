@@ -25,17 +25,68 @@ $timeout_material_policy_tests$;
 
 insert into public.rule_compilations (
   id, user_id, prompt, prompt_hash, model, status, blueprint,
-  compiled_rule, content_hash, request_key
+  compiled_rule, metrics, content_hash, request_key
 ) values (
   'e0000000-0000-4000-8000-000000000300',
   'e0000000-0000-4000-8000-000000000001',
   'Custom gate SQL test',
   repeat('a', 64),
   'test-model',
-  'published',
+  'validated',
+  '{"actions":[{"id":"test-action"}]}'::jsonb,
   '{}'::jsonb,
-  '{}'::jsonb,
-  repeat('b', 64),
+  $json$
+    {
+      "coverageContractVersion": 1,
+      "intentContract": {
+        "version": 1,
+        "originalPrompt": "[redacted]",
+        "originalPromptHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requirements": [
+          {
+            "id": "test-action",
+            "statement": "The rule exposes one deterministic test action.",
+            "importance": "core",
+            "feasibility": "direct",
+            "approvedAdaptation": ""
+          },
+          {
+            "id": "request-fidelity",
+            "statement": "Every signed clause is represented by compiled logic.",
+            "importance": "core",
+            "feasibility": "direct",
+            "approvedAdaptation": ""
+          }
+        ],
+        "decisions": []
+      },
+      "coverage": {
+        "complete": true,
+        "exactIntentPreserved": true,
+        "score": 100,
+        "summary": "The deterministic test action is implemented.",
+        "requirements": [
+          {
+            "id": "test-action",
+            "status": "implemented",
+            "evidencePaths": ["$.actions[0]"],
+            "explanation": "The first action provides the required behavior.",
+            "adaptation": "",
+            "userApproved": false
+          },
+          {
+            "id": "request-fidelity",
+            "status": "implemented",
+            "evidencePaths": ["$.actions[0]"],
+            "explanation": "The compiled action represents every signed clause.",
+            "adaptation": "",
+            "userApproved": false
+          }
+        ]
+      }
+    }
+  $json$::jsonb,
+  repeat('c', 64),
   'e0000000-0000-4000-8000-000000000301'
 );
 insert into public.rule_blueprints (
@@ -52,7 +103,7 @@ insert into public.rule_blueprints (
 insert into public.rule_versions (
   id, blueprint_id, compilation_id, version_number, schema_version,
   engine_version, legacy_rule_id, blueprint_json, rule_json,
-  content_hash, visibility, created_by
+  content_hash, visibility, validation, created_by
 ) values (
   'e0000000-0000-4000-8000-000000000303',
   'e0000000-0000-4000-8000-000000000302',
@@ -61,10 +112,63 @@ insert into public.rule_versions (
   '2.0.0',
   '2.0.0',
   'custom-gate-test-v1',
-  '{}'::jsonb,
+  '{"actions":[{"id":"test-action"}]}'::jsonb,
   '{}'::jsonb,
   repeat('c', 64),
   'public',
+  $json$
+    {
+      "metrics": {
+        "coverageContractVersion": 1,
+        "intentContract": {
+          "version": 1,
+          "originalPrompt": "[redacted]",
+          "originalPromptHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "requirements": [
+            {
+              "id": "test-action",
+              "statement": "The rule exposes one deterministic test action.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": ""
+            },
+            {
+              "id": "request-fidelity",
+              "statement": "Every signed clause is represented by compiled logic.",
+              "importance": "core",
+              "feasibility": "direct",
+              "approvedAdaptation": ""
+            }
+          ],
+          "decisions": []
+        },
+        "coverage": {
+          "complete": true,
+          "exactIntentPreserved": true,
+          "score": 100,
+          "summary": "The deterministic test action is implemented.",
+          "requirements": [
+            {
+              "id": "test-action",
+              "status": "implemented",
+              "evidencePaths": ["$.actions[0]"],
+              "explanation": "The first action provides the required behavior.",
+              "adaptation": "",
+              "userApproved": false
+            },
+            {
+              "id": "request-fidelity",
+              "status": "implemented",
+              "evidencePaths": ["$.actions[0]"],
+              "explanation": "The compiled action represents every signed clause.",
+              "adaptation": "",
+              "userApproved": false
+            }
+          ]
+        }
+      }
+    }
+  $json$::jsonb,
   'e0000000-0000-4000-8000-000000000001'
 );
 update public.rule_blueprints

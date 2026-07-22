@@ -1,4 +1,5 @@
 import type { RuleBlueprintV2, RuleDiagnostic } from "./rules-v2/index.ts";
+import { MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH } from "./prompt-security.ts";
 
 export type RuleRequirementImportance = "core" | "supporting" | "cosmetic";
 export type RuleRequirementFeasibility = "direct" | "adaptable" | "unsupported";
@@ -449,7 +450,7 @@ export function buildSignedGuidanceCompilation(input: {
     "</CONTRAT_GUIDE_SIGNE>",
     "Préserve chaque exigence signée. N’adapte que les ajustements explicitement acceptés. Produis une variante jouable, bornée et testable.",
   ].join("\n");
-  if (content.length > 6_000) {
+  if (content.length > MAX_SIGNED_RULE_COMPILER_PROMPT_LENGTH) {
     throw new Error("GUIDANCE_COMPILATION_PROMPT_TOO_LARGE");
   }
 
@@ -541,13 +542,6 @@ const LOGIC_EVIDENCE_PATH =
 const isLogicEvidencePath = (path: string): boolean =>
   LOGIC_EVIDENCE_PATH.test(path);
 
-const comparableText = (value: string): string =>
-  value
-    .normalize("NFKC")
-    .toLocaleLowerCase("fr")
-    .replace(/[^a-z0-9à-ÿ]+/gi, " ")
-    .trim();
-
 const parseCoverageStatus = (
   value: unknown,
 ): RuleRequirementCoverageStatus | null =>
@@ -602,23 +596,28 @@ export function evaluateRuleCoverage(input: {
       cleanText(item?.explanation, 400) ||
       "Aucune preuve de couverture exploitable n’a été fournie.";
     const adaptation = cleanText(item?.adaptation, 400);
+    const auditClaimsUserApproval = item?.userApproved === true;
     const adaptationMatchesApproval =
-      comparableText(adaptation).length > 0 &&
-      comparableText(adaptation) ===
-        comparableText(requirement.approvedAdaptation);
-    const userApproved =
-      item?.userApproved === true && adaptationMatchesApproval;
+      adaptation.length > 0 &&
+      adaptation === requirement.approvedAdaptation.trim();
+    const userApproved = auditClaimsUserApproval && adaptationMatchesApproval;
     const hasImplementationEvidence = evidencePaths.length > 0;
+    const implementedStatusMasksAdaptation =
+      status === "implemented" &&
+      (adaptation.length > 0 || auditClaimsUserApproval);
     const covered =
-      (status === "implemented" && hasImplementationEvidence) ||
+      (status === "implemented" &&
+        hasImplementationEvidence &&
+        !implementedStatusMasksAdaptation) ||
       (status === "adapted" && hasImplementationEvidence && userApproved);
 
     if (covered) {
       achievedWeight += weight;
     } else {
       diagnostics.push({
-        code:
-          status === "adapted" && !userApproved
+        code: implementedStatusMasksAdaptation
+          ? "COVERAGE_IMPLEMENTATION_STATUS_INVALID"
+          : status === "adapted" && !userApproved
             ? "COVERAGE_ADAPTATION_NOT_APPROVED"
             : status === "unsupported"
               ? "COVERAGE_UNSUPPORTED"

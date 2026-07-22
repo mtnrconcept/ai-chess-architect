@@ -3,6 +3,7 @@ import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
 import { requireSafeRulePrompt } from "../_shared/prompt-security.ts";
 import { issueGuidanceToken } from "../_shared/guidance-token.ts";
+import { validateGuidance } from "../_shared/rule-guidance-validation.ts";
 import {
   CONDITION_OPS,
   EFFECT_OPS,
@@ -145,9 +146,6 @@ const GUIDANCE_SCHEMA = {
   },
 } as const;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
 const safeDiagnostics = (value: unknown): string[] =>
   Array.isArray(value)
     ? value
@@ -156,91 +154,6 @@ const safeDiagnostics = (value: unknown): string[] =>
         .filter(Boolean)
         .slice(0, 8)
     : [];
-
-const validateGuidance = (value: unknown): Record<string, unknown> => {
-  if (!isRecord(value)) throw new Error("GUIDANCE_INVALID");
-  if (!Array.isArray(value.requirements) || value.requirements.length < 1) {
-    throw new Error("GUIDANCE_REQUIREMENTS_MISSING");
-  }
-  if (!Array.isArray(value.questions) || value.questions.length < 2) {
-    throw new Error("GUIDANCE_QUESTIONS_MISSING");
-  }
-
-  const requirementIds = new Set<string>();
-  for (const requirement of value.requirements) {
-    if (!isRecord(requirement) || typeof requirement.id !== "string") {
-      throw new Error("GUIDANCE_REQUIREMENT_INVALID");
-    }
-    if (requirementIds.has(requirement.id)) {
-      throw new Error("GUIDANCE_REQUIREMENT_DUPLICATED");
-    }
-    requirementIds.add(requirement.id);
-  }
-
-  const questionIds = new Set<string>();
-  for (const questionValue of value.questions) {
-    if (!isRecord(questionValue) || !Array.isArray(questionValue.choices)) {
-      throw new Error("GUIDANCE_QUESTION_INVALID");
-    }
-    if (
-      typeof questionValue.id !== "string" ||
-      questionIds.has(questionValue.id)
-    ) {
-      throw new Error("GUIDANCE_QUESTION_DUPLICATED");
-    }
-    questionIds.add(questionValue.id);
-    const min = Number(questionValue.minSelections);
-    const max = Number(questionValue.maxSelections);
-    if (
-      !Number.isInteger(min) ||
-      !Number.isInteger(max) ||
-      min < 1 ||
-      max < min ||
-      max > questionValue.choices.length
-    ) {
-      throw new Error("GUIDANCE_SELECTION_BOUNDS_INVALID");
-    }
-    if (questionValue.selectionMode === "single" && (min !== 1 || max !== 1)) {
-      throw new Error("GUIDANCE_SINGLE_SELECTION_BOUNDS_INVALID");
-    }
-
-    const choiceIds = new Set<string>();
-    for (const choice of questionValue.choices) {
-      if (!isRecord(choice) || typeof choice.id !== "string") {
-        throw new Error("GUIDANCE_CHOICE_INVALID");
-      }
-      if (choiceIds.has(choice.id)) {
-        throw new Error("GUIDANCE_CHOICE_DUPLICATED");
-      }
-      choiceIds.add(choice.id);
-    }
-  }
-
-  if (Array.isArray(value.adjustments)) {
-    const adjustmentIds = new Set<string>();
-    for (const adjustment of value.adjustments) {
-      if (!isRecord(adjustment) || !Array.isArray(adjustment.requirementIds)) {
-        throw new Error("GUIDANCE_ADJUSTMENT_INVALID");
-      }
-      if (
-        typeof adjustment.id !== "string" ||
-        adjustmentIds.has(adjustment.id)
-      ) {
-        throw new Error("GUIDANCE_ADJUSTMENT_DUPLICATED");
-      }
-      adjustmentIds.add(adjustment.id);
-      if (
-        adjustment.requirementIds.some(
-          (id) => typeof id !== "string" || !requirementIds.has(id),
-        )
-      ) {
-        throw new Error("GUIDANCE_ADJUSTMENT_REQUIREMENT_UNKNOWN");
-      }
-    }
-  }
-
-  return value;
-};
 
 const buildGuidanceSystemPrompt = (): string =>
   `

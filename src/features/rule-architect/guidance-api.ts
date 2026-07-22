@@ -1,5 +1,9 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { requireSupabaseClient } from "@/integrations/supabase/client";
+import {
+  functionEnvelopeSchema,
+  ruleGuidanceResponseSchema,
+} from "./edge-response-schemas";
 
 export type RuleGuidanceSelectionMode = "single" | "multiple";
 export type RuleGuidanceFeasibility = "direct" | "adaptable" | "unsupported";
@@ -67,18 +71,14 @@ export interface RuleGuidanceSelections {
   acceptedAdjustmentIds: string[];
 }
 
-type GuidanceEnvelope = {
-  success?: boolean;
-  error?: string;
-  data?: RuleGuidanceResponse;
-};
-
 const readFunctionError = async (error: unknown): Promise<string> => {
   if (error instanceof FunctionsHttpError) {
     try {
-      const payload = (await error.context.clone().json()) as GuidanceEnvelope;
-      if (typeof payload.error === "string" && payload.error.trim()) {
-        return payload.error;
+      const payload = functionEnvelopeSchema.safeParse(
+        await error.context.clone().json(),
+      );
+      if (payload.success && payload.data.error) {
+        return payload.data.error;
       }
     } catch {
       // Conserve le message générique ci-dessous.
@@ -106,12 +106,24 @@ export async function requestRuleGuidance(input: {
     throw new Error(await readFunctionError(error));
   }
 
-  const envelope = data as GuidanceEnvelope | null;
-  if (!envelope?.success || !envelope.data) {
-    throw new Error(envelope?.error || "Analyse de la règle incomplète.");
+  const envelope = functionEnvelopeSchema.safeParse(data);
+  if (!envelope.success) {
+    throw new Error(
+      "L’assistant a renvoyé une réponse invalide. Relance l’analyse.",
+    );
+  }
+  if (!envelope.data.success || envelope.data.data === undefined) {
+    throw new Error(envelope.data.error || "Analyse de la règle incomplète.");
   }
 
-  return envelope.data;
+  const guidance = ruleGuidanceResponseSchema.safeParse(envelope.data.data);
+  if (!guidance.success) {
+    throw new Error(
+      "L’assistant a renvoyé une réponse invalide. Relance l’analyse.",
+    );
+  }
+
+  return guidance.data as RuleGuidanceResponse;
 }
 
 export function buildGuidedRulePrompt(input: {

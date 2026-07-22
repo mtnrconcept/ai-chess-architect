@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
+import RouteErrorPage from "./components/routing/RouteErrorPage";
 import Index from "./pages/Index";
 import RuleArchitect from "./pages/RuleArchitect";
 import Lobby from "./pages/Lobby";
@@ -29,6 +30,7 @@ const router = createBrowserRouter(
   [
     {
       element: <AppLayout />,
+      errorElement: <RouteErrorPage />,
       children: [
         { path: "/", element: <Index /> },
         { path: "/generator", element: <RuleArchitect /> },

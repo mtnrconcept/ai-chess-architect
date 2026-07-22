@@ -1,4 +1,10 @@
-import type { ActionStep, EngineContracts, Piece, RuleJSON } from "./types";
+import type {
+  ActionStep,
+  EngineContracts,
+  Piece,
+  RuleJSON,
+  Side,
+} from "./types";
 import {
   RuntimeBudget,
   RuntimeBudgetExceededError,
@@ -10,6 +16,7 @@ export interface EngineContext extends Record<string, unknown> {
   match?: unknown;
   piece?: Piece;
   pieceId?: string;
+  side?: Side;
   rule?: RuleJSON;
   scope?: unknown;
   state: Record<string, unknown>;

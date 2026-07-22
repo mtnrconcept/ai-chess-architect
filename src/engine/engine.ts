@@ -5,7 +5,9 @@ import type {
   LogicStep,
   Piece,
   PieceID,
+  RuleActionExecutionResult,
   RuleJSON,
+  Side,
   Tile,
   UIActionSpec,
 } from "./types";
@@ -291,7 +293,7 @@ export class RuleEngine {
     });
   }
 
-  onTurnStart(side: string): void {
+  onTurnStart(side: Side): void {
     this.engine.cooldown.tickAll();
 
     const systemBudget = new RuntimeBudget(
@@ -326,15 +328,18 @@ export class RuleEngine {
     this.dispatchLifecycle("lifecycle.onTurnStart", { side });
   }
 
-  runUIAction(actionId: string, pieceId?: PieceID, targetTile?: Tile): void {
+  runUIAction(
+    actionId: string,
+    pieceId?: PieceID,
+    targetTile?: Tile,
+  ): RuleActionExecutionResult {
     const action = this.uiActions.find(
       (candidate) => candidate.id === actionId,
     );
     const rule = this.actionOwners.get(actionId);
 
     if (!action || !rule) {
-      this.engine.ui.toast(`Action inconnue: ${actionId}`);
-      return;
+      return this.rejectUIAction(`Action inconnue: ${actionId}`);
     }
 
     let piece: Piece | null = null;
@@ -342,14 +347,12 @@ export class RuleEngine {
       try {
         piece = this.engine.board.getPiece(pieceId);
       } catch {
-        this.engine.ui.toast("La pièce sélectionnée n'existe plus.");
-        return;
+        return this.rejectUIAction("La pièce sélectionnée n'existe plus.");
       }
     }
 
     if (action.availability?.requiresSelection && !piece) {
-      this.engine.ui.toast("Sélectionne d'abord une pièce.");
-      return;
+      return this.rejectUIAction("Sélectionne d'abord une pièce.");
     }
 
     const allowedPieces = action.availability?.pieceTypes ?? [];
@@ -359,10 +362,9 @@ export class RuleEngine {
       !allowedPieces.includes("any") &&
       !allowedPieces.includes(piece.type)
     ) {
-      this.engine.ui.toast(
+      return this.rejectUIAction(
         "Cette action n'est pas disponible pour cette pièce.",
       );
-      return;
     }
 
     const allowedSides = rule.scope?.sides ?? [];
@@ -371,8 +373,7 @@ export class RuleEngine {
       allowedSides.length > 0 &&
       !allowedSides.includes(piece.side)
     ) {
-      this.engine.ui.toast("Cette règle ne s'applique pas à ce camp.");
-      return;
+      return this.rejectUIAction("Cette règle ne s'applique pas à ce camp.");
     }
 
     let targetPieceId: PieceID | undefined;
@@ -382,8 +383,7 @@ export class RuleEngine {
 
     const targetingMode = action.targeting?.mode ?? "none";
     if (isRuleArchitectRule(rule) && targetingMode !== "none" && !targetTile) {
-      this.engine.ui.toast("Choisis une cible valide.");
-      return;
+      return this.rejectUIAction("Choisis une cible valide.");
     }
 
     if (
@@ -391,8 +391,7 @@ export class RuleEngine {
       targetingMode === "piece" &&
       !targetPieceId
     ) {
-      this.engine.ui.toast("Cette action exige une pièce cible.");
-      return;
+      return this.rejectUIAction("Cette action exige une pièce cible.");
     }
 
     const sequence = this.eventSequence + 1;
@@ -423,12 +422,16 @@ export class RuleEngine {
           (targetPieceId !== undefined && candidates.includes(targetPieceId));
 
         if (!targetIsValid) {
-          this.engine.ui.toast("Cette cible n'est pas autorisée par la règle.");
-          return;
+          return this.rejectUIAction(
+            "Cette cible n'est pas autorisée par la règle.",
+          );
         }
       } catch (error) {
         this.reportRuntimeError(error);
-        return;
+        return {
+          ok: false,
+          reason: "La cible n'a pas pu être validée en toute sécurité.",
+        };
       }
     }
 
@@ -438,8 +441,7 @@ export class RuleEngine {
       action.cooldown.perPiece > 0 &&
       !this.engine.cooldown.isReady(pieceId, actionId)
     ) {
-      this.engine.ui.toast("Cette action est encore en recharge.");
-      return;
+      return this.rejectUIAction("Cette action est encore en recharge.");
     }
 
     if (
@@ -448,10 +450,9 @@ export class RuleEngine {
       action.maxPerPiece > 0 &&
       this.getActionUsage(rule, pieceId, actionId) >= action.maxPerPiece
     ) {
-      this.engine.ui.toast(
+      return this.rejectUIAction(
         "La limite d'utilisation est atteinte pour cette pièce.",
       );
-      return;
     }
 
     this.eventSequence = sequence;
@@ -474,12 +475,17 @@ export class RuleEngine {
 
     if (outcome.blocked || outcome.executed === 0) {
       if (outcome.executed === 0 && !outcome.blocked) {
-        this.engine.ui.toast(
+        return this.rejectUIAction(
           "Aucun effet jouable n'est associé à cette action.",
         );
       }
-      return;
+      return {
+        ok: false,
+        reason: "L'action a été refusée par le moteur de règles.",
+      };
     }
+
+    return { ok: true };
   }
 
   getRules(): RuleJSON[] {
@@ -509,6 +515,9 @@ export class RuleEngine {
         sequence,
         budget,
       );
+      if (!this.lifecycleScopeAllows(rule, context)) {
+        continue;
+      }
       const outcome = this.evaluateLogicBlock(
         eventId,
         context,
@@ -871,6 +880,56 @@ export class RuleEngine {
     usages[key] =
       (typeof current === "number" && Number.isFinite(current) ? current : 0) +
       1;
+  }
+
+  private lifecycleScopeAllows(
+    rule: RuleJSON,
+    context: EngineContext,
+  ): boolean {
+    const event = context.event;
+    const requiresSourcePiece =
+      event === "lifecycle.onEnterTile" ||
+      event === "lifecycle.onMoveCommitted" ||
+      event === "lifecycle.onPromote";
+    if (requiresSourcePiece && !context.piece) {
+      return false;
+    }
+
+    const sides = rule.scope?.sides ?? [];
+    const side = context.side;
+    if (
+      sides.length > 0 &&
+      ((side !== "white" && side !== "black") || !sides.includes(side))
+    ) {
+      return false;
+    }
+
+    const affectedPieces = rule.scope?.affectedPieces ?? [];
+    if (
+      affectedPieces.length === 0 ||
+      affectedPieces.includes("any") ||
+      affectedPieces.includes("all")
+    ) {
+      return true;
+    }
+
+    const scopedPieceType =
+      event === "lifecycle.onPromote" && typeof context.fromType === "string"
+        ? context.fromType
+        : context.piece?.type;
+
+    // Turn-start and undo events intentionally have no source piece. Their
+    // side scope still applies, while piece-specific effects remain protected
+    // by their own required piece parameters/conditions.
+    if (!scopedPieceType) {
+      return event === "lifecycle.onTurnStart" || event === "lifecycle.onUndo";
+    }
+    return affectedPieces.includes(scopedPieceType);
+  }
+
+  private rejectUIAction(reason: string): RuleActionExecutionResult {
+    this.engine.ui.toast(reason);
+    return { ok: false, reason };
   }
 
   private reportRuntimeError(error: unknown): void {

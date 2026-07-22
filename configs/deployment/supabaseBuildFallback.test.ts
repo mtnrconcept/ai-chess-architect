@@ -16,11 +16,25 @@ const assertPublicTarget = (target: SupabaseBuildFallback) => {
 };
 
 describe("resolveSupabaseBuildFallback", () => {
-  it("selects staging only for the exact Rule Architect Preview", () => {
-    expect(resolveSupabaseBuildFallback(ruleArchitectPreviewGuards)).toEqual(
+  const currentPullRequestPreview = {
+    ...ruleArchitectPreviewGuards,
+    VERCEL_GIT_COMMIT_REF: "codex/universal-rule-engine-skills-20260722",
+  } as const;
+
+  it("selects staging for the current Rule Architect pull request preview", () => {
+    expect(resolveSupabaseBuildFallback(currentPullRequestPreview)).toEqual(
       ruleArchitectStagingSupabase,
     );
     assertPublicTarget(ruleArchitectStagingSupabase);
+  });
+
+  it("selects the isolated staging branch for every non-main preview of this repository", () => {
+    expect(
+      resolveSupabaseBuildFallback({
+        ...ruleArchitectPreviewGuards,
+        VERCEL_GIT_COMMIT_REF: "fix/another-safe-preview",
+      }),
+    ).toEqual(ruleArchitectStagingSupabase);
   });
 
   it("selects production only for the exact main production deployment", () => {
@@ -31,23 +45,37 @@ describe("resolveSupabaseBuildFallback", () => {
   });
 
   it.each([
-    ["preview", ruleArchitectPreviewGuards],
-    ["production", ruleArchitectProductionGuards],
-  ] as const)("stays disabled when any %s guard differs", (_name, guards) => {
-    for (const guardName of Object.keys(guards)) {
-      expect(
-        resolveSupabaseBuildFallback({
-          ...guards,
-          [guardName]: "unexpected",
-        }),
-      ).toBeNull();
-    }
-  });
+    ["preview", currentPullRequestPreview, ruleArchitectPreviewGuards],
+    [
+      "production",
+      ruleArchitectProductionGuards,
+      ruleArchitectProductionGuards,
+    ],
+  ] as const)(
+    "stays disabled when any %s identity guard differs",
+    (_name, environment, guards) => {
+      for (const guardName of Object.keys(guards)) {
+        expect(
+          resolveSupabaseBuildFallback({
+            ...environment,
+            [guardName]: "unexpected",
+          }),
+        ).toBeNull();
+      }
+    },
+  );
 
   it.each([
     {
       ...ruleArchitectPreviewGuards,
       VERCEL_GIT_COMMIT_REF: "main",
+    },
+    {
+      ...ruleArchitectPreviewGuards,
+      VERCEL_GIT_COMMIT_REF: "   ",
+    },
+    {
+      ...ruleArchitectPreviewGuards,
     },
     {
       ...ruleArchitectProductionGuards,

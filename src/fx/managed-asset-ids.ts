@@ -10,29 +10,27 @@ export interface ManagedCinematicResource {
   storagePath: string;
 }
 
-const MANAGED_CINEMATIC_RESOURCE =
+const MANAGED_RESOURCE_PATTERN =
   /^cinematic\.(carry|swoop|burst)\.(asset_[0-9a-f]{40}\.(?:png|jpg|webp))$/;
-const MANAGED_ASSET_ID = /^asset_[0-9a-f]{40}\.(?:png|jpg|webp)$/;
+const MANAGED_ASSET_PATTERN = /^asset_[0-9a-f]{40}\.(?:png|jpg|webp)$/;
 
 export function buildManagedAssetStoragePath(assetId: string): string | null {
-  if (!MANAGED_ASSET_ID.test(assetId)) return null;
-  return `${RULE_ASSET_PREFIX}/${assetId}`;
+  return MANAGED_ASSET_PATTERN.test(assetId)
+    ? `${RULE_ASSET_PREFIX}/${assetId}`
+    : null;
 }
 
 export function parseManagedCinematicResourceId(
   resourceId: string,
 ): ManagedCinematicResource | null {
-  const match = MANAGED_CINEMATIC_RESOURCE.exec(resourceId);
+  const match = MANAGED_RESOURCE_PATTERN.exec(String(resourceId));
   if (!match) return null;
-
-  const motion = match[1] as ManagedCinematicMotion;
   const assetId = match[2];
   const storagePath = buildManagedAssetStoragePath(assetId);
   if (!storagePath) return null;
-
   return {
     resourceId,
-    motion,
+    motion: match[1] as ManagedCinematicMotion,
     assetId,
     storagePath,
   };

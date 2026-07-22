@@ -103,6 +103,7 @@ vi.mock("./request-key", () => ({
 }));
 
 import { useRuleArchitect } from "./useRuleArchitect";
+import type { PersistedRuleArchitectSession } from "./rule-architect-session";
 
 const prompt = "Une règle suffisamment détaillée, déterministe et bornée.";
 
@@ -110,16 +111,36 @@ const successfulCompilation = {
   data: {
     success: true,
     data: {
-      compilationId: "compilation-id",
-      ok: true,
+      compilationId: "00000000-0000-4000-8000-000000000301",
+      ok: false,
+      blueprint: null,
+      compiledRule: null,
+      diagnostics: [],
+      metrics: {
+        riskScore: 0,
+        balanceScore: 0,
+        complexity: "low",
+        triggerCount: 0,
+        effectCount: 0,
+        actionCount: 0,
+      },
+      contentHash: null,
+      model: "gpt-5.6-terra",
+      premiumRequested: false,
+      premiumGranted: false,
+      requestId: null,
+      generationDurationMs: 12,
+      coverage: null,
     },
   },
   error: null,
 };
 
-const RuleArchitectHookHarness = (): ReturnType<typeof useRuleArchitect> => {
+const RuleArchitectHookHarness = (
+  initialSession?: PersistedRuleArchitectSession | null,
+): ReturnType<typeof useRuleArchitect> => {
   reactHarness.beginRender();
-  return useRuleArchitect();
+  return useRuleArchitect(initialSession);
 };
 
 describe("useRuleArchitect compilation recovery", () => {
@@ -239,5 +260,50 @@ describe("useRuleArchitect compilation recovery", () => {
 
     await architect.compile(prompt, false);
     expect(createRequestKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses the persisted compile key after a page reload", async () => {
+    const fingerprint = JSON.stringify([prompt, false, null, null]);
+    const now = Date.now();
+    const restoredSession: PersistedRuleArchitectSession = {
+      version: 1,
+      createdAt: now,
+      savedAt: now,
+      expiresAt: now + 60 * 60 * 1000,
+      draft: {
+        idea: prompt,
+        analyzedIdea: null,
+        guidance: null,
+        selections: {},
+        acceptedAdjustmentIds: [],
+        premium: false,
+        visibility: "unlisted",
+        lobbyName: "Ma variante Voltus",
+        mode: "ai",
+      },
+      workflow: {
+        compilation: null,
+        publication: null,
+        lobby: null,
+        compileAttempt: {
+          fingerprint,
+          requestKey: "00000000-0000-4000-8000-000000000199",
+        },
+        lobbyAttempt: null,
+      },
+    };
+    invoke.mockResolvedValueOnce(successfulCompilation);
+
+    const architect = RuleArchitectHookHarness(restoredSession);
+    await architect.compile(prompt, false);
+
+    expect(createRequestKey).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith("compile-chess-rule", {
+      body: {
+        prompt,
+        premium: false,
+        requestKey: "00000000-0000-4000-8000-000000000199",
+      },
+    });
   });
 });

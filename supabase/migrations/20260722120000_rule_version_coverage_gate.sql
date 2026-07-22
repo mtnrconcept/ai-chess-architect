@@ -9,13 +9,17 @@ declare
   v_contract_requirements jsonb;
   v_coverage_requirements jsonb;
 begin
-  if new.engine_version <> '2.0.0' then
-    return new;
+  if new.engine_version is distinct from '2.0.0' then
+    raise exception 'RULE_VERSION_ENGINE_UNSUPPORTED'
+      using errcode = '23514';
   end if;
 
-  if jsonb_typeof(new.validation #> '{metrics,coverage,complete}') <> 'boolean'
-    or new.validation #>> '{metrics,coverage,complete}' <> 'true'
-    or new.validation #>> '{metrics,coverageContractVersion}' <> '1' then
+  if new.validation #> '{metrics,coverage,complete}'
+      is distinct from 'true'::jsonb
+    or new.validation #> '{metrics,coverageContractVersion}'
+      is distinct from '1'::jsonb
+    or new.validation #> '{metrics,intentContract,version}'
+      is distinct from '1'::jsonb then
     raise exception 'RULE_VERSION_COVERAGE_INCOMPLETE'
       using errcode = '23514';
   end if;
@@ -25,12 +29,45 @@ begin
   v_coverage_requirements :=
     new.validation #> '{metrics,coverage,requirements}';
 
-  if jsonb_typeof(v_contract_requirements) <> 'array'
-    or jsonb_typeof(v_coverage_requirements) <> 'array'
-    or jsonb_array_length(v_contract_requirements) = 0
+  if jsonb_typeof(v_contract_requirements) is distinct from 'array'
+    or jsonb_typeof(v_coverage_requirements) is distinct from 'array' then
+    raise exception 'RULE_VERSION_COVERAGE_CONTRACT_INVALID'
+      using errcode = '23514';
+  end if;
+
+  if jsonb_array_length(v_contract_requirements) = 0
     or jsonb_array_length(v_contract_requirements)
       <> jsonb_array_length(v_coverage_requirements) then
     raise exception 'RULE_VERSION_COVERAGE_CONTRACT_INVALID'
+      using errcode = '23514';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements(v_contract_requirements) as items(item)
+    where jsonb_typeof(item) is distinct from 'object'
+      or coalesce(item ->> 'id', '')
+        !~ '^[a-z][a-z0-9-]{1,39}$'
+  ) or exists (
+    select 1
+    from jsonb_array_elements(v_coverage_requirements) as items(item)
+    where jsonb_typeof(item) is distinct from 'object'
+      or coalesce(item ->> 'id', '')
+        !~ '^[a-z][a-z0-9-]{1,39}$'
+      or coalesce(item ->> 'status', '')
+        not in ('implemented', 'adapted')
+      or jsonb_typeof(item -> 'evidencePaths') is distinct from 'array'
+  ) then
+    raise exception 'RULE_VERSION_COVERAGE_REQUIREMENT_INVALID'
+      using errcode = '23514';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements(v_coverage_requirements) as items(item)
+    where jsonb_array_length(item -> 'evidencePaths') = 0
+  ) then
+    raise exception 'RULE_VERSION_COVERAGE_EVIDENCE_INVALID'
       using errcode = '23514';
   end if;
 
@@ -38,13 +75,11 @@ begin
     (
       select count(distinct item ->> 'id')
       from jsonb_array_elements(v_contract_requirements) as items(item)
-      where item ->> 'id' is not null
     )
     or jsonb_array_length(v_coverage_requirements) <>
     (
       select count(distinct item ->> 'id')
       from jsonb_array_elements(v_coverage_requirements) as items(item)
-      where item ->> 'id' is not null
     ) then
     raise exception 'RULE_VERSION_COVERAGE_IDS_INVALID'
       using errcode = '23514';
@@ -60,6 +95,15 @@ begin
     where contract_item is null or coverage_item is null
   ) then
     raise exception 'RULE_VERSION_COVERAGE_IDS_MISMATCH'
+      using errcode = '23514';
+  end if;
+
+  if (
+    select count(*)
+    from jsonb_array_elements(v_contract_requirements) as items(item)
+    where item ->> 'id' = 'request-fidelity'
+  ) <> 1 then
+    raise exception 'RULE_VERSION_COVERAGE_FIDELITY_MISSING'
       using errcode = '23514';
   end if;
 

@@ -53,6 +53,15 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (mode === "player") {
+      return jsonResponse(request, 409, {
+        success: false,
+        code: "CUSTOM_PVP_RUNTIME_NOT_AUTHORITATIVE",
+        error:
+          "Le jeu en ligne avec des règles personnalisées sera disponible lorsque le moteur serveur autoritaire sera activé. Choisis l’IA pour jouer cette variante maintenant.",
+      });
+    }
+
     if (
       ids.length < 1 ||
       ids.length > 8 ||

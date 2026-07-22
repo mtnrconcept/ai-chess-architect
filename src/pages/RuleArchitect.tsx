@@ -18,8 +18,16 @@ export default function RuleArchitect() {
   if (loading) {
     return (
       <NeonBackground>
-        <div className="flex min-h-[70vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex min-h-[70vh] items-center justify-center"
+        >
+          <Loader2
+            aria-hidden="true"
+            className="h-8 w-8 animate-spin text-primary"
+          />
+          <span className="sr-only">Vérification de la session…</span>
         </div>
       </NeonBackground>
     );

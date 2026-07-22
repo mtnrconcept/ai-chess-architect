@@ -12,6 +12,7 @@ import {
   supabaseDiagnostics,
   type SupabaseDiagnostics,
 } from "@/integrations/supabase/client";
+import { settleInitialAuthSession } from "./auth-session";
 
 type AuthContextValue = {
   user: User | null;
@@ -119,21 +120,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
     let isMounted = true;
 
-    const loadUser = async () => {
-      const {
-        data: { session: initialSession },
-      } = await supabase.auth.getSession();
-
-      if (!isMounted) {
-        return;
-      }
-
-      setSession(initialSession ?? null);
-      setUser(initialSession?.user ?? null);
-      setLoading(false);
-    };
-
-    loadUser();
+    void settleInitialAuthSession({
+      readSession: () => supabase.auth.getSession(),
+      isMounted: () => isMounted,
+      apply: (state) => {
+        setSession(state.session);
+        setUser(state.user);
+        setLoading(state.loading);
+      },
+    });
 
     const {
       data: { subscription },
@@ -166,12 +161,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const refreshUser = async () => {
     setLoading(true);
-    const {
-      data: { session: refreshedSession },
-    } = await supabase.auth.getSession();
-    setSession(refreshedSession ?? null);
-    setUser(refreshedSession?.user ?? null);
-    setLoading(false);
+    try {
+      const {
+        data: { session: refreshedSession },
+        error,
+      } = await supabase.auth.getSession();
+      if (error) {
+        throw error;
+      }
+      setSession(refreshedSession ?? null);
+      setUser(refreshedSession?.user ?? null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

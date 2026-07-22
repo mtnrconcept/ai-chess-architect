@@ -1,5 +1,5 @@
-import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -30,6 +30,12 @@ import {
   type RuleGuidanceQuestion,
   type RuleGuidanceResponse,
 } from "./guidance-api";
+import { CompilationRecoveryActions } from "./CompilationRecoveryActions";
+import {
+  clearRuleArchitectSession,
+  loadRuleArchitectSession,
+  persistRuleArchitectDraft,
+} from "./rule-architect-session";
 import { useRuleArchitect } from "./useRuleArchitect";
 
 const STARTER_IDEAS = [
@@ -54,28 +60,83 @@ const coverageStatusLabel = (status: string, userApproved: boolean): string => {
 
 export default function GuidedRuleArchitectPanel() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
-  const architect = useRuleArchitect();
-  const initialIdea = searchParams.get("idea")?.trim().slice(0, 6000) ?? "";
+  const navigationState = location.state as {
+    ruleIdeaDraft?: unknown;
+  } | null;
+  const stateIdea =
+    typeof navigationState?.ruleIdeaDraft === "string"
+      ? navigationState.ruleIdeaDraft
+      : "";
+  const requestedIdea = (stateIdea || searchParams.get("idea") || "")
+    .trim()
+    .slice(0, 6000);
+  const [restoredSession] = useState(() => {
+    const restored = loadRuleArchitectSession();
+    if (
+      requestedIdea.length >= 8 &&
+      restored &&
+      restored.draft.idea.trim() !== requestedIdea
+    ) {
+      clearRuleArchitectSession();
+      return null;
+    }
+    return restored;
+  });
+  const architect = useRuleArchitect(restoredSession);
+  const restoredDraft = restoredSession?.draft;
+  const initialIdea = requestedIdea || restoredDraft?.idea || "";
   const [idea, setIdea] = useState(
     initialIdea.length >= 8 ? initialIdea : STARTER_IDEAS[0],
   );
-  const [guidance, setGuidance] = useState<RuleGuidanceResponse | null>(null);
-  const [analyzedIdea, setAnalyzedIdea] = useState<string | null>(null);
-  const [selections, setSelections] = useState<Record<string, string[]>>({});
+  const [guidance, setGuidance] = useState<RuleGuidanceResponse | null>(
+    restoredDraft?.guidance ?? null,
+  );
+  const [analyzedIdea, setAnalyzedIdea] = useState<string | null>(
+    restoredDraft?.analyzedIdea ?? null,
+  );
+  const [selections, setSelections] = useState<Record<string, string[]>>(
+    restoredDraft?.selections ?? {},
+  );
   const [acceptedAdjustments, setAcceptedAdjustments] = useState<Set<string>>(
-    new Set(),
+    new Set(restoredDraft?.acceptedAdjustmentIds ?? []),
   );
   const [guidanceLoading, setGuidanceLoading] = useState(false);
   const [guidanceError, setGuidanceError] = useState<string | null>(null);
-  const [premium, setPremium] = useState(false);
+  const [premium, setPremium] = useState(restoredDraft?.premium ?? false);
   const [visibility, setVisibility] = useState<
     "private" | "unlisted" | "public"
-  >("unlisted");
-  const [lobbyName, setLobbyName] = useState("Ma variante Voltus");
-  const [mode, setMode] = useState<"player" | "ai">("player");
+  >(restoredDraft?.visibility ?? "unlisted");
+  const [lobbyName, setLobbyName] = useState(
+    restoredDraft?.lobbyName ?? "Ma variante Voltus",
+  );
+  const [mode, setMode] = useState<"player" | "ai">("ai");
   const guidanceRequestSequence = useRef(0);
+
+  useEffect(() => {
+    persistRuleArchitectDraft({
+      idea,
+      analyzedIdea,
+      guidance,
+      selections,
+      acceptedAdjustmentIds: Array.from(acceptedAdjustments),
+      premium,
+      visibility,
+      lobbyName,
+      mode: "ai",
+    });
+  }, [
+    acceptedAdjustments,
+    analyzedIdea,
+    guidance,
+    idea,
+    lobbyName,
+    premium,
+    selections,
+    visibility,
+  ]);
 
   const busy =
     guidanceLoading ||
@@ -131,6 +192,7 @@ export default function GuidedRuleArchitectPanel() {
     setSelections(defaults);
     // Une adaptation modifie la demande : elle exige toujours un clic explicite.
     setAcceptedAdjustments(new Set());
+    return defaults;
   };
 
   const analyseIdea = async (diagnosticMessages: string[] = []) => {
@@ -153,9 +215,27 @@ export default function GuidedRuleArchitectPanel() {
         diagnostics: diagnosticMessages,
       });
       if (requestSequence === guidanceRequestSequence.current) {
+        const defaultSelections = initialiseRecommendedSelections(result);
         setGuidance(result);
         setAnalyzedIdea(prompt);
-        initialiseRecommendedSelections(result);
+        // Un nouveau jeton invalide toutes les tentatives de l’ancien contrat.
+        // Effacer d’abord rend aussi une interruption entre les deux écritures
+        // fail-closed, sans jamais mélanger une compilation et une nouvelle idée.
+        clearRuleArchitectSession();
+        persistRuleArchitectDraft(
+          {
+            idea,
+            analyzedIdea: prompt,
+            guidance: result,
+            selections: defaultSelections,
+            acceptedAdjustmentIds: [],
+            premium,
+            visibility,
+            lobbyName,
+            mode: "ai",
+          },
+          { renewFromGuidanceToken: result.guidanceToken },
+        );
         architect.reset();
       }
     } catch (caught) {
@@ -260,6 +340,15 @@ export default function GuidedRuleArchitectPanel() {
       toast({ title: "Nom du lobby trop court", variant: "destructive" });
       return;
     }
+    if (mode !== "ai") {
+      toast({
+        title: "Multijoueur bientôt disponible",
+        description:
+          "Le runtime serveur autoritaire doit être actif avant d’ouvrir un lobby joueur.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       const lobby = await architect.createLobby(lobbyName.trim(), mode);
       toast({
@@ -277,6 +366,7 @@ export default function GuidedRuleArchitectPanel() {
 
   const resetAll = () => {
     guidanceRequestSequence.current += 1;
+    clearRuleArchitectSession();
     architect.reset();
     setGuidance(null);
     setAnalyzedIdea(null);
@@ -676,6 +766,7 @@ export default function GuidedRuleArchitectPanel() {
                   size="lg"
                   disabled={
                     busy ||
+                    architect.compileFailure?.newRequestRequired === true ||
                     !allRequiredAnswersSelected ||
                     !allRequiredAdjustmentsAccepted ||
                     !allUncertaintiesResolved ||
@@ -690,7 +781,19 @@ export default function GuidedRuleArchitectPanel() {
                   )}
                   Créer la variante jouable
                 </Button>
-                {architect.error && (
+                {architect.compileFailure && (
+                  <CompilationRecoveryActions
+                    message={architect.compileFailure.message}
+                    code={architect.compileFailure.code}
+                    newRequestRequired={
+                      architect.compileFailure.newRequestRequired
+                    }
+                    disabled={busy}
+                    onRetry={() => void handleCompile()}
+                    onReset={architect.resetCompilation}
+                  />
+                )}
+                {architect.error && !architect.compileFailure && (
                   <div
                     role="alert"
                     className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
@@ -915,9 +1018,16 @@ export default function GuidedRuleArchitectPanel() {
                       }
                       className="h-11 w-full rounded-xl border bg-background px-3 text-sm"
                     >
-                      <option value="player">Contre un joueur</option>
                       <option value="ai">Contre l’IA</option>
+                      <option value="player" disabled>
+                        Contre un joueur — bientôt disponible
+                      </option>
                     </select>
+                    <p className="text-xs text-muted-foreground">
+                      Le mode joueur restera fermé jusqu’à l’activation du
+                      runtime serveur autoritaire, afin que les deux joueurs ne
+                      puissent jamais exécuter des plateaux divergents.
+                    </p>
                     <Button
                       className="w-full gap-2"
                       size="lg"
