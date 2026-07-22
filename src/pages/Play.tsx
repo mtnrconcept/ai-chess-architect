@@ -122,85 +122,6 @@ function useSafeToast() {
   );
 }
 
-const toRecord = (value: unknown): Record<string, unknown> | undefined => {
-  if (value && typeof value === "object") {
-    return value as Record<string, unknown>;
-  }
-  return undefined;
-};
-
-const readErrorResponseText = async (
-  value: unknown,
-): Promise<string | undefined> => {
-  const container = toRecord(value);
-  const context =
-    container?.context && typeof container.context === "object"
-      ? (container.context as Record<string, unknown>)
-      : undefined;
-  if (!context) return undefined;
-
-  const response =
-    context.response && typeof context.response === "object"
-      ? (context.response as Record<string, unknown>)
-      : undefined;
-  if (!response) return undefined;
-
-  const textFn =
-    typeof response.text === "function"
-      ? (response.text as () => Promise<string>)
-      : undefined;
-  if (!textFn) return undefined;
-
-  try {
-    const raw = await textFn.call(response);
-    if (!raw) return undefined;
-
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object") {
-        const details = (parsed as Record<string, unknown>).details;
-
-        if (typeof details === "string" && details.trim().length > 0) {
-          return details.trim();
-        }
-
-        if (Array.isArray(details)) {
-          const joined = details
-            .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-            .filter((entry) => entry.length > 0)
-            .join("\n");
-          if (joined.length > 0) {
-            return joined;
-          }
-        }
-
-        if (details && typeof details === "object") {
-          const message = (details as Record<string, unknown>).message;
-          if (typeof message === "string" && message.trim().length > 0) {
-            return message.trim();
-          }
-        }
-
-        const errorLabel = (parsed as Record<string, unknown>).error;
-        if (typeof errorLabel === "string" && errorLabel.trim().length > 0) {
-          return errorLabel.trim();
-        }
-      }
-    } catch {
-      // raw n'est pas un JSON valide : on renvoie le texte brut
-    }
-
-    return trimmed;
-  } catch {
-    return undefined;
-  }
-};
-
 const createChatMessageId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto)
     return crypto.randomUUID();
@@ -1308,98 +1229,10 @@ const Play = () => {
         return;
       }
 
-      try {
-        const cleanBody = JSON.parse(
-          JSON.stringify({
-            prompt: payload.prompt.trim(),
-            board: undefined,
-            options: {
-              locale: payload.locale ?? "fr-CH",
-              dryRun: false,
-              temperature: payload.temperature,
-            },
-          }),
-        );
-
-        const { data, error } = await supabase.functions.invoke(
-          "generate-chess-rule",
-          {
-            body: cleanBody,
-          },
-        );
-
-        if (error) {
-          const raw = await readErrorResponseText(error);
-          const msg = raw?.trim()?.length
-            ? raw
-            : getSupabaseFunctionErrorMessage(
-                error,
-                "Erreur lors de la génération.",
-              );
-          safeToast({
-            title: "Génération échouée",
-            description: msg,
-            variant: "destructive",
-          });
-          return;
-        }
-
-        const dataRecord = toRecord(data);
-        const resultRecord = toRecord(dataRecord?.result);
-        const resultStatus =
-          typeof resultRecord?.status === "string"
-            ? resultRecord.status
-            : undefined;
-
-        if (resultStatus && resultStatus !== "ready") {
-          safeToast({
-            title: "Informations requises",
-            description:
-              "Le générateur a besoin d'informations supplémentaires pour terminer la règle.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        const ruleCandidate =
-          (resultStatus === "ready" ? resultRecord?.rule : undefined) ??
-          resultRecord?.rule ??
-          dataRecord?.rule ??
-          dataRecord?.["rule_json"];
-
-        if (!ruleCandidate) {
-          safeToast({
-            title: "Génération échouée",
-            description:
-              "La réponse du générateur ne contient aucune règle exploitable.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        safeToast({
-          title: "Règle générée",
-          description: "Votre variante a été créée.",
-        });
-
-        try {
-          const converted = convertRuleJsonToChessRule(
-            ruleCandidate as RuleJSON,
-          );
-          setCustomRules((prev) => [converted, ...prev]);
-        } catch {
-          // Conversion non bloquante
-        }
-      } catch (e) {
-        console.error("[generateRule] unexpected error", e);
-        safeToast({
-          title: "Génération échouée",
-          description: "Erreur inattendue lors de l'appel au générateur.",
-          variant: "destructive",
-        });
-      }
+      const query = new URLSearchParams({ idea: payload.prompt.trim() });
+      navigate(`/generator?${query.toString()}`);
     },
-    [safeToast],
+    [navigate, safeToast],
   );
 
   const handleSquareClick = useCallback(
@@ -1778,9 +1611,8 @@ const Play = () => {
 
   const latestCoachMessage = useMemo(
     () =>
-      [...coachMessages]
-        .reverse()
-        .find((message) => message.role === "coach")?.content ?? null,
+      [...coachMessages].reverse().find((message) => message.role === "coach")
+        ?.content ?? null,
     [coachMessages],
   );
 
@@ -1893,7 +1725,10 @@ const Play = () => {
           />
         </div>
 
-        <aside id="coach-panel" className="flex min-h-[420px] max-h-[75vh] scroll-mt-24 flex-col rounded-lg border border-white/10 bg-black/25 p-4">
+        <aside
+          id="coach-panel"
+          className="flex min-h-[420px] max-h-[75vh] scroll-mt-24 flex-col rounded-lg border border-white/10 bg-black/25 p-4"
+        >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-white">Coach IA</h2>

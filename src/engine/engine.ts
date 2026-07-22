@@ -395,7 +395,7 @@ export class RuleEngine {
       return;
     }
 
-    const sequence = ++this.eventSequence;
+    const sequence = this.eventSequence + 1;
     const budget = new RuntimeBudget(
       this.options.maxEffectsPerRuleEvent,
       this.options.maxNestedDepth,
@@ -453,6 +453,8 @@ export class RuleEngine {
       );
       return;
     }
+
+    this.eventSequence = sequence;
 
     const outcome = this.evaluateLogicBlock(
       `ui.${actionId}`,
@@ -535,9 +537,13 @@ export class RuleEngine {
       return outcome;
     }
 
-    const candidates = steps.filter(
-      (step) => step.when === eventId || step.when === "always",
-    );
+    const candidates = steps
+      .filter((step) => step.when === eventId || step.when === "always")
+      .sort(
+        (left, right) =>
+          (right.priority ?? 0) - (left.priority ?? 0) ||
+          left.id.localeCompare(right.id),
+      );
     if (candidates.length === 0) return outcome;
 
     for (const step of candidates) {

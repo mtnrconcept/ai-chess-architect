@@ -2,6 +2,7 @@
 // Générateur de règles d'échecs via Lovable AI (robuste + validation stricte + CORS propre)
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireSafeRulePrompt } from "../_shared/prompt-security.ts";
 
 /* =========================
    Config
@@ -14,8 +15,13 @@ const MODEL = "google/gemini-2.5-flash";
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:5174",
-  "https://ton-domaine.app",
-  "*", // fallback permissif — retire-le si tu veux un contrôle strict
+  "https://ai-chess-architect.vercel.app",
+  "https://ai-chess-architect-mtnrconcepts-projects.vercel.app",
+  "https://ai-chess-architect-git-main-mtnrconcepts-projects.vercel.app",
+  ...(Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
 ] as const;
 
 /* =========================
@@ -32,12 +38,17 @@ function corsHeaders(origin: string | null) {
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "POST,OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
     Vary: "Origin",
   };
 }
 
-function json(body: unknown, status = 200, origin: string | null = null): Response {
+function json(
+  body: unknown,
+  status = 200,
+  origin: string | null = null,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
@@ -73,7 +84,10 @@ function validateGuidedAnswers(x: unknown): GuidedAnswer[] | null {
       isNonEmptyString((item as any).question, 1, 500) &&
       isNonEmptyString((item as any).choice, 1, 500)
     ) {
-      out.push({ question: (item as any).question, choice: (item as any).choice });
+      out.push({
+        question: (item as any).question,
+        choice: (item as any).choice,
+      });
     } else {
       return null;
     }
@@ -229,13 +243,27 @@ serve(async (req) => {
 
   const promptRaw = body.prompt;
   if (!isNonEmptyString(promptRaw, 3)) {
-    return badRequest("Field 'prompt' must be a non-empty string (>=3 chars).", origin);
+    return badRequest(
+      "Field 'prompt' must be a non-empty string (>=3 chars).",
+      origin,
+    );
   }
-  const prompt = sanitizePrompt(promptRaw);
+  let prompt: string;
+  try {
+    prompt = sanitizePrompt(requireSafeRulePrompt(promptRaw).sanitizedPrompt);
+  } catch {
+    return badRequest(
+      "La demande contient des instructions techniques non autorisées.",
+      origin,
+    );
+  }
 
   const guidedAnswers = validateGuidedAnswers(body.guidedAnswers);
   if (guidedAnswers === null) {
-    return badRequest("Field 'guidedAnswers' must be an array of {question, choice} strings.", origin);
+    return badRequest(
+      "Field 'guidedAnswers' must be an array of {question, choice} strings.",
+      origin,
+    );
   }
 
   // Construire un prompt enrichi (si des réponses guidées sont présentes)
@@ -274,17 +302,32 @@ serve(async (req) => {
     // Gestion 402/429/… explicite
     if (!response.ok) {
       if (response.status === 429) {
-        return json({ error: "rate_limited", message: "Rate limits exceeded, please try again later." }, 429, origin);
+        return json(
+          {
+            error: "rate_limited",
+            message: "Rate limits exceeded, please try again later.",
+          },
+          429,
+          origin,
+        );
       }
       if (response.status === 402) {
         return json(
-          { error: "payment_required", message: "Payment required, please add funds to your Lovable AI workspace." },
+          {
+            error: "payment_required",
+            message:
+              "Payment required, please add funds to your Lovable AI workspace.",
+          },
           402,
           origin,
         );
       }
       const errText = await response.text().catch(() => "");
-      console.error("[generate-chess-rule] Lovable error:", response.status, errText.slice(0, 500));
+      console.error(
+        "[generate-chess-rule] Lovable error:",
+        response.status,
+        errText.slice(0, 500),
+      );
       return json({ error: "AI_gateway_error" }, 502, origin);
     }
 
@@ -322,8 +365,15 @@ serve(async (req) => {
         );
       }
 
-      console.error("[generate-chess-rule] JSON not found in model content:", content.slice(0, 500));
-      return json({ ok: false, error: "json_not_found_in_response" }, 502, origin);
+      console.error(
+        "[generate-chess-rule] JSON not found in model content:",
+        content.slice(0, 500),
+      );
+      return json(
+        { ok: false, error: "json_not_found_in_response" },
+        502,
+        origin,
+      );
     }
 
     // Parse JSON proprement
@@ -331,7 +381,10 @@ serve(async (req) => {
     try {
       rule = JSON.parse(extracted);
     } catch (e) {
-      console.error("[generate-chess-rule] JSON parse failed. candidate:", extracted.slice(0, 500));
+      console.error(
+        "[generate-chess-rule] JSON parse failed. candidate:",
+        extracted.slice(0, 500),
+      );
       return json(
         {
           ok: false,
@@ -345,7 +398,12 @@ serve(async (req) => {
     }
 
     // Garde minimale: présence de meta
-    if (!rule || typeof rule !== "object" || Array.isArray(rule) || !("meta" in rule)) {
+    if (
+      !rule ||
+      typeof rule !== "object" ||
+      Array.isArray(rule) ||
+      !("meta" in rule)
+    ) {
       return json({ ok: false, error: "missing_rule_meta" }, 422, origin);
     }
 
@@ -373,7 +431,14 @@ serve(async (req) => {
     return json(payload, 200, origin);
   } catch (error) {
     console.error("[generate-chess-rule] runtime error:", error);
-    return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500, origin);
+    return json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      500,
+      origin,
+    );
   }
 });
 

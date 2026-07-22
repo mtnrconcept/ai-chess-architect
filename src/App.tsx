@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 import Index from "./pages/Index";
-import Generator from "./pages/Generator";
 import RuleArchitect from "./pages/RuleArchitect";
 import Lobby from "./pages/Lobby";
 import RuleLobby from "./pages/RuleLobby";
@@ -33,7 +32,7 @@ const router = createBrowserRouter(
       children: [
         { path: "/", element: <Index /> },
         { path: "/generator", element: <RuleArchitect /> },
-        { path: "/generator-legacy", element: <Generator /> },
+        { path: "/generator-legacy", element: <RuleArchitect /> },
         { path: "/lobby", element: <Lobby /> },
         { path: "/rule-lobby", element: <RuleLobby /> },
         { path: "/play-hub", element: <PlayHub /> },

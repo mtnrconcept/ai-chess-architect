@@ -55,16 +55,23 @@ gestion.
 OPENAI_API_KEY
 OPENAI_RULE_MODEL=gpt-5.6-terra
 OPENAI_PREMIUM_RULE_MODEL=gpt-5.6-sol
+OPENAI_RULE_GUIDANCE_MODEL=gpt-5.6-terra
+OPENAI_RULE_AUDIT_MODEL=gpt-5.6-terra
+RULE_GUIDANCE_SIGNING_SECRET=<secret-aléatoire-long>
 ALLOWED_ORIGINS=http://localhost:5173
 RULE_ARCHITECT_PREMIUM_USER_IDS=
 RULE_COMPILE_HOURLY_LIMIT=12
 RULE_COMPILE_STALE_SECONDS=180
-RULE_PROMPT_MAX_CHARS=4000
+RULE_PROMPT_MAX_CHARS=6000
 ```
 
 `RULE_COMPILE_STALE_SECONDS` accepte 180 à 900 secondes. Une réservation encore
 en traitement avant ce seuil reste rejouable avec la même clé ; au-delà, elle
 est close atomiquement et le client doit démarrer une nouvelle tentative.
+
+`RULE_GUIDANCE_SIGNING_SECRET` doit contenir au moins 32 caractères aléatoires.
+En transition, le serveur peut utiliser `SUPABASE_SERVICE_ROLE_KEY` comme clé de
+signature de secours, mais un secret dédié facilite la rotation indépendante.
 
 Les trois alias de production exacts du projet Vercel `ai-chess-architect`
 (canonique, équipe et branche `main`) sont intégrés au serveur. Aucun domaine
@@ -116,6 +123,7 @@ export SUPABASE_PROJECT_REF_CONFIRMATION="<staging-ref>"
 supabase/migrations/20260719230000_rule_architect_v2.sql
 supabase/migrations/20260720132216_chess_platform_foundation.sql
 supabase/migrations/20260720143000_chess_platform_terminal_cas.sql
+supabase/migrations/20260722120000_rule_version_coverage_gate.sql
 ```
 
 Enregistrer chaque fichier comme une migration distincte, vérifier son succès
@@ -123,9 +131,10 @@ avant le suivant, puis exécuter les deux suites SQL de cette livraison. Ne pas
 utiliser `pnpm db:push` ou `pnpm db:migrate` sur staging/production tant que
 l'historique distant et celui du dépôt n'ont pas été réconciliés.
 
-Déployer ensuite les quatre fonctions V2 et le validateur STANDARD via le
+Déployer ensuite les cinq fonctions Rule Architect et le validateur STANDARD via le
 workflow manuel GitHub, cible `staging`, seulement après les migrations :
 
+- `generate-rule-questions` ;
 - `compile-chess-rule` ;
 - `publish-rule-version` ;
 - `create-rule-lobby-v2` ;

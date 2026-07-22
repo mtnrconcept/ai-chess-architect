@@ -192,6 +192,7 @@ export type Condition = string | unknown[];
 export type LogicStep = {
   id: string;
   when: string;
+  priority?: number;
   if?: Condition | Condition[];
   do: ActionStep | ActionStep[];
   onFail?: "blockAction" | "skip";

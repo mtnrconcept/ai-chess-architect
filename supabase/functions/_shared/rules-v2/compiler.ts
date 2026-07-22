@@ -876,6 +876,7 @@ export function compileRuleBlueprint(input: unknown): CompilationResult {
     return {
       id: `${blueprint.ruleKey}.${trigger.id}`,
       when,
+      priority: trigger.priority,
       ...(conditions.length === 0
         ? {}
         : {

@@ -44,6 +44,39 @@ describe("Rule Architect API idempotency contract", () => {
     });
   });
 
+  it("forwards signed guidance and explicit user selections", async () => {
+    invoke.mockResolvedValue({
+      data: {
+        success: true,
+        data: { compilationId: "compilation" },
+      },
+      error: null,
+    });
+
+    const guidanceSelections = {
+      answers: { duration: ["two-turns"] },
+      acceptedAdjustmentIds: ["managed-animation"],
+    };
+
+    await compileChessRule({
+      prompt: "Une règle suffisamment détaillée et bornée.",
+      premium: false,
+      requestKey: "00000000-0000-4000-8000-000000000004",
+      guidanceToken: "signed.guidance",
+      guidanceSelections,
+    });
+
+    expect(invoke).toHaveBeenCalledWith("compile-chess-rule", {
+      body: {
+        prompt: "Une règle suffisamment détaillée et bornée.",
+        premium: false,
+        requestKey: "00000000-0000-4000-8000-000000000004",
+        guidanceToken: "signed.guidance",
+        guidanceSelections,
+      },
+    });
+  });
+
   it("forwards the stable request key and accepts a pending player seed", async () => {
     invoke.mockResolvedValue({
       data: {

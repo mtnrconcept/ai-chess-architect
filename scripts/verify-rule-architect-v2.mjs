@@ -3,11 +3,7 @@ import path from "node:path";
 import process from "node:process";
 
 const root = process.cwd();
-const sourceRoot = path.join(
-  root,
-  "src",
-  "rules-v2",
-);
+const sourceRoot = path.join(root, "src", "rules-v2");
 const edgeRoot = path.join(
   root,
   "supabase",
@@ -29,41 +25,19 @@ const names = [
 
 const normaliseEdgeImports = (value) =>
   value
-    .replace(
-      /from "(\.\/[^"]+)\.ts"/g,
-      'from "$1"',
-    )
-    .replace(
-      /export \* from "(\.\/[^"]+)\.ts"/g,
-      'export * from "$1"',
-    );
+    .replace(/from "(\.\/[^"]+)\.ts"/g, 'from "$1"')
+    .replace(/export \* from "(\.\/[^"]+)\.ts"/g, 'export * from "$1"');
 
 for (const name of names) {
-  const sourcePath = path.join(
-    sourceRoot,
-    name,
-  );
-  const edgePath = path.join(
-    edgeRoot,
-    name,
-  );
+  const sourcePath = path.join(sourceRoot, name);
+  const edgePath = path.join(edgeRoot, name);
 
-  if (
-    !fs.existsSync(sourcePath) ||
-    !fs.existsSync(edgePath)
-  ) {
-    throw new Error(
-      `Module Rule Architect manquant: ${name}`,
-    );
+  if (!fs.existsSync(sourcePath) || !fs.existsSync(edgePath)) {
+    throw new Error(`Module Rule Architect manquant: ${name}`);
   }
 
-  const source = fs.readFileSync(
-    sourcePath,
-    "utf8",
-  );
-  const edge = normaliseEdgeImports(
-    fs.readFileSync(edgePath, "utf8"),
-  );
+  const source = fs.readFileSync(sourcePath, "utf8");
+  const edge = normaliseEdgeImports(fs.readFileSync(edgePath, "utf8"));
 
   if (source !== edge) {
     throw new Error(
@@ -73,13 +47,7 @@ for (const name of names) {
 }
 
 const conditions = fs.readFileSync(
-  path.join(
-    root,
-    "src",
-    "engine",
-    "builtins",
-    "conditions.ts",
-  ),
+  path.join(root, "src", "engine", "builtins", "conditions.ts"),
   "utf8",
 );
 
@@ -90,29 +58,15 @@ if (conditions.includes("Math.random(")) {
 }
 
 const registry = fs.readFileSync(
-  path.join(
-    root,
-    "src",
-    "engine",
-    "registry.ts",
-  ),
+  path.join(root, "src", "engine", "registry.ts"),
   "utf8",
 );
 
-if (
-  /Condition inconnue[\s\S]{0,200}return true/.test(
-    registry,
-  )
-) {
-  throw new Error(
-    "Le registre semble encore accepter une condition inconnue.",
-  );
+if (/Condition inconnue[\s\S]{0,200}return true/.test(registry)) {
+  throw new Error("Le registre semble encore accepter une condition inconnue.");
 }
 
-console.log(
-  "Rule Architect V2 : invariants vérifiés.",
-);
-
+console.log("Rule Architect V2 : invariants vérifiés.");
 
 const requiredRuntimeFiles = [
   "src/engine/bootstrap.ts",
@@ -127,13 +81,12 @@ const requiredRuntimeFiles = [
   "supabase/functions/create-rule-lobby-v2/index.ts",
   "supabase/functions/join-rule-lobby-v2/index.ts",
   "supabase/migrations/20260719230000_rule_architect_v2.sql",
+  "supabase/migrations/20260722120000_rule_version_coverage_gate.sql",
 ];
 
 for (const relative of requiredRuntimeFiles) {
   if (!fs.existsSync(path.join(root, relative))) {
-    throw new Error(
-      `Fichier Rule Architect V2 manquant: ${relative}`,
-    );
+    throw new Error(`Fichier Rule Architect V2 manquant: ${relative}`);
   }
 }
 
@@ -156,12 +109,8 @@ for (const invariant of [
   "DEDUPLICATED_PUBLICATION",
 ]) {
   if (!migration.includes(invariant)) {
-    throw new Error(
-      `Invariant SQL manquant: ${invariant}`,
-    );
+    throw new Error(`Invariant SQL manquant: ${invariant}`);
   }
 }
 
-console.log(
-  "Runtime, fonctions Edge et migration V2 : présents.",
-);
+console.log("Runtime, fonctions Edge et migration V2 : présents.");

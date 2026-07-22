@@ -1,12 +1,26 @@
 import { authenticateRequest } from "../_shared/auth-v2.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
+import {
+  PromptSecurityError,
+  requireSafeRulePrompt,
+} from "../_shared/prompt-security.ts";
+import { verifyGuidanceToken } from "../_shared/guidance-token.ts";
 import { buildRuleArchitectSystemPrompt } from "../_shared/rule-architect-prompt.ts";
 import { normalizeRuleBlueprintCandidate } from "../_shared/rule-blueprint-normalizer.ts";
+import {
+  buildRuleCoverageAuditPrompt,
+  buildRuleCoverageAuditSystemPrompt,
+  buildSignedGuidanceCompilation,
+  evaluateRuleCoverage,
+  RULE_COVERAGE_AUDIT_SCHEMA,
+  type RuleCoverageAssessment,
+} from "../_shared/rule-coverage.ts";
 import {
   compileRuleBlueprint,
   RULE_BLUEPRINT_JSON_SCHEMA,
   sha256Hex,
+  type RuleDiagnostic,
 } from "../_shared/rules-v2/index.ts";
 import {
   classifyCompilationReplay,
@@ -131,6 +145,7 @@ const replayCompilation = (
         typeof metrics.generationDurationMs === "number"
           ? metrics.generationDurationMs
           : null,
+      coverage: metrics.coverage ?? null,
       replayed: true,
       newRequestRequired: false,
     },
@@ -159,33 +174,14 @@ Deno.serve(async (request) => {
       await authenticateRequest(request);
 
     const body = (await request.json().catch(() => null)) as {
-      prompt?: unknown;
       premium?: unknown;
       requestKey?: unknown;
+      guidanceToken?: unknown;
+      guidanceSelections?: unknown;
     } | null;
 
-    const maxPromptChars = readIntegerEnv(
-      "RULE_PROMPT_MAX_CHARS",
-      4000,
-      500,
-      12000,
-    );
-    const prompt =
-      typeof body?.prompt === "string"
-        ? body.prompt.split(String.fromCharCode(0)).join("").trim()
-        : "";
     const requestKey =
       typeof body?.requestKey === "string" ? body.requestKey : "";
-
-    if (prompt.length < 20 || prompt.length > maxPromptChars) {
-      return jsonResponse(request, 400, {
-        success: false,
-        error:
-          "Le prompt doit contenir entre 20 et " +
-          maxPromptChars +
-          " caractères.",
-      });
-    }
 
     if (!UUID_PATTERN.test(requestKey)) {
       return jsonResponse(request, 400, {
@@ -193,6 +189,28 @@ Deno.serve(async (request) => {
         error: "Une clé de requête UUID valide est requise.",
       });
     }
+
+    if (typeof body?.guidanceToken !== "string") {
+      throw new Error("GUIDANCE_TOKEN_REQUIRED");
+    }
+    const signedGuidance = await verifyGuidanceToken({
+      token: body.guidanceToken,
+      userId: user.id,
+    });
+    const signedCompilation = buildSignedGuidanceCompilation({
+      originalPrompt: signedGuidance.originalPrompt,
+      guidance: signedGuidance.guidance,
+      selections: body?.guidanceSelections,
+    });
+    const promptSecurity = requireSafeRulePrompt(
+      signedCompilation.compilerPrompt,
+    );
+    const safePrompt = promptSecurity.sanitizedPrompt;
+    const intentContract = signedCompilation.contract;
+    const originalPromptSecurity = requireSafeRulePrompt(
+      intentContract.originalPrompt,
+    );
+    intentContract.originalPrompt = originalPromptSecurity.sanitizedPrompt;
 
     const premiumRequested = body?.premium === true;
     const appMetadata = user.app_metadata as Record<string, unknown>;
@@ -212,7 +230,11 @@ Deno.serve(async (request) => {
     const model = premium
       ? Deno.env.get("OPENAI_PREMIUM_RULE_MODEL")?.trim() || "gpt-5.6-sol"
       : Deno.env.get("OPENAI_RULE_MODEL")?.trim() || "gpt-5.6-terra";
-    const promptHash = await sha256Hex(prompt);
+    const promptHash = await sha256Hex({
+      prompt: safePrompt,
+      intentContract,
+      selections: signedCompilation.selections,
+    });
     const expiresAt = new Date(
       Date.now() + 7 * 24 * 60 * 60 * 1000,
     ).toISOString();
@@ -228,7 +250,7 @@ Deno.serve(async (request) => {
       .from("rule_compilations")
       .insert({
         user_id: user.id,
-        prompt,
+        prompt: safePrompt,
         prompt_hash: promptHash,
         model,
         status: "processing",
@@ -393,38 +415,93 @@ Deno.serve(async (request) => {
       apiKey,
       model,
       systemPrompt: buildRuleArchitectSystemPrompt(),
-      userPrompt: prompt,
+      userPrompt: safePrompt,
       schemaName: "rule_blueprint_v2",
       schema: RULE_BLUEPRINT_JSON_SCHEMA as unknown as Record<string, unknown>,
       reasoningEffort: premium ? "high" : "medium",
     });
 
-    const normalized = normalizeRuleBlueprintCandidate(openAI.value, prompt);
+    const normalized = normalizeRuleBlueprintCandidate(
+      openAI.value,
+      safePrompt,
+    );
     const result = compileRuleBlueprint(normalized.value);
+    let coverage: RuleCoverageAssessment | null = null;
+    let coverageDiagnostics: RuleDiagnostic[] = [];
+    let coverageUsage: unknown = null;
+    let coverageResponseId: string | null = null;
+    let coverageRequestId: string | null = null;
+
+    if (result.ok && result.blueprint) {
+      const auditModel =
+        Deno.env.get("OPENAI_RULE_AUDIT_MODEL")?.trim() || model;
+      const audit = await createStructuredResponse({
+        apiKey,
+        model: auditModel,
+        systemPrompt: buildRuleCoverageAuditSystemPrompt(),
+        userPrompt: buildRuleCoverageAuditPrompt({
+          contract: intentContract,
+          blueprint: result.blueprint,
+        }),
+        schemaName: "rule_coverage_audit_v1",
+        schema: RULE_COVERAGE_AUDIT_SCHEMA as unknown as Record<
+          string,
+          unknown
+        >,
+        reasoningEffort: premium ? "medium" : "low",
+        timeoutMs: 30_000,
+      });
+      const evaluated = evaluateRuleCoverage({
+        contract: intentContract,
+        blueprint: result.blueprint,
+        audit: audit.value,
+      });
+      coverage = evaluated.assessment;
+      coverageDiagnostics = evaluated.diagnostics;
+      coverageUsage = audit.usage;
+      coverageResponseId = audit.responseId;
+      coverageRequestId = audit.requestId;
+    }
+
+    const diagnostics = [...result.diagnostics, ...coverageDiagnostics];
+    const finalOk = result.ok && coverage?.complete === true;
     const contentHash =
-      result.ok && result.compiledRule
+      finalOk && result.compiledRule
         ? await sha256Hex({
             blueprint: result.blueprint,
             compiledRule: result.compiledRule,
           })
         : null;
     const generationDurationMs = Math.round(performance.now() - startedAt);
+    const intentContractProof = {
+      ...intentContract,
+      originalPrompt: "[redacted]",
+      originalPromptHash: await sha256Hex({
+        originalPrompt: intentContract.originalPrompt,
+      }),
+    };
     const metrics = {
       ...result.metrics,
       ...initialMetrics,
       generationDurationMs,
       usage: openAI.usage,
       openAIResponseId: openAI.responseId,
+      coverage,
+      intentContract: intentContractProof,
+      coverageContractVersion: 1,
+      coverageUsage,
+      coverageResponseId,
+      coverageRequestId,
       normalizedFields: normalized.normalizedFields,
     };
 
     const { data: updated, error: updateError } = await serviceClient
       .from("rule_compilations")
       .update({
-        status: result.ok ? "validated" : "rejected",
+        status: finalOk ? "validated" : "rejected",
         blueprint: result.blueprint ?? normalized.value,
         compiled_rule: result.compiledRule,
-        diagnostics: result.diagnostics,
+        diagnostics,
         metrics,
         content_hash: contentHash,
         request_id: openAI.requestId,
@@ -444,11 +521,12 @@ Deno.serve(async (request) => {
       success: true,
       data: {
         compilationId,
-        ok: result.ok,
+        ok: finalOk,
         blueprint: result.blueprint,
         compiledRule: result.compiledRule,
-        diagnostics: result.diagnostics,
+        diagnostics,
         metrics: result.metrics,
+        coverage,
         contentHash,
         model,
         premiumRequested,
@@ -465,22 +543,36 @@ Deno.serve(async (request) => {
       await markCompilationFailed("GENERATION_FAILED");
     }
 
-    const status =
-      message === "AUTH_REQUIRED" || message === "AUTH_INVALID" ? 401 : 500;
+    const authFailure =
+      message === "AUTH_REQUIRED" || message === "AUTH_INVALID";
+    const guidanceConfigurationFailure =
+      message === "GUIDANCE_SIGNING_SECRET_MISSING" ||
+      message === "GUIDANCE_SIGNING_SECRET_INVALID";
+    const invalidInput =
+      error instanceof PromptSecurityError ||
+      (!guidanceConfigurationFailure && message.startsWith("GUIDANCE_")) ||
+      message.startsWith("SIGNED_GUIDANCE_");
+    const status = authFailure ? 401 : invalidInput ? 400 : 500;
+    const code = authFailure
+      ? "AUTHENTICATION_FAILED"
+      : invalidInput
+        ? "RULE_INPUT_REJECTED"
+        : "COMPILATION_FAILED";
 
     console.error("[compile-chess-rule]", {
-      code: status === 401 ? "AUTHENTICATION_FAILED" : "COMPILATION_FAILED",
+      code,
     });
 
     return jsonResponse(request, status, {
       success: false,
-      code: status === 401 ? "AUTHENTICATION_FAILED" : "COMPILATION_FAILED",
-      error:
-        status === 401
-          ? "Authentification requise."
+      code,
+      error: authFailure
+        ? "Authentification requise."
+        : invalidInput
+          ? "La demande de règle ou son contrat contient des données invalides."
           : "La génération de la règle a échoué.",
       retryable: false,
-      newRequestRequired: status !== 401,
+      newRequestRequired: !authFailure,
     });
   }
 });

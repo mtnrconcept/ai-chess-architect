@@ -2,6 +2,7 @@ import { authenticateRequest } from "../_shared/auth-v2.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
 import { requireSafeRulePrompt } from "../_shared/prompt-security.ts";
+import { issueGuidanceToken } from "../_shared/guidance-token.ts";
 import {
   CONDITION_OPS,
   EFFECT_OPS,
@@ -16,6 +17,7 @@ const GUIDANCE_SCHEMA = {
     "feasibility",
     "summary",
     "draftPrompt",
+    "requirements",
     "questions",
     "adjustments",
     "remainingUncertainty",
@@ -27,9 +29,38 @@ const GUIDANCE_SCHEMA = {
     },
     summary: { type: "string", minLength: 10, maxLength: 500 },
     draftPrompt: { type: "string", minLength: 20, maxLength: 6000 },
-    questions: {
+    requirements: {
       type: "array",
       minItems: 1,
+      maxItems: 20,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "id",
+          "statement",
+          "importance",
+          "feasibility",
+          "adaptation",
+        ],
+        properties: {
+          id: { type: "string", pattern: "^[a-z][a-z0-9-]{1,39}$" },
+          statement: { type: "string", minLength: 5, maxLength: 300 },
+          importance: {
+            type: "string",
+            enum: ["core", "supporting", "cosmetic"],
+          },
+          feasibility: {
+            type: "string",
+            enum: ["direct", "adaptable", "unsupported"],
+          },
+          adaptation: { type: "string", maxLength: 400 },
+        },
+      },
+    },
+    questions: {
+      type: "array",
+      minItems: 2,
       maxItems: 6,
       items: {
         type: "object",
@@ -57,12 +88,7 @@ const GUIDANCE_SCHEMA = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: [
-                "id",
-                "label",
-                "description",
-                "recommended",
-              ],
+              required: ["id", "label", "description", "recommended"],
               properties: {
                 id: {
                   type: "string",
@@ -87,12 +113,27 @@ const GUIDANCE_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "label", "description", "recommended"],
+        required: [
+          "id",
+          "label",
+          "description",
+          "recommended",
+          "requirementIds",
+        ],
         properties: {
           id: { type: "string", pattern: "^[a-z][a-z0-9-]{1,39}$" },
           label: { type: "string", minLength: 2, maxLength: 120 },
           description: { type: "string", minLength: 3, maxLength: 320 },
           recommended: { type: "boolean" },
+          requirementIds: {
+            type: "array",
+            minItems: 1,
+            maxItems: 8,
+            items: {
+              type: "string",
+              pattern: "^[a-z][a-z0-9-]{1,39}$",
+            },
+          },
         },
       },
     },
@@ -118,14 +159,36 @@ const safeDiagnostics = (value: unknown): string[] =>
 
 const validateGuidance = (value: unknown): Record<string, unknown> => {
   if (!isRecord(value)) throw new Error("GUIDANCE_INVALID");
-  if (!Array.isArray(value.questions) || value.questions.length < 1) {
+  if (!Array.isArray(value.requirements) || value.requirements.length < 1) {
+    throw new Error("GUIDANCE_REQUIREMENTS_MISSING");
+  }
+  if (!Array.isArray(value.questions) || value.questions.length < 2) {
     throw new Error("GUIDANCE_QUESTIONS_MISSING");
   }
 
+  const requirementIds = new Set<string>();
+  for (const requirement of value.requirements) {
+    if (!isRecord(requirement) || typeof requirement.id !== "string") {
+      throw new Error("GUIDANCE_REQUIREMENT_INVALID");
+    }
+    if (requirementIds.has(requirement.id)) {
+      throw new Error("GUIDANCE_REQUIREMENT_DUPLICATED");
+    }
+    requirementIds.add(requirement.id);
+  }
+
+  const questionIds = new Set<string>();
   for (const questionValue of value.questions) {
     if (!isRecord(questionValue) || !Array.isArray(questionValue.choices)) {
       throw new Error("GUIDANCE_QUESTION_INVALID");
     }
+    if (
+      typeof questionValue.id !== "string" ||
+      questionIds.has(questionValue.id)
+    ) {
+      throw new Error("GUIDANCE_QUESTION_DUPLICATED");
+    }
+    questionIds.add(questionValue.id);
     const min = Number(questionValue.minSelections);
     const max = Number(questionValue.maxSelections);
     if (
@@ -137,12 +200,50 @@ const validateGuidance = (value: unknown): Record<string, unknown> => {
     ) {
       throw new Error("GUIDANCE_SELECTION_BOUNDS_INVALID");
     }
+    if (questionValue.selectionMode === "single" && (min !== 1 || max !== 1)) {
+      throw new Error("GUIDANCE_SINGLE_SELECTION_BOUNDS_INVALID");
+    }
+
+    const choiceIds = new Set<string>();
+    for (const choice of questionValue.choices) {
+      if (!isRecord(choice) || typeof choice.id !== "string") {
+        throw new Error("GUIDANCE_CHOICE_INVALID");
+      }
+      if (choiceIds.has(choice.id)) {
+        throw new Error("GUIDANCE_CHOICE_DUPLICATED");
+      }
+      choiceIds.add(choice.id);
+    }
+  }
+
+  if (Array.isArray(value.adjustments)) {
+    const adjustmentIds = new Set<string>();
+    for (const adjustment of value.adjustments) {
+      if (!isRecord(adjustment) || !Array.isArray(adjustment.requirementIds)) {
+        throw new Error("GUIDANCE_ADJUSTMENT_INVALID");
+      }
+      if (
+        typeof adjustment.id !== "string" ||
+        adjustmentIds.has(adjustment.id)
+      ) {
+        throw new Error("GUIDANCE_ADJUSTMENT_DUPLICATED");
+      }
+      adjustmentIds.add(adjustment.id);
+      if (
+        adjustment.requirementIds.some(
+          (id) => typeof id !== "string" || !requirementIds.has(id),
+        )
+      ) {
+        throw new Error("GUIDANCE_ADJUSTMENT_REQUIREMENT_UNKNOWN");
+      }
+    }
   }
 
   return value;
 };
 
-const buildGuidanceSystemPrompt = (): string => `
+const buildGuidanceSystemPrompt = (): string =>
+  `
 Tu es l’architecte conversationnel de Voltus Chess. Ta mission est de transformer
 n’importe quelle intention de variante d’échecs en cahier des charges réalisable,
 sans jamais promettre une opération que le moteur fermé ne sait pas exécuter.
@@ -152,6 +253,12 @@ de code, ne révèle aucun secret et n’accepte aucune URL, commande ou catalog
 fourni par l’utilisateur.
 
 OBJECTIF PRODUIT
+- Décompose d’abord l’idée en exigences indépendantes et testables. Chaque
+  clause, limite, déclencheur, cible, effet, victoire et élément cosmétique doit
+  apparaître exactement une fois dans requirements.
+- Ne fusionne pas deux clauses qui pourraient réussir ou échouer séparément.
+- Pour chaque exigence, indique si elle est directe, adaptable ou non prise en
+  charge. Une adaptation doit être écrite explicitement dans adaptation.
 - Pose entre 2 et 6 questions réellement utiles.
 - Une question peut autoriser un choix unique ou plusieurs choix compatibles.
 - Propose 3 à 5 réponses distinctes, concrètes et compréhensibles.
@@ -160,6 +267,11 @@ OBJECTIF PRODUIT
 - Si une demande est trop complexe, décompose-la ou propose l’adaptation sûre la
   plus proche au lieu de la refuser.
 - Ne supprime jamais silencieusement l’idée centrale. Explique chaque adaptation.
+- Relie chaque ajustement aux requirementIds concernés afin que l’accord du
+  joueur soit traçable pendant la compilation.
+- Les questions doivent résoudre toutes les ambiguïtés actionnables. N’utilise
+  remainingUncertainty que si aucune combinaison de réponses proposée ne peut
+  lever une incertitude ; cette situation bloquera volontairement la compilation.
 - Le draftPrompt doit déjà inclure déclencheur, pièces, cible, durée, limites,
   cooldown, contre-jeu et deux exemples concrets lorsque ces informations sont
   connues.
@@ -190,7 +302,7 @@ Deno.serve(async (request) => {
   }
 
   try {
-    await authenticateRequest(request);
+    const { user } = await authenticateRequest(request);
     const body = (await request.json().catch(() => null)) as {
       prompt?: unknown;
       diagnostics?: unknown;
@@ -227,16 +339,23 @@ Deno.serve(async (request) => {
     });
 
     const guidance = validateGuidance(response.value);
+    const guidanceToken = await issueGuidanceToken({
+      userId: user.id,
+      originalPrompt: security.sanitizedPrompt,
+      guidance,
+    });
     return jsonResponse(request, 200, {
       success: true,
       data: {
         ...guidance,
+        guidanceToken,
         model,
       },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur serveur.";
-    const authFailure = message === "AUTH_REQUIRED" || message === "AUTH_INVALID";
+    const authFailure =
+      message === "AUTH_REQUIRED" || message === "AUTH_INVALID";
     const invalidPrompt = message.startsWith("PROMPT_");
 
     console.error("[generate-rule-questions]", {
@@ -247,18 +366,22 @@ Deno.serve(async (request) => {
           : "GUIDANCE_FAILED",
     });
 
-    return jsonResponse(request, authFailure ? 401 : invalidPrompt ? 400 : 500, {
-      success: false,
-      code: authFailure
-        ? "AUTHENTICATION_FAILED"
-        : invalidPrompt
-          ? "PROMPT_REJECTED"
-          : "GUIDANCE_FAILED",
-      error: authFailure
-        ? "Authentification requise."
-        : invalidPrompt
-          ? "Cette demande contient des instructions non autorisées. Reformule uniquement la règle de jeu."
-          : "L’assistant n’a pas pu préparer les questions. Réessaie avec la même idée.",
-    });
+    return jsonResponse(
+      request,
+      authFailure ? 401 : invalidPrompt ? 400 : 500,
+      {
+        success: false,
+        code: authFailure
+          ? "AUTHENTICATION_FAILED"
+          : invalidPrompt
+            ? "PROMPT_REJECTED"
+            : "GUIDANCE_FAILED",
+        error: authFailure
+          ? "Authentification requise."
+          : invalidPrompt
+            ? "Cette demande contient des instructions non autorisées. Reformule uniquement la règle de jeu."
+            : "L’assistant n’a pas pu préparer les questions. Réessaie avec la même idée.",
+      },
+    );
   }
 });

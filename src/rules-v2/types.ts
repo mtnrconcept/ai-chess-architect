@@ -251,6 +251,7 @@ export interface LegacyRuleJSON {
     effects: Array<{
       id: string;
       when: string;
+      priority: number;
       if?: unknown;
       do: Array<{
         action: EffectOp;
@@ -279,6 +280,29 @@ export interface CompilationResult {
   metrics: CompilationMetrics;
 }
 
+export type RuleRequirementCoverageStatus =
+  | "implemented"
+  | "adapted"
+  | "clarification_required"
+  | "unsupported";
+
+export interface RuleRequirementCoverage {
+  id: string;
+  status: RuleRequirementCoverageStatus;
+  evidencePaths: string[];
+  explanation: string;
+  adaptation: string;
+  userApproved: boolean;
+}
+
+export interface RuleCoverageAssessment {
+  complete: boolean;
+  exactIntentPreserved: boolean;
+  score: number;
+  summary: string;
+  requirements: RuleRequirementCoverage[];
+}
+
 export interface CompileRuleResponse extends CompilationResult {
   compilationId: string;
   contentHash: string | null;
@@ -287,6 +311,7 @@ export interface CompileRuleResponse extends CompilationResult {
   premiumGranted: boolean;
   requestId: string | null;
   generationDurationMs: number;
+  coverage: RuleCoverageAssessment | null;
 }
 
 export interface PublishedRuleVersion {

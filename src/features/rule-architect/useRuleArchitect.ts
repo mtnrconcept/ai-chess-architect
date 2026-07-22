@@ -7,6 +7,7 @@ import {
   type CreatedRuleLobbyResponse,
 } from "./api";
 import { createRequestKey } from "./request-key";
+import type { RuleGuidanceSelections } from "./guidance-api";
 import type { CompileRuleResponse, PublishedRuleVersion } from "@/rules-v2";
 
 export type RuleArchitectPhase =
@@ -51,82 +52,97 @@ export function useRuleArchitect() {
     requestKey: string;
   } | null>(null);
 
-  const compile = useCallback((prompt: string, premium: boolean) => {
-    if (compileInFlight.current) {
-      return compileInFlight.current;
-    }
-
-    const fingerprint = JSON.stringify([prompt, premium]);
-    if (compileAttempt.current?.fingerprint !== fingerprint) {
-      compileAttempt.current = {
-        fingerprint,
-        requestKey: createRequestKey(),
-      };
-    }
-    const requestKey = compileAttempt.current.requestKey;
-
-    setPhase("compiling");
-    setError(null);
-    setCompileFailure(null);
-    setCompilation(null);
-    setPublication(null);
-    setLobby(null);
-
-    const operation = (async () => {
-      try {
-        const result = await compileChessRule({
-          prompt,
-          premium,
-          requestKey,
-        });
-        setCompilation(result);
-        setPhase("review");
-        return result;
-      } catch (caught) {
-        const failure: RuleArchitectCompileFailure =
-          caught instanceof RuleArchitectApiError
-            ? {
-                message: caught.message,
-                code: caught.code,
-                retryable: caught.retryable,
-                newRequestRequired: caught.newRequestRequired,
-              }
-            : {
-                message:
-                  caught instanceof Error
-                    ? caught.message
-                    : "Erreur de compilation.",
-                code: null,
-                retryable: null,
-                newRequestRequired: false,
-              };
-
-        if (failure.newRequestRequired) {
-          compileAttempt.current = null;
-        }
-        setCompileFailure(failure);
-        setError(failure.message);
-        setPhase("error");
-        throw caught;
+  const compile = useCallback(
+    (
+      prompt: string,
+      premium: boolean,
+      guidanceToken?: string,
+      guidanceSelections?: RuleGuidanceSelections,
+    ) => {
+      if (compileInFlight.current) {
+        return compileInFlight.current;
       }
-    })();
 
-    compileInFlight.current = operation;
-    void operation.then(
-      () => {
-        if (compileInFlight.current === operation) {
-          compileInFlight.current = null;
-        }
-      },
-      () => {
-        if (compileInFlight.current === operation) {
-          compileInFlight.current = null;
-        }
-      },
-    );
+      const fingerprint = JSON.stringify([
+        prompt,
+        premium,
+        guidanceToken ?? null,
+        guidanceSelections ?? null,
+      ]);
+      if (compileAttempt.current?.fingerprint !== fingerprint) {
+        compileAttempt.current = {
+          fingerprint,
+          requestKey: createRequestKey(),
+        };
+      }
+      const requestKey = compileAttempt.current.requestKey;
 
-    return operation;
-  }, []);
+      setPhase("compiling");
+      setError(null);
+      setCompileFailure(null);
+      setCompilation(null);
+      setPublication(null);
+      setLobby(null);
+
+      const operation = (async () => {
+        try {
+          const result = await compileChessRule({
+            prompt,
+            premium,
+            requestKey,
+            ...(guidanceToken ? { guidanceToken } : {}),
+            ...(guidanceSelections ? { guidanceSelections } : {}),
+          });
+          setCompilation(result);
+          setPhase("review");
+          return result;
+        } catch (caught) {
+          const failure: RuleArchitectCompileFailure =
+            caught instanceof RuleArchitectApiError
+              ? {
+                  message: caught.message,
+                  code: caught.code,
+                  retryable: caught.retryable,
+                  newRequestRequired: caught.newRequestRequired,
+                }
+              : {
+                  message:
+                    caught instanceof Error
+                      ? caught.message
+                      : "Erreur de compilation.",
+                  code: null,
+                  retryable: null,
+                  newRequestRequired: false,
+                };
+
+          if (failure.newRequestRequired) {
+            compileAttempt.current = null;
+          }
+          setCompileFailure(failure);
+          setError(failure.message);
+          setPhase("error");
+          throw caught;
+        }
+      })();
+
+      compileInFlight.current = operation;
+      void operation.then(
+        () => {
+          if (compileInFlight.current === operation) {
+            compileInFlight.current = null;
+          }
+        },
+        () => {
+          if (compileInFlight.current === operation) {
+            compileInFlight.current = null;
+          }
+        },
+      );
+
+      return operation;
+    },
+    [],
+  );
 
   const publish = useCallback(
     (visibility: "private" | "unlisted" | "public") => {

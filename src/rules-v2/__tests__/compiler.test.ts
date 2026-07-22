@@ -324,4 +324,21 @@ describe("compileRuleBlueprint", () => {
       ),
     ).toBe(true);
   });
+
+  it("préserve la priorité individuelle de chaque trigger", () => {
+    const blueprint = structuredClone(validBlueprint);
+    blueprint.triggers.push({
+      ...structuredClone(blueprint.triggers[0]),
+      id: "secondary-trigger",
+      priority: 3,
+    });
+    blueprint.triggers[0].priority = 17;
+
+    const result = compileRuleBlueprint(blueprint);
+
+    expect(result.ok).toBe(true);
+    expect(
+      result.compiledRule?.logic.effects.map((step) => step.priority),
+    ).toEqual([17, 3]);
+  });
 });

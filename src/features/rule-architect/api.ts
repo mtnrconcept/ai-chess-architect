@@ -5,6 +5,7 @@ import type {
   CreatedRuleLobby,
   PublishedRuleVersion,
 } from "@/rules-v2";
+import type { RuleGuidanceSelections } from "./guidance-api";
 
 export type CreatedRuleLobbyResponse = Omit<CreatedRuleLobby, "matchSeed"> & {
   matchSeed: number | null;
@@ -133,6 +134,8 @@ export async function compileChessRule(input: {
   prompt: string;
   premium: boolean;
   requestKey: string;
+  guidanceToken?: string;
+  guidanceSelections?: RuleGuidanceSelections;
 }): Promise<CompileRuleResponse> {
   const supabase = requireSupabaseClient();
   const { data, error } = await supabase.functions.invoke(
