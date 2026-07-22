@@ -17,6 +17,12 @@ import {
 import { buildRuleArchitectSystemPrompt } from "../_shared/rule-architect-prompt.ts";
 import { normalizeRuleBlueprintCandidate } from "../_shared/rule-blueprint-normalizer.ts";
 import {
+  buildRuleBlueprintRepairPrompt,
+  resolveRuleBlueprintInitialTimeout,
+  resolveRuleBlueprintRepairTimeout,
+  resolveRuleCoverageAuditTimeout,
+} from "../_shared/rule-blueprint-repair.ts";
+import {
   buildRuleCoverageAuditPrompt,
   buildRuleCoverageAuditSystemPrompt,
   buildSignedGuidanceCompilation,
@@ -183,6 +189,7 @@ Deno.serve(async (request) => {
   }
 
   const startedAt = performance.now();
+  const safeFailureMetrics: Record<string, unknown> = {};
   let markCompilationFailed: ((failureCode: string) => Promise<void>) | null =
     null;
 
@@ -479,6 +486,8 @@ Deno.serve(async (request) => {
           ],
           metrics: {
             ...initialMetrics,
+            ...safeFailureMetrics,
+            generationDurationMs: Math.round(performance.now() - startedAt),
             failureCode,
           },
           updated_at: new Date().toISOString(),
@@ -525,7 +534,15 @@ Deno.serve(async (request) => {
       throw new Error("OPENAI_API_KEY n'est pas configurée.");
     }
 
-    const openAI = await createStructuredResponse({
+    const initialTimeoutMs = resolveRuleBlueprintInitialTimeout(
+      performance.now() - startedAt,
+    );
+    if (initialTimeoutMs === null) {
+      throw new Error("RULE_COMPILE_BUDGET_EXHAUSTED");
+    }
+    safeFailureMetrics.aiBudget = { initialTimeoutMs };
+
+    let openAI = await createStructuredResponse({
       apiKey,
       model,
       systemPrompt: buildRuleArchitectSystemPrompt(),
@@ -534,13 +551,91 @@ Deno.serve(async (request) => {
       schema: RULE_BLUEPRINT_JSON_SCHEMA as unknown as Record<string, unknown>,
       reasoningEffort: premium ? "high" : "medium",
       ruleArchitectPromptSource: "signed-guidance",
+      timeoutMs: initialTimeoutMs,
+      signal: request.signal,
     });
 
-    const normalized = normalizeRuleBlueprintCandidate(
-      openAI.value,
-      safePrompt,
-    );
-    const result = compileRuleBlueprint(normalized.value);
+    let normalized = normalizeRuleBlueprintCandidate(openAI.value, safePrompt);
+    let result = compileRuleBlueprint(normalized.value);
+    const initialCompilationUsage = openAI.usage;
+    const repairPrompt = result.ok
+      ? null
+      : buildRuleBlueprintRepairPrompt(safePrompt, result.diagnostics);
+    let repairDiagnosticCodes: string[] = [];
+    let repairUsage: unknown = null;
+    let repairAttempted = false;
+    let repairTimeoutMs: number | null = null;
+
+    safeFailureMetrics.compilationRepair = {
+      attempted: false,
+      skippedForBudget: false,
+      initialDiagnosticCodes: repairPrompt?.diagnosticCodes ?? [],
+      initialUsage: initialCompilationUsage,
+    };
+
+    if (repairPrompt) {
+      repairDiagnosticCodes = repairPrompt.diagnosticCodes;
+      repairTimeoutMs = resolveRuleBlueprintRepairTimeout(
+        performance.now() - startedAt,
+      );
+      if (repairTimeoutMs !== null) {
+        repairAttempted = true;
+        safeFailureMetrics.compilationRepair = {
+          attempted: true,
+          skippedForBudget: false,
+          timeoutMs: repairTimeoutMs,
+          initialDiagnosticCodes: repairDiagnosticCodes,
+          initialUsage: initialCompilationUsage,
+        };
+        const repaired = await createStructuredResponse({
+          apiKey,
+          model,
+          systemPrompt: buildRuleArchitectSystemPrompt(),
+          userPrompt: repairPrompt.prompt,
+          schemaName: "rule_blueprint_v2",
+          schema: RULE_BLUEPRINT_JSON_SCHEMA as unknown as Record<
+            string,
+            unknown
+          >,
+          reasoningEffort: "medium",
+          ruleArchitectPromptSource: "signed-guidance",
+          managedRuleAsset: openAI.managedAsset,
+          timeoutMs: repairTimeoutMs,
+          signal: request.signal,
+        });
+        repairUsage = repaired.usage;
+        openAI = repaired;
+        normalized = normalizeRuleBlueprintCandidate(
+          repaired.value,
+          safePrompt,
+        );
+        result = compileRuleBlueprint(normalized.value);
+        safeFailureMetrics.compilationRepair = {
+          attempted: true,
+          completed: true,
+          skippedForBudget: false,
+          timeoutMs: repairTimeoutMs,
+          initialDiagnosticCodes: repairDiagnosticCodes,
+          initialUsage: initialCompilationUsage,
+          repairUsage,
+          remainingDiagnosticCodes: result.ok
+            ? []
+            : Array.from(
+                new Set(
+                  result.diagnostics.map((diagnostic) => diagnostic.code),
+                ),
+              ).slice(0, 20),
+        };
+      } else {
+        safeFailureMetrics.compilationRepair = {
+          attempted: false,
+          skippedForBudget: true,
+          timeoutMs: null,
+          initialDiagnosticCodes: repairDiagnosticCodes,
+          initialUsage: initialCompilationUsage,
+        };
+      }
+    }
     let coverage: RuleCoverageAssessment | null = null;
     let coverageDiagnostics: RuleDiagnostic[] = [];
     let coverageUsage: unknown = null;
@@ -548,34 +643,60 @@ Deno.serve(async (request) => {
     let coverageRequestId: string | null = null;
 
     if (result.ok && result.blueprint) {
-      const auditModel =
-        Deno.env.get("OPENAI_RULE_AUDIT_MODEL")?.trim() || model;
-      const audit = await createStructuredResponse({
-        apiKey,
-        model: auditModel,
-        systemPrompt: buildRuleCoverageAuditSystemPrompt(),
-        userPrompt: buildRuleCoverageAuditPrompt({
+      const auditTimeoutMs = resolveRuleCoverageAuditTimeout(
+        performance.now() - startedAt,
+      );
+      if (auditTimeoutMs === null) {
+        coverageDiagnostics = [
+          {
+            code: "COVERAGE_BUDGET_EXHAUSTED",
+            severity: "error",
+            path: "$.coverage",
+            message:
+              "Le budget serveur restant ne permet pas un audit de couverture sûr.",
+          },
+        ];
+      } else {
+        safeFailureMetrics.coverageAudit = {
+          attempted: true,
+          timeoutMs: auditTimeoutMs,
+        };
+        const auditModel =
+          Deno.env.get("OPENAI_RULE_AUDIT_MODEL")?.trim() || model;
+        const audit = await createStructuredResponse({
+          apiKey,
+          model: auditModel,
+          systemPrompt: buildRuleCoverageAuditSystemPrompt(),
+          userPrompt: buildRuleCoverageAuditPrompt({
+            contract: intentContract,
+            blueprint: result.blueprint,
+          }),
+          schemaName: "rule_coverage_audit_v1",
+          schema: RULE_COVERAGE_AUDIT_SCHEMA as unknown as Record<
+            string,
+            unknown
+          >,
+          reasoningEffort: premium ? "medium" : "low",
+          timeoutMs: auditTimeoutMs,
+          signal: request.signal,
+        });
+        const evaluated = evaluateRuleCoverage({
           contract: intentContract,
           blueprint: result.blueprint,
-        }),
-        schemaName: "rule_coverage_audit_v1",
-        schema: RULE_COVERAGE_AUDIT_SCHEMA as unknown as Record<
-          string,
-          unknown
-        >,
-        reasoningEffort: premium ? "medium" : "low",
-        timeoutMs: 30_000,
-      });
-      const evaluated = evaluateRuleCoverage({
-        contract: intentContract,
-        blueprint: result.blueprint,
-        audit: audit.value,
-      });
-      coverage = evaluated.assessment;
-      coverageDiagnostics = evaluated.diagnostics;
-      coverageUsage = audit.usage;
-      coverageResponseId = audit.responseId;
-      coverageRequestId = audit.requestId;
+          audit: audit.value,
+        });
+        coverage = evaluated.assessment;
+        coverageDiagnostics = evaluated.diagnostics;
+        coverageUsage = audit.usage;
+        coverageResponseId = audit.responseId;
+        coverageRequestId = audit.requestId;
+        safeFailureMetrics.coverageAudit = {
+          attempted: true,
+          completed: true,
+          timeoutMs: auditTimeoutMs,
+          usage: audit.usage,
+        };
+      }
     }
 
     const diagnostics = [...result.diagnostics, ...coverageDiagnostics];
@@ -608,6 +729,20 @@ Deno.serve(async (request) => {
       coverageResponseId,
       coverageRequestId,
       normalizedFields: normalized.normalizedFields,
+      compilationRepair: {
+        initialTimeoutMs,
+        attempted: repairAttempted,
+        skippedForBudget: repairPrompt !== null && !repairAttempted,
+        timeoutMs: repairTimeoutMs,
+        initialDiagnosticCodes: repairDiagnosticCodes,
+        initialUsage: initialCompilationUsage,
+        repairUsage,
+        remainingDiagnosticCodes: result.ok
+          ? []
+          : Array.from(
+              new Set(result.diagnostics.map((diagnostic) => diagnostic.code)),
+            ).slice(0, 20),
+      },
     };
 
     const { data: updated, error: updateError } = await serviceClient

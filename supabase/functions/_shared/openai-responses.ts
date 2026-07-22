@@ -5,10 +5,41 @@ import {
   type RuleArchitectPromptSource,
 } from "./rule-architect-input.ts";
 
-interface OpenAIUsage {
+export interface OpenAIUsage {
   input_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
+}
+
+const MAX_RECORDED_OPENAI_TOKENS = 100_000_000;
+const PROVIDER_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/;
+
+export function normalizeProviderIdentifier(value: unknown): string | null {
+  return typeof value === "string" && PROVIDER_IDENTIFIER_PATTERN.test(value)
+    ? value
+    : null;
+}
+
+export function normalizeOpenAIUsage(value: unknown): OpenAIUsage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const result: OpenAIUsage = {};
+  for (const key of [
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+  ] as const) {
+    const count = source[key];
+    if (
+      typeof count === "number" &&
+      Number.isSafeInteger(count) &&
+      count >= 0 &&
+      count <= MAX_RECORDED_OPENAI_TOKENS
+    ) {
+      result[key] = count;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 interface OpenAIResponsePayload {
@@ -39,6 +70,7 @@ export interface StructuredResponseResult {
   requestId: string | null;
   responseId: string | null;
   usage: OpenAIUsage | null;
+  managedAsset: PreparedRuleArchitectInput["managedAsset"];
 }
 
 export function resolveStructuredResponseTimeout(timeoutMs?: number): number {
@@ -146,80 +178,93 @@ export async function createStructuredResponse(input: {
   schema: Record<string, unknown>;
   reasoningEffort: "low" | "medium" | "high";
   ruleArchitectPromptSource?: RuleArchitectPromptSource;
+  managedRuleAsset?: PreparedRuleArchitectInput["managedAsset"];
   timeoutMs?: number;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
 }): Promise<StructuredResponseResult> {
   const timeoutMs = resolveStructuredResponseTimeout(input.timeoutMs);
-  const preparedInput:
-    | PreparedRuleArchitectInput
-    | {
-        systemPrompt: string;
-        userPrompt: string;
-      } =
-    input.schemaName === "rule_blueprint_v2"
-      ? await prepareRuleArchitectInput(
-          input.systemPrompt,
-          input.userPrompt,
-          input.ruleArchitectPromptSource,
-        )
-      : {
-          systemPrompt: input.systemPrompt,
-          userPrompt: input.userPrompt,
-        };
-
-  const body = {
-    model: input.model,
-    input: [
-      {
-        role: "system",
-        content: [
-          {
-            type: "input_text",
-            text: preparedInput.systemPrompt,
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: preparedInput.userPrompt,
-          },
-        ],
-      },
-    ],
-    reasoning: {
-      effort: input.reasoningEffort,
-    },
-    text: {
-      format: {
-        type: "json_schema",
-        name: input.schemaName,
-        strict: true,
-        schema: toStructuredOutputsSchema(input.schema),
-      },
-    },
-    max_output_tokens: 12000,
-    store: false,
-  };
-
-  let lastError = "Erreur OpenAI inconnue.";
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const relayAbort = () => controller.abort(input.signal?.reason);
+  if (input.signal?.aborted) relayAbort();
+  else input.signal?.addEventListener("abort", relayAbort, { once: true });
+  let lastError = "Erreur OpenAI inconnue.";
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    const preparedInput:
+      | PreparedRuleArchitectInput
+      | {
+          systemPrompt: string;
+          userPrompt: string;
+        } =
+      input.schemaName === "rule_blueprint_v2"
+        ? await prepareRuleArchitectInput(
+            input.systemPrompt,
+            input.userPrompt,
+            input.ruleArchitectPromptSource,
+            input.managedRuleAsset,
+            controller.signal,
+            input.fetchImpl,
+          )
+        : {
+            systemPrompt: input.systemPrompt,
+            userPrompt: input.userPrompt,
+          };
 
-    const requestId = response.headers.get("x-request-id");
+    const body = {
+      model: input.model,
+      input: [
+        {
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text: preparedInput.systemPrompt,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: preparedInput.userPrompt,
+            },
+          ],
+        },
+      ],
+      reasoning: {
+        effort: input.reasoningEffort,
+      },
+      text: {
+        format: {
+          type: "json_schema",
+          name: input.schemaName,
+          strict: true,
+          schema: toStructuredOutputsSchema(input.schema),
+        },
+      },
+      max_output_tokens: 12000,
+      store: false,
+    };
+
+    const response = await (input.fetchImpl ?? fetch)(
+      "https://api.openai.com/v1/responses",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      },
+    );
+
+    const requestId = normalizeProviderIdentifier(
+      response.headers.get("x-request-id"),
+    );
     const payload = await parsePayload(response);
 
     if (response.ok) {
@@ -267,8 +312,10 @@ export async function createStructuredResponse(input: {
       return {
         value,
         requestId,
-        responseId: payload.id ?? null,
-        usage: payload.usage ?? null,
+        responseId: normalizeProviderIdentifier(payload.id),
+        usage: normalizeOpenAIUsage(payload.usage),
+        managedAsset:
+          "managedAsset" in preparedInput ? preparedInput.managedAsset : null,
       };
     }
 
@@ -279,10 +326,11 @@ export async function createStructuredResponse(input: {
     throw new Error(lastError);
   } catch (error) {
     const aborted =
-      error instanceof DOMException && error.name === "AbortError";
+      controller.signal.aborted ||
+      (error instanceof DOMException && error.name === "AbortError");
 
     lastError = aborted
-      ? `OpenAI n'a pas répondu dans les ${Math.round(
+      ? `La génération structurée n'a pas abouti dans les ${Math.round(
           timeoutMs / 1000,
         )} secondes.`
       : error instanceof Error
@@ -292,5 +340,6 @@ export async function createStructuredResponse(input: {
     throw new Error(lastError);
   } finally {
     clearTimeout(timeout);
+    input.signal?.removeEventListener("abort", relayAbort);
   }
 }

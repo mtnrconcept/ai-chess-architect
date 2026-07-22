@@ -49,17 +49,27 @@ export async function prepareRuleArchitectInput(
   systemPrompt: string,
   rawUserPrompt: string,
   promptSource: RuleArchitectPromptSource = "user",
+  managedAssetOverride?: ManagedRuleAsset | null,
+  signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<PreparedRuleArchitectInput> {
   const security =
     promptSource === "signed-guidance"
       ? requireSafeSignedRuleCompilerPrompt(rawUserPrompt)
       : requireSafeRulePrompt(rawUserPrompt);
 
-  let managedAsset: ManagedRuleAsset | null = null;
-  try {
-    managedAsset = await resolveManagedRuleAsset(security.sanitizedPrompt);
-  } catch {
-    managedAsset = null;
+  let managedAsset = managedAssetOverride ?? null;
+  if (managedAssetOverride === undefined) {
+    try {
+      managedAsset = await resolveManagedRuleAsset(
+        security.sanitizedPrompt,
+        fetchImpl,
+        signal,
+      );
+    } catch {
+      if (signal?.aborted) throw signal.reason;
+      managedAsset = null;
+    }
   }
 
   const serverAssetBlock = managedAsset

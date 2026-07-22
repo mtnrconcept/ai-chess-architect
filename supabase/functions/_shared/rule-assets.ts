@@ -214,7 +214,7 @@ const plainText = (value: string, maxLength = 240): string =>
   value
     .normalize("NFKC")
     .replace(/<[^>]*>/g, " ")
-    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\p{Cc}/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
@@ -322,22 +322,32 @@ const buildCommonsSearchUrl = (query: string): string => {
   return url.toString();
 };
 
-const withTimeout = async (
+const withTimeout = async <T>(
   url: string,
   init: RequestInit,
   timeoutMs: number,
   fetchImpl: typeof fetch,
-): Promise<Response> => {
+  consume: (response: Response) => Promise<T>,
+  externalSignal?: AbortSignal,
+): Promise<T> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const relayAbort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) {
+    relayAbort();
+  } else {
+    externalSignal?.addEventListener("abort", relayAbort, { once: true });
+  }
   try {
-    return await fetchImpl(url, {
+    const response = await fetchImpl(url, {
       ...init,
       redirect: "error",
       signal: controller.signal,
     });
+    return await consume(response);
   } finally {
     clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", relayAbort);
   }
 };
 
@@ -378,8 +388,9 @@ const parseCommonsCandidate = (page: CommonsPage): CommonsCandidate | null => {
 const searchCommons = async (
   query: string,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<CommonsCandidate[]> => {
-  const response = await withTimeout(
+  const payload = await withTimeout(
     buildCommonsSearchUrl(query),
     {
       method: "GET",
@@ -390,11 +401,12 @@ const searchCommons = async (
     },
     COMMONS_TIMEOUT_MS,
     fetchImpl,
+    async (response) =>
+      response.ok ? ((await response.json()) as CommonsResponse) : null,
+    signal,
   );
 
-  if (!response.ok) return [];
-
-  const payload = (await response.json()) as CommonsResponse;
+  if (!payload) return [];
   return (payload.query?.pages ?? [])
     .map(parseCommonsCandidate)
     .filter((candidate): candidate is CommonsCandidate => candidate !== null)
@@ -422,7 +434,11 @@ const asciiAt = (bytes: Uint8Array, offset: number, length: number): string =>
 
 const hasAsciiChunk = (bytes: Uint8Array, value: string): boolean => {
   const needle = new TextEncoder().encode(value);
-  outer: for (let index = 0; index <= bytes.length - needle.length; index += 1) {
+  outer: for (
+    let index = 0;
+    index <= bytes.length - needle.length;
+    index += 1
+  ) {
     for (let offset = 0; offset < needle.length; offset += 1) {
       if (bytes[index + offset] !== needle[offset]) continue outer;
     }
@@ -457,19 +473,7 @@ const inspectPng = (bytes: Uint8Array): RasterImageInspection | null => {
 };
 
 const JPEG_SOF_MARKERS = new Set([
-  0xc0,
-  0xc1,
-  0xc2,
-  0xc3,
-  0xc5,
-  0xc6,
-  0xc7,
-  0xc9,
-  0xca,
-  0xcb,
-  0xcd,
-  0xce,
-  0xcf,
+  0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
 ]);
 
 const inspectJpeg = (bytes: Uint8Array): RasterImageInspection | null => {
@@ -541,8 +545,7 @@ const inspectWebp = (bytes: Uint8Array): RasterImageInspection | null => {
     if (bytes[20] !== 0x2f) return null;
     width = 1 + (bytes[21] | ((bytes[22] & 0x3f) << 8));
     height =
-      1 +
-      ((bytes[22] >> 6) | (bytes[23] << 2) | ((bytes[24] & 0x0f) << 10));
+      1 + ((bytes[22] >> 6) | (bytes[23] << 2) | ((bytes[24] & 0x0f) << 10));
   } else if (chunk === "VP8 ") {
     if (bytes[23] !== 0x9d || bytes[24] !== 0x01 || bytes[25] !== 0x2a) {
       return null;
@@ -629,8 +632,9 @@ const moderateCandidate = async (
   candidate: CommonsCandidate,
   apiKey: string,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<AssetModerationDecision | null> => {
-  const response = await withTimeout(
+  return await withTimeout(
     OPENAI_MODERATION_URL,
     {
       method: "POST",
@@ -644,11 +648,13 @@ const moderateCandidate = async (
     },
     MODERATION_TIMEOUT_MS,
     fetchImpl,
+    async (response) => {
+      if (!response.ok) return null;
+      const decision = parseAssetModerationResponse(await response.json());
+      return decision?.approved ? decision : null;
+    },
+    signal,
   );
-
-  if (!response.ok) return null;
-  const decision = parseAssetModerationResponse(await response.json());
-  return decision?.approved ? decision : null;
 };
 
 const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
@@ -755,7 +761,7 @@ const readExistingAssetByDigest = async (
   return rowToManagedAsset(data as unknown as StoredAssetRow, motion);
 };
 
-const persistAsset = async (
+export const persistAsset = async (
   client: SupabaseClient,
   candidate: CommonsCandidate,
   query: string,
@@ -775,7 +781,10 @@ const persistAsset = async (
     .upload(storagePath, bytes, {
       cacheControl: "31536000",
       contentType: inspection.contentType,
-      upsert: false,
+      // The path is derived from the verified content digest. Repeating this
+      // upload is therefore idempotent and repairs an object committed just
+      // before a previous request was aborted.
+      upsert: true,
     });
 
   if (uploadError) {
@@ -805,7 +814,10 @@ const persistAsset = async (
   });
 
   if (metadataError) {
-    await client.storage.from(RULE_ASSET_BUCKET).remove([storagePath]);
+    // Never delete here: an aborted/ambiguous insert may already have
+    // committed, and another concurrent compilation may reference the same
+    // content-addressed object. A later attempt can safely upsert the bytes
+    // and reconcile the row again.
     return (
       (await readExistingAssetByProvider(
         client,
@@ -840,10 +852,11 @@ const downloadAndPersistCandidate = async (
   motion: ManagedCinematicMotion,
   moderation: AssetModerationDecision,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<ManagedRuleAsset | null> => {
   if (!isAllowedCommonsAssetUrl(candidate.sourceAssetUrl)) return null;
 
-  const response = await withTimeout(
+  const downloaded = await withTimeout(
     candidate.sourceAssetUrl,
     {
       method: "GET",
@@ -854,21 +867,26 @@ const downloadAndPersistCandidate = async (
     },
     DOWNLOAD_TIMEOUT_MS,
     fetchImpl,
+    async (response) => {
+      if (
+        !response.ok ||
+        !isAllowedCommonsAssetUrl(response.url || candidate.sourceAssetUrl)
+      ) {
+        return null;
+      }
+
+      const declaredLength = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_ASSET_BYTES) {
+        return null;
+      }
+
+      return new Uint8Array(await response.arrayBuffer());
+    },
+    signal,
   );
 
-  if (
-    !response.ok ||
-    !isAllowedCommonsAssetUrl(response.url || candidate.sourceAssetUrl)
-  ) {
-    return null;
-  }
-
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_ASSET_BYTES) {
-    return null;
-  }
-
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!downloaded) return null;
+  const bytes = downloaded;
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_ASSET_BYTES) return null;
 
   const inspection = inspectRasterImage(bytes);
@@ -898,7 +916,7 @@ const downloadAndPersistCandidate = async (
   );
 };
 
-const getServiceClient = (): SupabaseClient | null => {
+const getServiceClient = (signal?: AbortSignal): SupabaseClient | null => {
   const url = Deno.env.get("SUPABASE_URL")?.trim();
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
   if (!url || !serviceRole) return null;
@@ -908,6 +926,19 @@ const getServiceClient = (): SupabaseClient | null => {
       persistSession: false,
       autoRefreshToken: false,
     },
+    ...(signal
+      ? {
+          global: {
+            fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
+              fetch(input, {
+                ...init,
+                signal: init?.signal
+                  ? AbortSignal.any([signal, init.signal])
+                  : signal,
+              })) as typeof fetch,
+          },
+        }
+      : {}),
   });
 };
 
@@ -921,7 +952,9 @@ export const managedRuleAssetSearchEnabled = (
 export async function resolveManagedRuleAsset(
   safePrompt: string,
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<ManagedRuleAsset | null> {
+  if (signal?.aborted) throw signal.reason;
   if (!managedRuleAssetSearchEnabled()) {
     return null;
   }
@@ -930,18 +963,20 @@ export async function resolveManagedRuleAsset(
   if (!query) return null;
 
   const apiKey = Deno.env.get("OPENAI_API_KEY")?.trim();
-  const client = getServiceClient();
+  const client = getServiceClient(signal);
   if (!apiKey || !client) return null;
 
   const motion = detectManagedCinematicMotion(safePrompt);
   let candidates: CommonsCandidate[] = [];
   try {
-    candidates = await searchCommons(query, fetchImpl);
+    candidates = await searchCommons(query, fetchImpl, signal);
   } catch {
+    if (signal?.aborted) throw signal.reason;
     return null;
   }
 
   for (const candidate of candidates) {
+    if (signal?.aborted) throw signal.reason;
     try {
       const existing = await readExistingAssetByProvider(
         client,
@@ -955,6 +990,7 @@ export async function resolveManagedRuleAsset(
         candidate,
         apiKey,
         fetchImpl,
+        signal,
       );
       if (!moderation) continue;
 
@@ -965,9 +1001,11 @@ export async function resolveManagedRuleAsset(
         motion,
         moderation,
         fetchImpl,
+        signal,
       );
       if (asset) return asset;
     } catch {
+      if (signal?.aborted) throw signal.reason;
       // Le provider externe est opportuniste. Une erreur ne doit jamais élargir
       // les permissions ni faire échouer la compilation déterministe.
     }
