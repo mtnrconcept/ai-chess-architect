@@ -41,9 +41,9 @@ export const ruleArchitectStagingSupabase = Object.freeze({
 } satisfies SupabaseBuildFallback);
 
 export const ruleArchitectProductionSupabase = Object.freeze({
-  url: "https://ucaqbhmyutlnitnedowk.supabase.co",
-  projectId: "ucaqbhmyutlnitnedowk",
-  publishableKey: "sb_publishable_hOLHA7zjNCtCx1bSsvlGXA_aYKJivYg",
+  url: "https://apvbjmbwpywjojyjhvbl.supabase.co",
+  projectId: "apvbjmbwpywjojyjhvbl",
+  publishableKey: "sb_publishable_r3NS78bLpojKCeoY4ojnug_s25qI65t",
   configurationSource: "vercel-production-fallback",
 } satisfies SupabaseBuildFallback);
 
