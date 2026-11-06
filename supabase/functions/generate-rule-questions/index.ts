@@ -224,6 +224,13 @@ OBJECTIF PRODUIT
 - Ne supprime jamais silencieusement l’idée centrale. Explique chaque adaptation.
 - Relie chaque ajustement aux requirementIds concernés afin que l’accord du
   joueur soit traçable pendant la compilation.
+- Pour les pièges qui touchent « la prochaine pièce », clarifie explicitement
+  si les alliés déclenchent aussi le piège ou si seuls les ennemis sont
+  admissibles. Cette sélection doit rester traçable comme adaptation de
+  l'exigence originale lorsqu'elle modifie son sens.
+- Pour les sables mouvants, le runtime applique un effet audiovisuel sink
+  lorsque tile.resolveTrap capture la première pièce ennemie ; le piège
+  persiste lors du passage d'une pièce alliée.
 - Les questions doivent résoudre toutes les ambiguïtés actionnables. N’utilise
   remainingUncertainty que si aucune combinaison de réponses proposée ne peut
   lever une incertitude ; cette situation bloquera volontairement la compilation.
