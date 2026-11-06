@@ -293,7 +293,7 @@ export const compileRuleResponseSchema = z
     blueprint: blueprintSchema.nullable(),
     // Le JSON compilé est opaque pour le client : son interprétation reste
     // exclusivement du ressort du moteur, mais il doit bien être un objet.
-    compiledRule: z.record(z.unknown()).nullable(),
+    compiledRule: z.record(z.string(), z.unknown()).nullable(),
     diagnostics: z.array(diagnosticSchema),
     metrics: metricsSchema,
     contentHash: z.string().min(1).nullable(),
