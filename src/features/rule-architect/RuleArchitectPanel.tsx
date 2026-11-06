@@ -264,9 +264,9 @@ export default function RuleArchitectPanel() {
                   !premium ? "border-primary bg-primary/5" : ""
                 }`}
               >
-                <p className="font-semibold">GPT-5.6 Terra</p>
+                <p className="font-semibold">GPT-5.6 Sol</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Rapide et économique pour la majorité des variantes.
+                  Raisonnement Sol standard pour concevoir les variantes.
                 </p>
               </button>
               <button
@@ -277,9 +277,10 @@ export default function RuleArchitectPanel() {
                   premium ? "border-primary bg-primary/5" : ""
                 }`}
               >
-                <p className="font-semibold">GPT-5.6</p>
+                <p className="font-semibold">GPT-5.6 Sol · intensif</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Raisonnement maximal pour les interactions complexes.
+                  Raisonnement approfondi pour les variantes complexes (accès
+                  autorisé).
                 </p>
               </button>
             </div>

@@ -1,32 +1,50 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as PIXI from "pixi.js";
 import type { PropsWithChildren } from "react";
 import type { FxContext, FxIntent, FxPayload } from "./types";
 import { runFxIntents } from "./runner";
+import { disposeFxForApp } from "./registry";
 
 type FxRuntime = {
   ctx: FxContext | null;
-  trigger: (intents: FxIntent[] | undefined, payload?: FxPayload) => Promise<void>;
+  trigger: (
+    intents: FxIntent[] | undefined,
+    payload?: FxPayload,
+  ) => Promise<void>;
 };
 
-const FxContextInternal = createContext<FxRuntime | null | undefined>(undefined);
+const FxContextInternal = createContext<FxRuntime | null | undefined>(
+  undefined,
+);
 
 type FxProviderProps = PropsWithChildren<{
   boardRef: React.RefObject<HTMLElement>;
   toCellPos: (cell: string) => { x: number; y: number };
 }>;
 
-export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) => {
+export const FxProvider = ({
+  boardRef,
+  toCellPos,
+  children,
+}: FxProviderProps) => {
   const [runtime, setRuntime] = useState<FxRuntime | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<PIXI.Application | null>(null);
 
   useEffect(() => {
     if (!boardRef.current) return;
-    
+
     let cancelled = false;
     let appInstance: PIXI.Application | null = null;
-    
+
     const initPixi = async () => {
       const container = document.createElement("div");
       container.style.position = "absolute";
@@ -41,7 +59,7 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
 
       try {
         const app = new PIXI.Application();
-        
+
         await app.init({
           backgroundAlpha: 0,
           resizeTo: boardRef.current!,
@@ -54,17 +72,17 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
           return;
         }
 
-        // Vérifier que le renderer et le canvas sont initialisés
-        if (!app.renderer?.view) {
-          console.error('[FxProvider] Renderer or canvas not initialized after app.init()');
-          return;
-        }
+        // Pixi v8 exposes the HTML canvas directly on Application.canvas.
+        // renderer.view.canvas is a v7-era access and prevents any FX from mounting.
+        const canvas = app.canvas;
+        if (!canvas) throw new Error("PIXI_CANVAS_UNAVAILABLE");
 
         appInstance = app;
         appRef.current = app;
 
-        // Accéder au canvas via app.renderer.view (Pixi v8)
-        const canvas = app.renderer.view.canvas as HTMLCanvasElement;
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.style.pointerEvents = "none";
         container.appendChild(canvas);
 
         const ctx: FxContext = {
@@ -73,13 +91,16 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
           toCellPos,
         };
 
-        const trigger = async (intents: FxIntent[] | undefined, payload?: FxPayload) => {
+        const trigger = async (
+          intents: FxIntent[] | undefined,
+          payload?: FxPayload,
+        ) => {
           await runFxIntents(intents, ctx, payload ?? {});
         };
 
         setRuntime({ ctx, trigger });
       } catch (error) {
-        console.error('[FxProvider] Failed to initialize Pixi', error);
+        console.error("[FxProvider] Failed to initialize Pixi", error);
       }
     };
 
@@ -88,6 +109,7 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
     return () => {
       cancelled = true;
       if (appInstance) {
+        disposeFxForApp(appInstance);
         appInstance.destroy(true, { children: true });
       }
       appRef.current = null;
@@ -101,7 +123,11 @@ export const FxProvider = ({ boardRef, toCellPos, children }: FxProviderProps) =
 
   const value = useMemo(() => runtime, [runtime]);
 
-  return <FxContextInternal.Provider value={value}>{children}</FxContextInternal.Provider>;
+  return (
+    <FxContextInternal.Provider value={value}>
+      {children}
+    </FxContextInternal.Provider>
+  );
 };
 
 export const useFxRuntime = () => {
@@ -116,7 +142,11 @@ export const useFxTrigger = () => {
   const runtime = useFxRuntime();
   return useCallback(
     async (intents: FxIntent[] | undefined, payload?: FxPayload) => {
-      if (!runtime || !runtime.ctx) return;
+      if (!runtime?.ctx) {
+        // Reject so the VFXAdapter can render its DOM fallback instead of
+        // silently swallowing a requested custom-rule animation.
+        throw new Error("FX_RUNTIME_UNAVAILABLE");
+      }
       await runtime.trigger(intents, payload);
     },
     [runtime],

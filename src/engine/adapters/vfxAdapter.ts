@@ -14,6 +14,7 @@ export class VFXAdapter implements VFXAPI {
     clear?: (tile: Tile) => void;
   } = {};
   private animationCallback?: (spriteId: SpriteId, tile: Tile) => void;
+  private readonly pendingDecals = new Map<Tile, SpriteId>();
   private fxTrigger?: (
     intents: FxIntent[] | undefined,
     payload?: FxPayload,
@@ -25,7 +26,19 @@ export class VFXAdapter implements VFXAPI {
       payload?: FxPayload,
     ) => Promise<void>,
   ): void {
+    const previous = this.fxTrigger;
     this.fxTrigger = trigger;
+    if (trigger && previous !== trigger) {
+      // Rule effects can fire before the asynchronous Pixi renderer initializes.
+      // Rehydrate persistent decals on first mount or renderer recreation.
+      for (const [tile, spriteId] of this.pendingDecals) {
+        const intent = this.mapSpriteToIntent(spriteId);
+        if (!intent) continue;
+        void trigger([intent], { cell: tile }).catch((error: unknown) => {
+          console.warn("[VFXAdapter] decal rehydration skipped", error);
+        });
+      }
+    }
   }
 
   setPlaySoundCallback(callback?: (effect: SoundEffect) => void): void {
@@ -46,19 +59,32 @@ export class VFXAdapter implements VFXAPI {
   }
 
   spawnDecal(spriteId: SpriteId, tile: Tile): void {
+    this.pendingDecals.set(tile, spriteId);
     this.decalCallbacks.spawn?.(spriteId, tile);
     if (!this.decalCallbacks.spawn && this.fxTrigger) {
       const intent = this.mapSpriteToIntent(spriteId);
       if (intent) {
-        void this.fxTrigger([intent], { cell: tile }).catch((error: unknown) => {
-          console.warn("[VFXAdapter] decal FX skipped", error);
-        });
+        void this.fxTrigger([intent], { cell: tile }).catch(
+          (error: unknown) => {
+            console.warn("[VFXAdapter] decal FX skipped", error);
+          },
+        );
       }
     }
   }
 
   clearDecal(tile: Tile): void {
+    this.pendingDecals.delete(tile);
     this.decalCallbacks.clear?.(tile);
+    // Persistent Pixi decals must disappear when the authoritative rule state
+    // removes a mine/hazard, not after a cosmetic animation timeout.
+    if (this.fxTrigger) {
+      void this.fxTrigger([{ intent: "object.clear" }], { cell: tile }).catch(
+        (error: unknown) => {
+          console.warn("[VFXAdapter] decal cleanup skipped", error);
+        },
+      );
+    }
   }
 
   playAnimation(spriteId: SpriteId, tile: Tile): void {

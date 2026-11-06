@@ -1,6 +1,7 @@
 import { authenticateRequest } from "../_shared/auth-v2.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
+import { resolveRuleArchitectModel } from "../_shared/rule-model-policy.ts";
 import { requireSafeRulePrompt } from "../_shared/prompt-security.ts";
 import { issueGuidanceToken } from "../_shared/guidance-token.ts";
 import { classifyGuidanceRuntimeFailure } from "../_shared/guidance-failure.ts";
@@ -273,10 +274,7 @@ Deno.serve(async (request) => {
     const apiKey = Deno.env.get("OPENAI_API_KEY")?.trim();
     if (!apiKey) throw new Error("OPENAI_API_KEY_MISSING");
 
-    const model =
-      Deno.env.get("OPENAI_RULE_GUIDANCE_MODEL")?.trim() ||
-      Deno.env.get("OPENAI_RULE_MODEL")?.trim() ||
-      "gpt-5.6-terra";
+    const model = resolveRuleArchitectModel("guidance");
 
     const userPrompt = [
       `Idée originale :\n${security.sanitizedPrompt}`,

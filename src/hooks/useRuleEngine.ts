@@ -23,6 +23,7 @@ import {
 } from "@/engine/adapters/chessBoardAdapter";
 import { UIAdapter } from "@/engine/adapters/uiAdapter";
 import { VFXAdapter } from "@/engine/adapters/vfxAdapter";
+import { connectBoardDecalFx } from "@/engine/adapters/decalBridge";
 import { MatchAdapter } from "@/engine/adapters/matchAdapter";
 import {
   resolveCapturedTargetPieceId,
@@ -121,6 +122,11 @@ export const useRuleEngine = (
     vfxAdapter.setPlaySoundCallback(playSound);
     return () => vfxAdapter.setPlaySoundCallback(undefined);
   }, [playSound, vfxAdapter]);
+
+  useEffect(
+    () => connectBoardDecalFx(boardAdapter, vfxAdapter),
+    [boardAdapter, vfxAdapter],
+  );
 
   useEffect(() => {
     boardAdapter.updateBoard(gameState.board);

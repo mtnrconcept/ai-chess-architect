@@ -169,6 +169,68 @@ const parsePayload = async (
   }
 };
 
+const RETRYABLE_OPENAI_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+const pauseWithAbort = (
+  durationMs: number,
+  signal: AbortSignal,
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, durationMs);
+    signal.addEventListener("abort", abort, { once: true });
+  });
+
+/**
+ * Bounded retries only for known transient HTTP statuses. The overall
+ * AbortController and deadline also cover retry waits; auth/schema errors
+ * are never retried. Prompt data remains in the authenticated Edge request.
+ */
+async function postStructuredResponse(
+  transport: typeof fetch,
+  apiKey: string,
+  body: object,
+  signal: AbortSignal,
+): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await transport("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!RETRYABLE_OPENAI_STATUSES.has(response.status) || attempt === 2) {
+      return response;
+    }
+
+    const rawRetryAfter = response.headers.get("retry-after");
+    const retryAfterSeconds =
+      rawRetryAfter && /^\\d{1,3}(?:\\.\\d+)?$/.test(rawRetryAfter)
+        ? Number(rawRetryAfter)
+        : null;
+    const backoffMs =
+      retryAfterSeconds !== null
+        ? Math.min(2000, retryAfterSeconds * 1000)
+        : 160 * 2 ** attempt;
+    if (response.body) await response.body.cancel().catch(() => undefined);
+    await pauseWithAbort(backoffMs, signal);
+  }
+  throw new Error("OPENAI_RETRY_BUDGET_EXHAUSTED");
+}
+
 export async function createStructuredResponse(input: {
   apiKey: string;
   model: string;
@@ -249,17 +311,11 @@ export async function createStructuredResponse(input: {
       store: false,
     };
 
-    const response = await (input.fetchImpl ?? fetch)(
-      "https://api.openai.com/v1/responses",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${input.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      },
+    const response = await postStructuredResponse(
+      input.fetchImpl ?? fetch,
+      input.apiKey,
+      body,
+      controller.signal,
     );
 
     const requestId = normalizeProviderIdentifier(

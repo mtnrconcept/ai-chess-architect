@@ -1,234 +1,452 @@
 import gsap from "gsap";
+import { Container, Graphics } from "pixi.js";
 import {
-  Application,
-  Container,
-  Graphics,
-  Sprite,
-  Texture,
-} from "pixi.js";
-import type { FxContext, FxIntent, FxPayload } from "./types";
+  isSupportedFxIntent,
+  normalizeFxCell,
+  resolveFxColor,
+  sanitizeFxDuration,
+  sanitizeFxRadius,
+} from "./fx-policy";
+import type { FxContext, FxIntent, FxPayload, FxStyle } from "./types";
 
-const random = (min: number, max: number) => Math.random() * (max - min) + min;
+const MAX_ACTIVE_EFFECTS = 48;
+const CYAN = 0x67e8f9;
+const ORANGE = 0xff8a3d;
+const ICE = 0x94f5ff;
+const GOLD = 0xffcc66;
 
-const ensureParticleTexture = (() => {
-  let cache: Texture | null = null;
-  return (app: Application) => {
-    if (cache) return cache;
-    const g = new Graphics();
-    g.beginFill(0xffffff);
-    g.drawCircle(0, 0, 8);
-    g.endFill();
-    cache = app.renderer.generateTexture(g);
-    g.destroy();
-    return cache;
-  };
-})();
+type Stoppable = { kill(): void };
+type FxRecord = {
+  root: Container;
+  jobs: Stoppable[];
+  cell: string | null;
+  persistent: boolean;
+};
+type FxState = {
+  active: Set<FxRecord>;
+};
+const byApp = new WeakMap<FxContext["app"], FxState>();
 
-const buildGlowFilter = () => {
-  // Glow filter temporarily disabled for compatibility
-  return null;
+const fxState = (ctx: FxContext): FxState => {
+  const found = byApp.get(ctx.app);
+  if (found) return found;
+  const created: FxState = { active: new Set() };
+  byApp.set(ctx.app, created);
+  return created;
 };
 
-function toPixel(ctx: FxContext, cell?: string) {
-  if (!cell) return { x: 0, y: 0 };
-  return ctx.toCellPos(cell);
-}
+const stopEffect = (state: FxState, record: FxRecord): void => {
+  if (!state.active.delete(record)) return;
+  for (const job of record.jobs) job.kill();
+  if (!record.root.destroyed) record.root.destroy({ children: true });
+};
 
-function spawnMine(ctx: FxContext, payload: FxPayload, style?: any) {
-  const { x, y } = toPixel(ctx, payload.cell);
-  const group = new Container();
-  group.position.set(x, y);
+const animate = (
+  record: FxRecord,
+  target: object,
+  vars: gsap.TweenVars,
+): void => {
+  record.jobs.push(gsap.to(target, vars));
+};
 
-  const core = new Graphics();
-  core.beginFill(0x101820).drawCircle(0, 0, 12).endFill();
-  group.addChild(core);
+const lifetime = (state: FxState, record: FxRecord, seconds: number): void => {
+  record.jobs.push(gsap.delayedCall(seconds, () => stopEffect(state, record)));
+};
 
-  const halo = new Graphics();
-  halo.lineStyle(2, style?.glow ? parseInt(style.glow.replace("#", ""), 16) : 0x76e0ff, 0.85);
-  halo.drawCircle(0, 0, 16);
-  group.addChild(halo);
+const point = (
+  ctx: FxContext,
+  cell: unknown,
+): { x: number; y: number; cell: string } | null => {
+  const clean = normalizeFxCell(cell);
+  if (!clean) return null;
+  const coordinates = ctx.toCellPos(clean);
+  if (!Number.isFinite(coordinates.x) || !Number.isFinite(coordinates.y))
+    return null;
+  return { ...coordinates, cell: clean };
+};
 
-  if (style?.holo) {
-    const holo = new Graphics();
-    holo.lineStyle(1, 0x76e0ff, 0.65).drawCircle(0, 0, 20);
-    // holo.filters = [buildGlowFilter()];
-    group.addChild(holo);
-    gsap.to(holo, { rotation: Math.PI * 2, repeat: -1, duration: 6, ease: "linear" });
+const mount = (
+  ctx: FxContext,
+  at: { x: number; y: number; cell: string },
+  persistent = false,
+): { record: FxRecord; state: FxState } => {
+  const state = fxState(ctx);
+  if (persistent) {
+    for (const old of [...state.active]) {
+      if (old.persistent && old.cell === at.cell) stopEffect(state, old);
+    }
   }
-
-  group.alpha = 0;
-  ctx.app.stage.addChild(group);
-  gsap.to(group, { alpha: 1, duration: 0.25, ease: "power2.out" });
-  if (style?.blink) {
-    gsap.to(group, { alpha: 0.4, duration: 0.8, yoyo: true, repeat: -1, ease: "sine.inOut" });
+  if (state.active.size >= MAX_ACTIVE_EFFECTS) {
+    const oldest = state.active.values().next().value;
+    if (oldest) stopEffect(state, oldest);
   }
-
-  return group;
-}
-
-function areaHazard(ctx: FxContext, payload: FxPayload, radiusCells: number, style?: any) {
-  const { x, y } = toPixel(ctx, payload.cell);
-  const ring = new Graphics();
-  ring.position.set(x, y);
-  ring.lineStyle(2, style?.glow ? parseInt(style.glow.replace("#", ""), 16) : 0x76e0ff, 0.6);
-  ring.drawCircle(0, 0, radiusCells * 40);
-  ctx.app.stage.addChild(ring);
-
-  if (style?.pulse) {
-    gsap.to(ring.scale, { x: 1.1, y: 1.1, yoyo: true, repeat: -1, duration: 1.4, ease: "sine.inOut" });
-  }
-
-  return ring;
-}
-
-function explosionFx(ctx: FxContext, payload: FxPayload, power: "small" | "medium" | "large" = "medium", style?: any) {
-  const { x, y } = toPixel(ctx, payload.cell);
   const root = new Container();
-  root.position.set(x, y);
+  root.position.set(at.x, at.y);
   ctx.app.stage.addChild(root);
+  const record: FxRecord = {
+    root,
+    jobs: [],
+    cell: at.cell,
+    persistent,
+  };
+  state.active.add(record);
+  return { state, record };
+};
 
-  const burst = new Graphics();
-  burst.alpha = 0.3;
-  root.addChild(burst);
+const colorFromGlow = (
+  style: FxStyle | undefined,
+  fallback: number,
+): number => {
+  const glow = style?.glow;
+  if (
+    typeof glow === "number" &&
+    Number.isInteger(glow) &&
+    glow >= 0 &&
+    glow <= 0xffffff
+  )
+    return glow;
+  return resolveFxColor(glow, resolveFxColor(style?.color, fallback));
+};
 
-  const radius = power === "large" ? 80 : power === "medium" ? 58 : 42;
-  const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0xff6a00;
+const ring = (
+  record: FxRecord,
+  radius: number,
+  color: number,
+  width = 3,
+  alpha = 0.85,
+): Graphics => {
+  const graphic = new Graphics()
+    .circle(0, 0, radius)
+    .stroke({ width, color, alpha });
+  record.root.addChild(graphic);
+  return graphic;
+};
 
-  const animData = { val: 0 };
-  gsap.to(animData, {
-      val: radius,
-      duration: 0.5,
-      ease: "power2.out",
-      onUpdate() {
-        const r = animData.val;
-        burst.clear();
-        burst.beginFill(color, 0.12).drawCircle(0, 0, r * 0.6).endFill();
-        burst.lineStyle(4, color, 0.9).drawCircle(0, 0, r);
-      },
-    },
-  );
+const disc = (
+  record: FxRecord,
+  radius: number,
+  color: number,
+  alpha = 1,
+): Graphics => {
+  const graphic = new Graphics().circle(0, 0, radius).fill({ color, alpha });
+  record.root.addChild(graphic);
+  return graphic;
+};
 
-  const texture = ensureParticleTexture(ctx.app);
-  const sparkCount = style?.sparks === false ? 0 : 28;
-  for (let i = 0; i < sparkCount; i++) {
-    const sprite = new Sprite(texture);
-    sprite.tint = color;
-    sprite.alpha = 0.9;
-    sprite.scale.set(0.25 + Math.random() * 0.3);
-    root.addChild(sprite);
-    const angle = (i / sparkCount) * Math.PI * 2 + random(-0.2, 0.2);
-    const dist = radius * random(0.6, 1.1);
-    gsap.to(sprite, {
-      x: Math.cos(angle) * dist,
-      y: Math.sin(angle) * dist,
+const blinkRing = (
+  record: FxRecord,
+  color: number,
+  radius = 24,
+  duration = 0.75,
+): void => {
+  const halo = ring(record, radius, color, 3, 0.85);
+  halo.scale.set(0.45);
+  animate(record, halo.scale, {
+    x: 1.35,
+    y: 1.35,
+    duration,
+    ease: "power2.out",
+  });
+  animate(record, halo, { alpha: 0, duration, ease: "sine.out" });
+};
+
+const sparks = (
+  record: FxRecord,
+  color: number,
+  count: number,
+  distance: number,
+  duration: number,
+): void => {
+  for (let i = 0; i < count; i += 1) {
+    const angle = (i / count) * Math.PI * 2;
+    const particle = disc(record, 2.2 + (i % 3), color, 0.92);
+    animate(record, particle, {
+      x: Math.cos(angle) * distance * (0.75 + (i % 4) * 0.1),
+      y: Math.sin(angle) * distance * (0.75 + (i % 4) * 0.1),
       alpha: 0,
-      duration: 0.45 + Math.random() * 0.25,
+      duration: duration * (0.7 + (i % 3) * 0.12),
       ease: "power2.out",
     });
   }
+};
 
-  if (style?.smoke && style.smoke !== "none") {
-    const smoke = new Graphics();
-    smoke.beginFill(0x2f2f32, style.smoke === "heavy" ? 0.4 : 0.25).drawCircle(0, 0, radius * 1.4).endFill();
-    smoke.alpha = 0;
-    root.addChild(smoke);
-    gsap.to(smoke, { alpha: 1, duration: 0.3 });
-    gsap.to(smoke.scale, { x: 1.2, y: 1.2, duration: 1.5, ease: "sine.out" });
-    gsap.to(smoke, { alpha: 0, duration: 0.6, delay: 0.9 });
-  }
-
-  gsap.delayedCall(1.3, () => {
-    root.destroy({ children: true });
+const spawnObject = (
+  ctx: FxContext,
+  payload: FxPayload,
+  kind: "mine" | "totem" | "beacon",
+  style?: FxStyle,
+): void => {
+  const at = point(ctx, payload.cell);
+  if (!at) return;
+  const { record } = mount(ctx, at, true);
+  const color = colorFromGlow(style, kind === "mine" ? ORANGE : CYAN);
+  disc(record, 12, 0x0b1525);
+  ring(record, 14, color, 2.5);
+  disc(record, 6, color, 0.78);
+  const pulse = ring(record, kind === "mine" ? 20 : 23, color, 1.2, 0.5);
+  animate(record, pulse.scale, {
+    x: 1.2,
+    y: 1.2,
+    yoyo: true,
+    repeat: -1,
+    duration: 1.25,
+    ease: "sine.inOut",
   });
-}
-
-function warpFx(ctx: FxContext, payload: FxPayload, style?: any) {
-  const from = toPixel(ctx, payload.fromCell);
-  const to = toPixel(ctx, payload.toCell);
-  const ring = new Graphics();
-  ring.position.set(from.x, from.y);
-  ctx.app.stage.addChild(ring);
-
-  const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x76e0ff;
-
-  const ringData = { radius: 5 };
-  gsap.to(ringData, {
-      radius: 48,
-      duration: 0.35,
-      ease: "expo.out",
-      onUpdate() {
-        ring.clear();
-        ring.lineStyle(4, color, 1).drawCircle(0, 0, ringData.radius);
-      },
-    },
-  );
-  gsap.to(ring, { alpha: 0, duration: 0.35, ease: "sine.in", delay: 0.1 });
-
-  const arrive = new Graphics();
-  arrive.position.set(to.x, to.y);
-  arrive.lineStyle(2, color, 1).drawCircle(0, 0, 12);
-  ctx.app.stage.addChild(arrive);
-  gsap.fromTo(arrive.scale, { x: 0.2, y: 0.2 }, { x: 1.2, y: 1.2, duration: 0.35, ease: "expo.out" });
-  gsap.to(arrive, { alpha: 0, duration: 0.35, delay: 0.3, onComplete: () => arrive.destroy() });
-
-  gsap.delayedCall(0.6, () => ring.destroy());
-}
-
-function hologramFx(ctx: FxContext, payload: FxPayload, style?: any) {
-  const { x, y } = toPixel(ctx, payload.cell);
-  const holo = new Graphics();
-  holo.position.set(x, y);
-  holo.lineStyle(1, style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x00f1ff, 0.65);
-  holo.drawRoundedRect(-24, -24, 48, 48, 8);
-  // holo.filters = [buildGlowFilter()];
-  ctx.app.stage.addChild(holo);
-  gsap.to(holo, { alpha: 0.35, duration: 0.4, yoyo: true, repeat: 4, ease: "sine.inOut" });
-  gsap.delayedCall(2.2, () => holo.destroy());
-}
-
-function trailFx(ctx: FxContext, payload: FxPayload, style?: any) {
-  const path = Array.isArray(payload.path) ? payload.path : payload.fromCell && payload.toCell ? [payload.fromCell, payload.toCell] : [];
-  if (path.length < 2) return;
-  const container = new Container();
-  const color = style?.color ? parseInt(style.color.replace("#", ""), 16) : 0x76e0ff;
-
-  for (let i = 0; i < path.length - 1; i++) {
-    const from = ctx.toCellPos(path[i] as string);
-    const to = ctx.toCellPos(path[i + 1] as string);
-    const g = new Graphics();
-    g.lineStyle(4, color, 0.6);
-    g.moveTo(from.x, from.y);
-    g.lineTo(to.x, to.y);
-    container.addChild(g);
+  if (style?.blink) {
+    animate(record, record.root, {
+      alpha: 0.62,
+      yoyo: true,
+      repeat: -1,
+      duration: 0.85,
+      ease: "sine.inOut",
+    });
   }
+};
 
-  container.alpha = 0;
-  ctx.app.stage.addChild(container);
-  gsap.to(container, { alpha: 1, duration: 0.15, ease: "power2.out" });
-  gsap.to(container, { alpha: 0, duration: style?.duration ?? 0.8, delay: 0.15, onComplete: () => container.destroy({ children: true }) });
+const spawnHazard = (
+  ctx: FxContext,
+  payload: FxPayload,
+  radius: number,
+  style?: FxStyle,
+): void => {
+  const at = point(ctx, payload.cell);
+  if (!at) return;
+  const { record } = mount(ctx, at, true);
+  const color = colorFromGlow(style, ORANGE);
+  ring(record, sanitizeFxRadius(radius) * 38, color, 2, 0.7);
+  if (style?.pulse) {
+    animate(record, record.root.scale, {
+      x: 1.07,
+      y: 1.07,
+      repeat: -1,
+      yoyo: true,
+      duration: 1.4,
+      ease: "sine.inOut",
+    });
+  }
+};
+
+const burstFx = (
+  ctx: FxContext,
+  payload: FxPayload,
+  style?: FxStyle,
+  kind: "explosion" | "hit" | "freeze" | "burn" = "explosion",
+  power: "small" | "medium" | "large" = "medium",
+): void => {
+  const at = point(ctx, payload.cell ?? payload.toCell);
+  if (!at) return;
+  const { record, state } = mount(ctx, at);
+  const color = colorFromGlow(
+    style,
+    kind === "freeze"
+      ? ICE
+      : kind === "burn"
+        ? ORANGE
+        : kind === "hit"
+          ? GOLD
+          : ORANGE,
+  );
+  const radius = power === "large" ? 48 : power === "small" ? 22 : 34;
+  const glow = disc(record, kind === "hit" ? 10 : 17, color, 0.2);
+  glow.scale.set(0.4);
+  animate(record, glow.scale, { x: 2, y: 2, duration: 0.38, ease: "expo.out" });
+  animate(record, glow, { alpha: 0, duration: 0.45 });
+  blinkRing(record, color, radius, kind === "freeze" ? 0.9 : 0.55);
+  if (kind === "freeze" || kind === "burn") {
+    const second = ring(record, radius * 0.55, color, 2, 0.65);
+    second.rotation = Math.PI / 4;
+    animate(record, second.scale, { x: 1.6, y: 1.6, duration: 0.85 });
+    animate(record, second, { alpha: 0, duration: 0.85 });
+  }
+  const count =
+    style?.sparks === false
+      ? 0
+      : kind === "explosion"
+        ? 18
+        : kind === "hit"
+          ? 8
+          : 12;
+  if (count)
+    sparks(record, color, count, radius * 2, kind === "freeze" ? 0.85 : 0.55);
+  lifetime(state, record, kind === "freeze" ? 1.1 : 0.9);
+};
+
+const portalFx = (
+  ctx: FxContext,
+  payload: FxPayload,
+  style?: FxStyle,
+): void => {
+  const at = point(ctx, payload.toCell ?? payload.cell ?? payload.fromCell);
+  if (!at) return;
+  const { record, state } = mount(ctx, at);
+  const color = colorFromGlow(style, CYAN);
+  for (let i = 0; i < 3; i += 1) {
+    const halo = ring(record, 12 + i * 9, color, 2.2 - i * 0.4, 0.85);
+    halo.scale.set(0.35);
+    animate(record, halo.scale, {
+      x: 1.3,
+      y: 1.3,
+      duration: 0.55 + i * 0.12,
+      delay: i * 0.08,
+      ease: "expo.out",
+    });
+    animate(record, halo, { alpha: 0, duration: 0.58, delay: i * 0.08 });
+  }
+  lifetime(state, record, 0.95);
+};
+
+const hologramFx = (
+  ctx: FxContext,
+  payload: FxPayload,
+  style?: FxStyle,
+  mode: "hologram" | "scan" | "highlight" = "hologram",
+): void => {
+  const at = point(ctx, payload.cell ?? payload.toCell);
+  if (!at) return;
+  const { record, state } = mount(ctx, at);
+  const color = colorFromGlow(style, mode === "highlight" ? GOLD : CYAN);
+  const frame = new Graphics()
+    .roundRect(-24, -24, 48, 48, 7)
+    .stroke({ width: mode === "highlight" ? 4 : 2, color, alpha: 0.9 });
+  record.root.addChild(frame);
+  if (mode === "scan") {
+    const scanner = new Graphics()
+      .moveTo(-20, -20)
+      .lineTo(20, -20)
+      .stroke({ width: 2, color, alpha: 1 });
+    record.root.addChild(scanner);
+    animate(record, scanner, { y: 40, duration: 0.95, ease: "power1.inOut" });
+  } else {
+    animate(record, frame.scale, {
+      x: 1.16,
+      y: 1.16,
+      duration: 0.65,
+      ease: "sine.out",
+    });
+  }
+  animate(record, frame, {
+    alpha: 0,
+    duration: mode === "highlight" ? 1.2 : 0.95,
+  });
+  lifetime(state, record, mode === "highlight" ? 1.35 : 1.15);
+};
+
+const trailFx = (ctx: FxContext, payload: FxPayload, style?: FxStyle): void => {
+  const candidates = Array.isArray(payload.path)
+    ? payload.path
+    : [payload.fromCell, payload.toCell];
+  const tiles = candidates
+    .slice(0, 16)
+    .map((tile) => point(ctx, tile))
+    .filter((tile): tile is NonNullable<typeof tile> => tile !== null);
+  if (tiles.length < 2) return;
+  const { record, state } = mount(ctx, tiles[0]);
+  const graphic = new Graphics();
+  record.root.addChild(graphic);
+  const color = colorFromGlow(style, CYAN);
+  graphic.moveTo(0, 0);
+  for (const tile of tiles.slice(1)) {
+    graphic.lineTo(tile.x - tiles[0].x, tile.y - tiles[0].y);
+  }
+  graphic.stroke({ width: 4, color, alpha: 0.75, cap: "round", join: "round" });
+  const duration = sanitizeFxDuration(style?.duration);
+  animate(record, graphic, { alpha: 0, duration, delay: 0.1 });
+  lifetime(state, record, duration + 0.2);
+};
+
+export function clearFxAtCell(ctx: FxContext, tile: unknown): void {
+  const cell = normalizeFxCell(tile);
+  if (!cell) return;
+  const state = byApp.get(ctx.app);
+  if (!state) return;
+  for (const record of [...state.active]) {
+    if (record.persistent && record.cell === cell) stopEffect(state, record);
+  }
 }
 
-export async function resolveFx(intent: FxIntent, ctx: FxContext, payload: FxPayload) {
+export function disposeFxForApp(app: FxContext["app"]): void {
+  const state = byApp.get(app);
+  if (!state) return;
+  for (const record of [...state.active]) stopEffect(state, record);
+  byApp.delete(app);
+}
+
+/** Animations are cosmetic only; board state remains authoritative in RuleEngine. */
+export async function resolveFx(
+  intent: FxIntent,
+  ctx: FxContext,
+  payload: FxPayload,
+): Promise<void> {
+  if (intent.intent === "object.clear") {
+    clearFxAtCell(ctx, payload.cell);
+    return;
+  }
+  if (!isSupportedFxIntent(intent.intent)) return;
+  if (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+  )
+    return;
+
+  const style: FxStyle | undefined =
+    intent.style !== null &&
+    typeof intent.style === "object" &&
+    !Array.isArray(intent.style)
+      ? (intent.style as FxStyle)
+      : undefined;
+
   switch (intent.intent) {
-    case "object.spawn":
-      if (intent.kind === "mine") spawnMine(ctx, payload, intent.style);
-      break;
+    case "object.spawn": {
+      const kind =
+        intent.kind === "totem" || intent.kind === "beacon"
+          ? intent.kind
+          : "mine";
+      spawnObject(ctx, payload, kind, style);
+      return;
+    }
     case "area.hazard":
-      if (intent.kind === "mine-radius") areaHazard(ctx, payload, Number(intent.radius) || 1, intent.style);
-      break;
+      spawnHazard(
+        ctx,
+        payload,
+        typeof intent.radius === "number" ? intent.radius : 1,
+        style,
+      );
+      return;
     case "combat.explosion":
-      explosionFx(ctx, payload, (intent.power as "large" | "medium" | "small") ?? "medium", intent.style);
-      break;
+    case "combat.hit":
+    case "combat.freeze":
+    case "combat.burn":
+      burstFx(
+        ctx,
+        payload,
+        style,
+        intent.intent.slice("combat.".length) as
+          | "explosion"
+          | "hit"
+          | "freeze"
+          | "burn",
+        intent.power === "small" || intent.power === "large"
+          ? intent.power
+          : "medium",
+      );
+      return;
     case "space.warp":
-      warpFx(ctx, payload, intent.style);
-      break;
+      portalFx(ctx, payload, style);
+      return;
     case "viz.hologram":
-      hologramFx(ctx, payload, intent.style);
-      break;
+    case "viz.scan":
+    case "viz.highlight":
+      hologramFx(
+        ctx,
+        payload,
+        style,
+        intent.intent.slice("viz.".length) as "hologram" | "scan" | "highlight",
+      );
+      return;
     case "piece.trail":
-      trailFx(ctx, payload, intent.style);
-      break;
+      trailFx(ctx, payload, style);
+      return;
     default:
-      break;
+      return;
   }
 }
