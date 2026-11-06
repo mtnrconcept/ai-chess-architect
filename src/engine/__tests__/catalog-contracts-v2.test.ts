@@ -390,6 +390,37 @@ describe("Rule Architect V2 catalog contracts", () => {
     ).toBe(false);
   });
 
+  it("le sable mouvant laisse passer les alliés sans consommer le piège, puis capture le premier ennemi avec FX et son", () => {
+    const registry = createRegistry();
+    const { contracts, animation, audio } = createHarness();
+    const ctx = contextFor(contracts);
+    ctx.state.traps = { b2: { kind: "quicksand", owner: "white" } };
+    const resolveB2 = {
+      action: "tile.resolveTrap",
+      params: { tile: "b2", persistent: false },
+    };
+
+    expect(registry.runEffect(resolveB2, ctx)).toBe(true);
+    expect(contracts.board.getPiece("ally").tile).toBe("b2");
+    expect((ctx.state.traps as Record<string, unknown>).b2).toBeDefined();
+    expect(animation).not.toHaveBeenCalled();
+    expect(audio).not.toHaveBeenCalled();
+
+    contracts.board.setPieceTile("ally", "c4");
+    contracts.board.setPieceTile("enemy", "b2");
+    expect(registry.runEffect(resolveB2, ctx)).toBe(true);
+    expect(() => contracts.board.getPiece("enemy")).toThrow();
+    expect((ctx.state.traps as Record<string, unknown>).b2).toBeUndefined();
+    expect(animation).toHaveBeenCalledWith("quicksand_splash", "b2");
+    expect(audio).toHaveBeenCalledWith("sink");
+
+    // A consumed trap cannot capture another piece arriving later.
+    contracts.board.setPieceTile("source", "b2");
+    expect(registry.runEffect(resolveB2, ctx)).toBe(true);
+    expect(contracts.board.getPiece("source").tile).toBe("b2");
+    expect(animation).toHaveBeenCalledTimes(1);
+  });
+
   it("persiste invisibilité et statuts dans le plateau réel, y compris après snapshot", () => {
     const rawBoard = Array.from({ length: 8 }, () =>
       Array.from({ length: 8 }, () => null),
