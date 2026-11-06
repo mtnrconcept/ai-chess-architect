@@ -1,6 +1,7 @@
 import { authenticateRequest } from "../_shared/auth-v2.ts";
 import { handlePreflight, jsonResponse } from "../_shared/cors-v2.ts";
 import { createStructuredResponse } from "../_shared/openai-responses.ts";
+import { resolveRuleArchitectModel } from "../_shared/rule-model-policy.ts";
 import {
   PromptSecurityError,
   requireSafeRulePrompt,
@@ -398,9 +399,7 @@ Deno.serve(async (request) => {
       appMetadata.is_admin === true ||
       configuredPremiumUsers.has(user.id);
     const premium = premiumRequested && premiumEntitled;
-    const model = premium
-      ? Deno.env.get("OPENAI_PREMIUM_RULE_MODEL")?.trim() || "gpt-5.6-sol"
-      : Deno.env.get("OPENAI_RULE_MODEL")?.trim() || "gpt-5.6-terra";
+    const model = resolveRuleArchitectModel(premium ? "premium" : "standard");
     const promptHash = await sha256Hex({
       prompt: safePrompt,
       intentContract,
@@ -661,8 +660,7 @@ Deno.serve(async (request) => {
           attempted: true,
           timeoutMs: auditTimeoutMs,
         };
-        const auditModel =
-          Deno.env.get("OPENAI_RULE_AUDIT_MODEL")?.trim() || model;
+        const auditModel = resolveRuleArchitectModel("audit", undefined, model);
         const audit = await createStructuredResponse({
           apiKey,
           model: auditModel,

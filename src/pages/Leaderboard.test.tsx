@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StaticRouter } from "react-router-dom/server";
+import { StaticRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({

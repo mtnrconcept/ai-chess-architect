@@ -5,7 +5,7 @@ const targetingSchema = z
   .object({
     mode: z.enum(["none", "tile", "piece", "area", "pair", "path"]),
     provider: z.string().min(1),
-    params: z.record(z.any()).default({}),
+    params: z.record(z.string(), z.any()).default({}),
   })
   .partial({ params: true });
 

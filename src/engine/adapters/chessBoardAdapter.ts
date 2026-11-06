@@ -383,6 +383,10 @@ export class ChessBoardAdapter implements BoardAPI {
         this.board[row][col] = restoredBoard[row][col];
       }
     }
+    // A rollback restores *both* authoritative decal state and its cosmetic
+    // projection. Without this diff, a removed mine remains visible (or vice
+    // versa) until an unrelated rule happens to touch the same square.
+    const previousDecals = new Map(this.decals);
     this.decals.clear();
     for (const entry of parsed.decals ?? []) {
       if (
@@ -399,6 +403,14 @@ export class ChessBoardAdapter implements BoardAPI {
         ? Number(parsed.nextId)
         : 1;
     this.rebuildPieceMap();
+    for (const tile of new Set([
+      ...previousDecals.keys(),
+      ...this.decals.keys(),
+    ])) {
+      const before = previousDecals.get(tile) ?? null;
+      const after = this.decals.get(tile) ?? null;
+      if (before !== after) this.decalChangeListener?.(tile, after);
+    }
     this.emitBoardChange();
   }
 

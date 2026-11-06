@@ -740,9 +740,9 @@ export default function GuidedRuleArchitectPanel() {
                       !premium ? "border-primary bg-primary/10" : ""
                     }`}
                   >
-                    <p className="font-semibold">GPT-5.6 Terra</p>
+                    <p className="font-semibold">GPT-5.6 Sol</p>
                     <p className="text-xs text-muted-foreground">
-                      Rapide, inclus et adapté à la plupart des variantes.
+                      Modèle Sol pour transformer l'idée en règle jouable.
                     </p>
                   </button>
                   <button
@@ -756,7 +756,7 @@ export default function GuidedRuleArchitectPanel() {
                   >
                     <p className="font-semibold">GPT-5.6 Sol</p>
                     <p className="text-xs text-muted-foreground">
-                      Raisonnement renforcé si ton compte y a accès.
+                      Raisonnement approfondi si ton compte y a accès.
                     </p>
                   </button>
                 </div>

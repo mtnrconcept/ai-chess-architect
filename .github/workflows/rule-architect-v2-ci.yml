@@ -62,6 +62,8 @@ jobs:
           src/rules-v2
           src/engine/__tests__
           src/engine/adapters/matchAdapter.test.ts
+          src/engine/adapters/vfxAdapter.test.ts
+          src/fx
           src/contexts/auth-session.test.ts
           src/features/rule-architect
           src/features/rule-architect/lobby-launch-policy.test.ts
@@ -156,6 +158,8 @@ jobs:
             supabase/functions/_shared/guidance-failure.test.ts \
             supabase/functions/_shared/legacy-guidance-compat.test.ts \
             supabase/functions/_shared/openai-responses.test.ts \
+            supabase/functions/_shared/openai-resilience.test.ts \
+            supabase/functions/_shared/rule-model-policy.test.ts \
             supabase/functions/_shared/prompt-security.test.ts \
             supabase/functions/_shared/rule-guidance-validation.test.ts \
             supabase/functions/_shared/rule-coverage.test.ts \
