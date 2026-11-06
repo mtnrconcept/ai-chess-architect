@@ -324,11 +324,18 @@ export function registerBuiltinEffects(registry: Registry): void {
     if (!trap) return true;
     if (trap.kind !== "quicksand") return fail("Piège non pris en charge.");
 
-    const pieceId = ctx.engine.board.getPieceAt(tile);
-    if (pieceId) {
-      ctx.engine.board.getPiece(pieceId);
-      ctx.engine.capturePiece(pieceId, "quicksand");
+    // A quicksand trap belongs to the placing side. An ally may enter without
+    // consuming it; only the first enemy entrant can trigger the trap.
+    const owner = (trap as { owner?: unknown }).owner;
+    if (owner !== "white" && owner !== "black") {
+      return fail("Propriétaire du piège invalide.");
     }
+    const pieceId = ctx.engine.board.getPieceAt(tile);
+    if (!pieceId) return true;
+    const entrant = ctx.engine.board.getPiece(pieceId);
+    if (entrant.side === owner) return true;
+
+    ctx.engine.capturePiece(pieceId, "quicksand");
     if (params?.persistent !== true) {
       const cleared = registry.runEffect(
         { action: "tile.clearTrap", params: { tile } },

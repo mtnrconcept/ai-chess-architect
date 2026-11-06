@@ -124,6 +124,9 @@ export class VFXAdapter implements VFXAPI {
       cloaking: "check",
       capture: "capture",
       move: "move",
+      sink: "mine-detonation",
+      sand: "move",
+      quicksand: "mine-detonation",
     };
     this.playSoundCallback(mapping[String(audioId)] ?? "move");
   }
@@ -143,6 +146,14 @@ export class VFXAdapter implements VFXAPI {
 
   private mapSpriteToIntent(spriteId: SpriteId): FxIntent | null {
     const normalized = String(spriteId).toLowerCase();
+    // Dedicated visual language for sand traps: amber ripples persist on the
+    // square, whereas the sinking splash is a short particle burst.
+    if (/quicksand|sable.mouvant|sand.trap/.test(normalized)) {
+      if (/splash|sink|burst|trigger/.test(normalized)) {
+        return { intent: "combat.hit", power: "large", style: { color: "#e8b866", glow: "#ffd98c", sparks: true } };
+      }
+      return { intent: "area.hazard", kind: "field", radius: 0.65, style: { color: "#d9a44f", glow: "#f6cf82", pulse: true } };
+    }
     if (/explosion|boom|burst/.test(normalized)) {
       return { intent: "combat.explosion", power: "medium" };
     }

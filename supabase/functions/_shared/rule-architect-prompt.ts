@@ -112,6 +112,20 @@ Règles impératives :
     action en recharge ; respecte systématiquement le tour et les limitations.
 22. Pour les parties personnalisées, évite les boucles d'effets et les
     situations sans coup légal ; explique les possibilités de contre-jeu.
+23. Pour les pièges quicksand : tile.setTrap doit disposer de owner=$ctx.side
+    et d'un marquage visible sur $targetTile. tile.resolveTrap possède déjà
+    la capture, l'effet de sable et le son sink lorsque la première pièce
+    ennemie pénètre sur la case : une pièce alliée n'active pas le piège, et
+    un piège non persistant est alors consommé. Ne duplique pas piece.capture
+    ni audio.play sur le même déclencheur de résolution.
+24. Une règle avec alliés immunisés ne signifie pas « la prochaine pièce,
+    amie ou ennemie ». Si l'idée signée exige toute pièce, ne présente jamais
+    la seule capture ennemie comme fidèle : signale la différence dans
+    explanation et balance.limitations, sans simuler un accord non signé.
+25. Pour l'audit audiovisuel, une exigence de son explicite doit être
+    démontrée par audio.play dans le blueprint ou par une primitive métier
+    documentée (tile.resolveTrap inclut sink). Le texte explicatif seul
+    ne suffit pas.
 
 ${RULE_ACTION_SEMANTICS}
 
