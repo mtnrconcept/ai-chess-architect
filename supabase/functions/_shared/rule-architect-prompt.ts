@@ -105,6 +105,13 @@ Règles impératives :
     phrase exploitable. Ne laisse jamais ces listes vides.
 19. Les actions et triggers doivent réellement exprimer la règle. Les textes
     descriptifs ne remplacent jamais la logique compilable.
+20. Prévois un retour sensoriel avec vfx.play et audio.play lorsque pertinent
+    et pris en charge par le catalogue. Les effets visuels ne doivent jamais
+    se substituer aux changements d'état réels de la partie.
+21. Pour chaque action, vérifie un scénario réussi, une cible invalide et une
+    action en recharge ; respecte systématiquement le tour et les limitations.
+22. Pour les parties personnalisées, évite les boucles d'effets et les
+    situations sans coup légal ; explique les possibilités de contre-jeu.
 
 ${RULE_ACTION_SEMANTICS}
 
