@@ -1770,6 +1770,7 @@ const Play = () => {
   }, []);
 
   const boardFxRef = useRef<HTMLDivElement>(null);
+  const fxCanvasHostRef = useRef<HTMLDivElement>(null);
   const toFxCellPosition = useCallback((cell: string) => {
     const boardElement = boardFxRef.current;
     const cellElement = boardElement?.querySelector<HTMLElement>(
@@ -1789,7 +1790,7 @@ const Play = () => {
   /* ------------------------------------------------------------------------ */
 
   return (
-    <FxProvider boardRef={boardFxRef} toCellPos={toFxCellPosition}>
+    <FxProvider boardRef={boardFxRef} canvasHostRef={fxCanvasHostRef} toCellPos={toFxCellPosition}>
       <RuleRuntimeBridge vfxAdapter={vfxAdapter} />
       <main className="mx-auto w-full max-w-7xl px-4 py-6">
         <div className="mb-4 flex items-center gap-3">
@@ -1879,6 +1880,7 @@ const Play = () => {
             ref={boardFxRef}
             className="relative rounded-lg border border-white/10 bg-black/20 p-4"
           >
+            <div ref={fxCanvasHostRef} className="pointer-events-none absolute inset-0 z-[8]" aria-hidden="true" />
             {aiThinking && (
               <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex justify-center">
                 <div className="flex items-center gap-2 rounded-full border border-cyan-300/30 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-xl backdrop-blur">
