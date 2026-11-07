@@ -15,6 +15,7 @@ import {
   type ProviderId,
 } from "../../rules-v2";
 import { Cooldown } from "../cooldown";
+import { realOpenAIQuicksandRule } from "./fixtures/openai-quicksand-20261107";
 import { ChessBoardAdapter } from "../adapters/chessBoardAdapter";
 import { RuleEngine } from "../engine";
 import { registerBuiltinConditions } from "../builtins/conditions";
@@ -419,6 +420,63 @@ describe("Rule Architect V2 catalog contracts", () => {
     expect(registry.runEffect(resolveB2, ctx)).toBe(true);
     expect(contracts.board.getPiece("source").tile).toBe("b2");
     expect(animation).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays a REAL GPT-5.6 Sol compiled rule: placement, ally safety, enemy capture, 3-use limit", () => {
+    const registry = createRegistry();
+    const { contracts, state, animation, audio, endTurn } = createHarness();
+    const engine = new RuleEngine(contracts, registry, { matchSeed: "real-openai-e2e" });
+    const rule: RuleJSON = {
+      ...realOpenAIQuicksandRule,
+      meta: { ...realOpenAIQuicksandRule.meta, isActive: true },
+    };
+    engine.loadRules([rule]);
+
+    expect(engine.getRules()).toHaveLength(1);
+    const actions = engine.getUIActions();
+    expect(actions).toHaveLength(1);
+    const actionId = actions[0].id;
+    const namespace = engine.getRules()[0].state?.namespace ?? "";
+    const traps = () => (
+      state.getOrInit(namespace, {}) as {
+        traps?: Record<string, { kind: string; owner: string }>;
+      }
+    ).traps ?? {};
+
+    // No fabricated moves, no extra action types, no occupied/distant targets.
+    expect(engine.runUIAction(actionId, "ally", "c3").ok).toBe(false);
+    expect(engine.runUIAction(actionId, "source", "a3").ok).toBe(false);
+    expect(engine.runUIAction(actionId, "source", "c6").ok).toBe(false);
+    expect(Object.keys(traps())).toHaveLength(0);
+
+    const placed = engine.runUIAction(actionId, "source", "b3");
+    expect(placed.ok).toBe(true);
+    expect(traps().b3).toEqual({ kind: "quicksand", owner: "white" });
+    expect(endTurn).toHaveBeenCalledTimes(1);
+    expect(animation).toHaveBeenCalledWith("quicksand", "b3");
+
+    // Friendly knight arrives and departs unharmed; trap must stay armed.
+    contracts.board.setPieceTile("ally", "b3");
+    engine.onEnterTile("ally", "b3");
+    expect(contracts.board.getPiece("ally").tile).toBe("b3");
+    expect(traps().b3).toBeDefined();
+    expect(audio).not.toHaveBeenCalledWith("sink");
+    contracts.board.setPieceTile("ally", "c4");
+
+    // First enemy arrival immediately captures the rook and consumes the trap.
+    contracts.board.setPieceTile("enemy", "b3");
+    engine.onEnterTile("enemy", "b3");
+    expect(() => contracts.board.getPiece("enemy")).toThrow();
+    expect(traps().b3).toBeUndefined();
+    expect(animation).toHaveBeenCalledWith("quicksand_splash", "b3");
+    expect(audio).toHaveBeenCalledWith("sink");
+
+    // No cooldown; native maxPerPiece=3 is enforced by the action runtime.
+    expect(engine.runUIAction(actionId, "source", "a1").ok).toBe(true);
+    expect(engine.runUIAction(actionId, "source", "b1").ok).toBe(true);
+    expect(engine.runUIAction(actionId, "source", "b2").ok).toBe(false);
+    expect(traps().b2).toBeUndefined();
+    expect(endTurn).toHaveBeenCalledTimes(3);
   });
 
   it("persiste invisibilité et statuts dans le plateau réel, y compris après snapshot", () => {
