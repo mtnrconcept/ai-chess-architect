@@ -3,7 +3,7 @@ import type { Application } from "pixi.js";
 export type FxIntent =
   | {
       intent: "object.spawn";
-      kind: "mine" | "totem" | "beacon";
+      kind: "mine" | "totem" | "beacon" | "quicksand";
       style?: FxStyle;
     }
   | {
