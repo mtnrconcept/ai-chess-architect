@@ -27,42 +27,36 @@ const FxContextInternal = createContext<FxRuntime | null | undefined>(
 
 type FxProviderProps = PropsWithChildren<{
   boardRef: React.RefObject<HTMLElement>;
+  canvasHostRef: React.RefObject<HTMLDivElement>;
   toCellPos: (cell: string) => { x: number; y: number };
 }>;
 
 export const FxProvider = ({
   boardRef,
+  canvasHostRef,
   toCellPos,
   children,
 }: FxProviderProps) => {
   const [runtime, setRuntime] = useState<FxRuntime | null>(null);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<PIXI.Application | null>(null);
 
   useEffect(() => {
-    if (!boardRef.current) return;
+    const board = boardRef.current;
+    const container = canvasHostRef.current;
+    if (!board || !container) return;
 
     let cancelled = false;
     let appInstance: PIXI.Application | null = null;
 
     const initPixi = async () => {
-      const container = document.createElement("div");
-      container.style.position = "absolute";
-      container.style.top = "0";
-      container.style.left = "0";
-      container.style.right = "0";
-      container.style.bottom = "0";
-      container.style.pointerEvents = "none";
-      container.style.zIndex = "8";
-      overlayRef.current = container;
-      boardRef.current!.appendChild(container);
-
+      // A React-managed, empty host prevents the canvas from mutating the
+      // set of children owned by the live chessboard reconciler.
       try {
         const app = new PIXI.Application();
 
         await app.init({
           backgroundAlpha: 0,
-          resizeTo: boardRef.current!,
+          resizeTo: board,
           antialias: true,
           resolution: window.devicePixelRatio || 1,
         });
@@ -87,7 +81,7 @@ export const FxProvider = ({
 
         const ctx: FxContext = {
           app,
-          layer: { ui: boardRef.current! },
+          layer: { ui: board },
           toCellPos,
         };
 
@@ -113,13 +107,10 @@ export const FxProvider = ({
         appInstance.destroy(true, { children: true });
       }
       appRef.current = null;
-      if (overlayRef.current) {
-        overlayRef.current.remove();
-        overlayRef.current = null;
-      }
-      setRuntime(null);
+      // React owns the host's lifecycle. The Pixi Application owns only
+      // its canvas; never remove an element managed by React itself.
     };
-  }, [boardRef, toCellPos]);
+  }, [boardRef, canvasHostRef, toCellPos]);
 
   const value = useMemo(() => runtime, [runtime]);
 

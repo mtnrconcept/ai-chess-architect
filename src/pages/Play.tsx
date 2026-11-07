@@ -1009,6 +1009,36 @@ const Play = () => {
     onTurnEnd: handleRuleTurnEnd,
   });
 
+  // The board's decals are authoritative: make persistent hazards visible
+  // through React even when Pixi/WebGL is unavailable or initializing.
+  const [ruleDecals, setRuleDecals] = useState<Record<string, string>>({});
+  useEffect(() => {
+    vfxAdapter.setDecalCallbacks({
+      spawn: (sprite, tile) => {
+        setRuleDecals((previous) =>
+          previous[tile] === sprite
+            ? previous
+            : { ...previous, [tile]: sprite },
+        );
+      },
+      clear: (tile) => {
+        setRuleDecals((previous) => {
+          if (!(tile in previous)) return previous;
+          const next = { ...previous };
+          delete next[tile];
+          return next;
+        });
+      },
+    });
+    const restored: Record<string, string> = {};
+    for (const tile of boardAdapter.tiles()) {
+      const sprite = boardAdapter.getDecal(tile);
+      if (sprite !== null) restored[tile] = sprite;
+    }
+    setRuleDecals(restored);
+    return () => vfxAdapter.setDecalCallbacks({});
+  }, [boardAdapter, vfxAdapter]);
+
   const lastRuleTurnSideRef = useRef<PieceColor | null>(null);
   useEffect(() => {
     if (lastRuleTurnSideRef.current === gameState.currentPlayer) return;
@@ -1740,6 +1770,7 @@ const Play = () => {
   }, []);
 
   const boardFxRef = useRef<HTMLDivElement>(null);
+  const fxCanvasHostRef = useRef<HTMLDivElement>(null);
   const toFxCellPosition = useCallback((cell: string) => {
     const boardElement = boardFxRef.current;
     const cellElement = boardElement?.querySelector<HTMLElement>(
@@ -1759,7 +1790,7 @@ const Play = () => {
   /* ------------------------------------------------------------------------ */
 
   return (
-    <FxProvider boardRef={boardFxRef} toCellPos={toFxCellPosition}>
+    <FxProvider boardRef={boardFxRef} canvasHostRef={fxCanvasHostRef} toCellPos={toFxCellPosition}>
       <RuleRuntimeBridge vfxAdapter={vfxAdapter} />
       <main className="mx-auto w-full max-w-7xl px-4 py-6">
         <div className="mb-4 flex items-center gap-3">
@@ -1849,6 +1880,7 @@ const Play = () => {
             ref={boardFxRef}
             className="relative rounded-lg border border-white/10 bg-black/20 p-4"
           >
+            <div ref={fxCanvasHostRef} className="pointer-events-none absolute inset-0 z-[8]" aria-hidden="true" />
             {aiThinking && (
               <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex justify-center">
                 <div className="flex items-center gap-2 rounded-full border border-cyan-300/30 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-xl backdrop-blur">
@@ -1859,6 +1891,7 @@ const Play = () => {
             )}
             <ChessBoard
               artDirection={primaryRule ? `${primaryRule.ruleName} ${primaryRule.description}` : null}
+              decorations={ruleDecals}
               board={gameState.board}
               selected={gameState.selectedPiece?.position || null}
               validMoves={gameState.validMoves}

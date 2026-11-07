@@ -61,7 +61,9 @@ export class VFXAdapter implements VFXAPI {
   spawnDecal(spriteId: SpriteId, tile: Tile): void {
     this.pendingDecals.set(tile, spriteId);
     this.decalCallbacks.spawn?.(spriteId, tile);
-    if (!this.decalCallbacks.spawn && this.fxTrigger) {
+    // The React state mirror is not a replacement for the Pixi renderer.
+    // Both consumers must receive the same authoritative decal event.
+    if (this.fxTrigger) {
       const intent = this.mapSpriteToIntent(spriteId);
       if (intent) {
         void this.fxTrigger([intent], { cell: tile }).catch(

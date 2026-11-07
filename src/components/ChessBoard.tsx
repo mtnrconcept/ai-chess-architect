@@ -45,6 +45,7 @@ interface ChessBoardProps {
   readOnly?: boolean;
   highlightSquares?: Position[];
   artDirection?: string | null;
+  decorations?: Readonly<Record<string, string>>;
 }
 
 const pieceSymbols: Record<ChessPiece['type'], { white: string; black: string }> = {
@@ -73,6 +74,7 @@ const ChessBoard = ({
   readOnly = false,
   highlightSquares = [],
   artDirection,
+  decorations = {},
 }: ChessBoardProps) => {
   // Protection : si board est undefined, on utilise un plateau vide 8x8
   const safeBoard = board || Array.from({ length: 8 }, () => Array(8).fill(null));
@@ -106,6 +108,10 @@ const ChessBoard = ({
                 const validSq = isValidMove(rowIndex, colIndex);
                 const highlighted = isHighlighted(rowIndex, colIndex);
                 const inLastMove = isLastMove(rowIndex, colIndex);
+                const algebraicTile = `${String.fromCharCode(97 + colIndex)}${8 - rowIndex}`;
+                const isQuicksandTrap = /quicksand|sable.mouvant|sand.trap/i.test(
+                  decorations[algebraicTile] ?? "",
+                );
 
                 const handleClick = () => {
                   if (readOnly) return;
@@ -126,7 +132,8 @@ const ChessBoard = ({
                     key={`${rowIndex}-${colIndex}`}
                     data-chess-cell={`${String.fromCharCode(97 + colIndex)}${8 - rowIndex}`}
                     data-testid={`chess-cell-${String.fromCharCode(97 + colIndex)}${8 - rowIndex}`}
-                    aria-label={`Case ${String.fromCharCode(97 + colIndex)}${8 - rowIndex} — ${piece ? `${piece.type} ${piece.color === "white" ? "blanc" : "noir"}` : "vide"}`}
+                    aria-label={`Case ${algebraicTile} — ${piece ? `${piece.type} ${piece.color === "white" ? "blanc" : "noir"}` : "vide"}${isQuicksandTrap ? ", piège de sables mouvants visible" : ""}`}
+                    data-rule-trap={isQuicksandTrap ? "quicksand" : undefined}
                     aria-pressed={selectedSq}
                     onClick={readOnly ? undefined : handleClick}
                     aria-disabled={readOnly}
@@ -145,6 +152,19 @@ const ChessBoard = ({
                       readOnly && 'cursor-default'
                     )}
                   >
+                    {isQuicksandTrap && (
+                      <span
+                        data-testid={`quicksand-${algebraicTile}`}
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-[7%] z-[1] overflow-hidden rounded-[0.8rem] border border-amber-200/75 bg-[radial-gradient(ellipse_at_center,rgba(255,238,176,0.7)_0%,rgba(202,139,60,0.84)_39%,rgba(99,54,28,0.78)_72%,rgba(29,18,15,0.38)_100%)] shadow-[inset_0_0_11px_rgba(71,35,9,0.9),0_0_16px_rgba(255,186,83,0.8)]"
+                      >
+                        <span className="absolute inset-[12%] rounded-full border-2 border-dashed border-amber-100/90 motion-safe:animate-spin" />
+                        <span className="absolute inset-[28%] rounded-full border-2 border-amber-300/80 border-r-transparent border-b-transparent motion-safe:animate-spin" />
+                        <span className="absolute inset-[38%] rounded-full bg-amber-200/70 shadow-[0_0_12px_4px_rgba(251,191,36,0.7)] motion-safe:animate-pulse" />
+                        <span className="absolute left-[17%] top-[24%] h-1 w-1 rounded-full bg-yellow-100 shadow-[0_0_7px_#fef3c7]" />
+                        <span className="absolute right-[14%] bottom-[24%] h-1.5 w-1.5 rounded-full bg-yellow-200 shadow-[0_0_8px_#fef08a]" />
+                      </span>
+                    )}
                     {validSq && (
                       <span className="pointer-events-none absolute inset-0 rounded-[0.95rem] border border-cyan-300/50 animate-neonPulse" />
                     )}
