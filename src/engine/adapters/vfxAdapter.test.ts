@@ -24,6 +24,33 @@ describe("VFXAdapter custom rule effects", () => {
     expect(calls).toEqual([]);
   });
 
+  it("maps a generated quicksand decal to free procedural sand rendering", async () => {
+    const adapter = new VFXAdapter();
+    const calls: Array<{ intents?: FxIntent[]; payload?: FxPayload }> = [];
+    adapter.setFxTrigger(async (intents, payload) => {
+      calls.push({ intents, payload });
+    });
+    adapter.spawnDecal("quicksand_tile", "e3");
+    expect(calls).toContainEqual({
+      intents: [{ intent: "object.spawn", kind: "quicksand" }],
+      payload: { cell: "e3" },
+    });
+    adapter.playAnimation("quicksand_splash", "e3");
+    expect(calls).toContainEqual({
+      intents: [{
+        intent: "combat.hit",
+        power: "large",
+        style: { color: "#e8b866", glow: "#ffd98c", sparks: true },
+      }],
+      payload: { cell: "e3" },
+    });
+    adapter.clearDecal("e3");
+    expect(calls).toContainEqual({
+      intents: [{ intent: "object.clear" }],
+      payload: { cell: "e3" },
+    });
+  });
+
   it("clears a rendered persistent hazard when the engine clears the decal", async () => {
     const adapter = new VFXAdapter();
     const calls: Array<{ intents?: FxIntent[]; payload?: FxPayload }> = [];
