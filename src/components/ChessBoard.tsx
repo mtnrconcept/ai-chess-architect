@@ -125,6 +125,9 @@ const ChessBoard = ({
                     type="button"
                     key={`${rowIndex}-${colIndex}`}
                     data-chess-cell={`${String.fromCharCode(97 + colIndex)}${8 - rowIndex}`}
+                    data-testid={`chess-cell-${String.fromCharCode(97 + colIndex)}${8 - rowIndex}`}
+                    aria-label={`Case ${String.fromCharCode(97 + colIndex)}${8 - rowIndex} — ${piece ? `${piece.type} ${piece.color === "white" ? "blanc" : "noir"}` : "vide"}`}
+                    aria-pressed={selectedSq}
                     onClick={readOnly ? undefined : handleClick}
                     aria-disabled={readOnly}
                     className={cn(
