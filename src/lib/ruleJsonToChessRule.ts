@@ -613,18 +613,27 @@ export const convertRuleJsonToChessRule = (
   const logicEffects = toLogicSteps(logic?.effects);
   const uiActions = toUiActions(ui?.actions);
 
-  const abilityEffects = deriveAbilityEffects(
-    uiActions,
-    meta ?? {},
-    parameters,
-    logicEffects,
-  );
-  const fallbackEffects =
-    abilityEffects.length > 0
+  // A Rule Architect V2 blueprint is executed exclusively by RuleEngine.
+  // Converting its UI actions to legacy addAbility effects also arms the old
+  // SpecialAttack pipeline, creating duplicate, incompatible actions that
+  // can crash a live custom match. Preserve the original JSON for RuleEngine
+  // and expose uiActions only through its authoritative RuleActionDock.
+  const isRuleArchitectV2 =
+    isRecord(ruleJson.integration) &&
+    isRecord(ruleJson.integration.ruleArchitect) &&
+    ruleJson.integration.ruleArchitect.source === "ai-blueprint";
+  const abilityEffects = isRuleArchitectV2
+    ? []
+    : deriveAbilityEffects(uiActions, meta ?? {}, parameters, logicEffects);
+  const fallbackEffects = isRuleArchitectV2
+    ? []
+    : abilityEffects.length > 0
       ? abilityEffects
       : deriveFallbackEffects(logicEffects);
 
-  const trigger = deriveTrigger(abilityEffects, logicEffects, "always");
+  const trigger = isRuleArchitectV2
+    ? "conditional"
+    : deriveTrigger(abilityEffects, logicEffects, "always");
 
   const tags = meta?.tags
     ? toStringArray(meta.tags)
