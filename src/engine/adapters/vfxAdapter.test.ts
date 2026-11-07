@@ -51,6 +51,31 @@ describe("VFXAdapter custom rule effects", () => {
     });
   });
 
+  it("fan-outs authoritative decals to the React marker and Pixi renderer", async () => {
+    const adapter = new VFXAdapter();
+    const renderEvents: Array<{ intents?: FxIntent[]; payload?: FxPayload }> = [];
+    const mirrorEvents: Array<[string, string | null]> = [];
+    adapter.setDecalCallbacks({
+      spawn: (sprite, tile) => mirrorEvents.push([tile, sprite]),
+      clear: (tile) => mirrorEvents.push([tile, null]),
+    });
+    adapter.setFxTrigger(async (intents, payload) => {
+      renderEvents.push({ intents, payload });
+    });
+    adapter.spawnDecal("quicksand", "e3");
+    expect(mirrorEvents).toContainEqual(["e3", "quicksand"]);
+    expect(renderEvents).toContainEqual({
+      intents: [{ intent: "object.spawn", kind: "quicksand" }],
+      payload: { cell: "e3" },
+    });
+    adapter.clearDecal("e3");
+    expect(mirrorEvents).toContainEqual(["e3", null]);
+    expect(renderEvents).toContainEqual({
+      intents: [{ intent: "object.clear" }],
+      payload: { cell: "e3" },
+    });
+  });
+
   it("clears a rendered persistent hazard when the engine clears the decal", async () => {
     const adapter = new VFXAdapter();
     const calls: Array<{ intents?: FxIntent[]; payload?: FxPayload }> = [];
