@@ -122,6 +122,12 @@ Règles impératives :
     amie ou ennemie ». Si l'idée signée exige toute pièce, ne présente jamais
     la seule capture ennemie comme fidèle : signale la différence dans
     explanation et balance.limitations, sans simuler un accord non signé.
+26. Catalogue visuel gratuit : utilise des sprites déclaratifs fondés sur
+    des mots clés comme quicksand, fire, ice, lightning, poison, heal,
+    shield, forest, shadow, water, dragon, portal. Le frontend sélectionne
+    une animation PixiJS/GSAP bornée et un thème de pièce SVG à partir du
+    prompt. Ne promets jamais une image 3D photoréaliste ou une ressource
+    distante impossible à charger.
 25. Pour l'audit audiovisuel, une exigence de son explicite doit être
     démontrée par audio.play dans le blueprint ou par une primitive métier
     documentée (tile.resolveTrap inclut sink). Le texte explicatif seul
