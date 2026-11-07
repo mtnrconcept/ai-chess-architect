@@ -1833,6 +1833,7 @@ const Play = () => {
               </div>
             )}
             <ChessBoard
+              artDirection={primaryRule ? `${primaryRule.ruleName} ${primaryRule.description}` : null}
               board={gameState.board}
               selected={gameState.selectedPiece?.position || null}
               validMoves={gameState.validMoves}
