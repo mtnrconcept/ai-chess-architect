@@ -41,6 +41,12 @@ jobs:
 
       - name: Start actual React/Vite game
         shell: bash
+        # Public (non-privileged) client credentials only. The local browser
+        # lacks the Vercel Git environment guards used by the fallback.
+        env:
+          VITE_SUPABASE_URL: https://apvbjmbwpywjojyjhvbl.supabase.co
+          VITE_SUPABASE_PROJECT_ID: apvbjmbwpywjojyjhvbl
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_r3NS78bLpojKCeoY4ojnug_s25qI65t
         run: |
           set -euo pipefail
           pnpm exec vite --host 127.0.0.1 --port 4173 --strictPort \
