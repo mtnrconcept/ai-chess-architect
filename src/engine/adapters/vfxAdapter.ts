@@ -124,9 +124,9 @@ export class VFXAdapter implements VFXAPI {
       cloaking: "check",
       capture: "capture",
       move: "move",
-      sink: "mine-detonation",
-      sand: "move",
-      quicksand: "mine-detonation",
+      sink: "quicksand-capture",
+      sand: "quicksand-place",
+      quicksand: "quicksand-capture",
     };
     this.playSoundCallback(mapping[String(audioId)] ?? "move");
   }
@@ -152,7 +152,7 @@ export class VFXAdapter implements VFXAPI {
       if (/splash|sink|burst|trigger/.test(normalized)) {
         return { intent: "combat.hit", power: "large", style: { color: "#e8b866", glow: "#ffd98c", sparks: true } };
       }
-      return { intent: "area.hazard", kind: "field", radius: 0.65, style: { color: "#d9a44f", glow: "#f6cf82", pulse: true } };
+      return { intent: "object.spawn", kind: "quicksand" };
     }
     if (/explosion|boom|burst/.test(normalized)) {
       return { intent: "combat.explosion", power: "medium" };
