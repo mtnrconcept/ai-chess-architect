@@ -1,0 +1,74 @@
+name: Quicksand Real Browser E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-gameplay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install project
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare isolated pinned Chromium runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/aichess-playwright" \
+            --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          "$RUNNER_TEMP/aichess-playwright/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Start actual React/Vite game
+        shell: bash
+        # Public (non-privileged) client credentials only. The local browser
+        # lacks the Vercel Git environment guards used by the fallback.
+        env:
+          VITE_SUPABASE_URL: https://apvbjmbwpywjojyjhvbl.supabase.co
+          VITE_SUPABASE_PROJECT_ID: apvbjmbwpywjojyjhvbl
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_r3NS78bLpojKCeoY4ojnug_s25qI65t
+        run: |
+          set -euo pipefail
+          pnpm exec vite --host 127.0.0.1 --port 4173 --strictPort \
+            > "$RUNNER_TEMP/aichess-vite.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/aichess-vite.pid"
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4173/play?demo=quicksand \
+              -o /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/aichess-vite.log"
+          exit 1
+
+      - name: Play entire real GPT-5.6 Sol custom rule
+        run: node scripts/e2e-quicksand.mjs
+
+      - name: Attach browser failure details
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quicksand-browser-debug
+          path: |
+            test-results/quicksand/
+          if-no-files-found: ignore
+          retention-days: 3
