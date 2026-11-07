@@ -63,6 +63,15 @@ jobs:
       - name: Play entire real GPT-5.6 Sol custom rule
         run: node scripts/e2e-quicksand.mjs
 
+      # PR verification also exercises the actual public deployment. Production
+      # is not awaited on a main push, preventing a race with Vercel's build.
+      # The rule fixture is a local unranked game, never a privileged write.
+      - name: Smoke the deployed public game in Chromium
+        if: github.event_name == 'pull_request'
+        env:
+          AICHESS_E2E_URL: https://ai-chess-architect.vercel.app/play?demo=quicksand
+        run: node scripts/e2e-quicksand.mjs
+
       - name: Attach browser failure details
         if: failure()
         uses: actions/upload-artifact@v4
