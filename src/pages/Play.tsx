@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import ChessBoard from "@/components/ChessBoard";
+import { realOpenAIQuicksandRule } from "@/engine/__tests__/fixtures/openai-quicksand-20261107";
 import { ChessEngine } from "@/lib/chessEngine";
 import { chooseAiMove } from "@/lib/aiOpponent";
 import { applyMoveToGameState, canPlayFromState } from "@/lib/gameMoveState";
@@ -422,11 +423,23 @@ const Play = () => {
 
   // Récupérer le ruleId depuis l'URL (ex: /play?ruleId=xxx)
   const urlRuleId = searchParams.get("ruleId");
+  // Local, unranked demonstration of an actual GPT-5.6 Sol-compiled rule.
+  // This URL cannot grant publishing rights, access authenticated lobbies,
+  // or override a rule set supplied by a real match.
+  const isQuicksandDemo =
+    searchParams.get("demo") === "quicksand" &&
+    !locationState?.lobbyId &&
+    !locationState?.matchId &&
+    !locationState?.customRules?.length &&
+    !locationState?.presetRuleIds?.length &&
+    !urlRuleId;
 
   const params = useParams<{ matchId?: string }>();
 
   const opponentType =
-    locationState?.opponentType === "player"
+    isQuicksandDemo
+      ? "local"
+      : locationState?.opponentType === "player"
       ? "player"
       : locationState?.opponentType === "local"
         ? "local"
@@ -639,10 +652,22 @@ const Play = () => {
 
   const rawCustomRules = useMemo(() => {
     const custom = locationState?.customRules;
-    return Array.isArray(custom)
-      ? (custom as ChessRule[])
-      : ([] as ChessRule[]);
-  }, [locationState]);
+    if (Array.isArray(custom) && custom.length > 0) {
+      return custom as ChessRule[];
+    }
+    if (isQuicksandDemo) {
+      // This fixture came from a real OpenAI Responses call and passed the
+      // deterministic Rule Architect compiler and independent coverage audit.
+      // Flip only the draft activation flag for an isolated local match.
+      return [
+        convertRuleJsonToChessRule({
+          ...realOpenAIQuicksandRule,
+          meta: { ...realOpenAIQuicksandRule.meta, isActive: true },
+        }),
+      ];
+    }
+    return [] as ChessRule[];
+  }, [locationState, isQuicksandDemo]);
 
   const initialPresetRuleIds = useMemo(() => {
     const preset = locationState?.presetRuleIds;
