@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { ChessPiece, Position, VisualEffect, SpecialAttackInstance, PieceColor, ChessMove } from '@/types/chess';
 import { cn } from '@/lib/utils';
+import { inferPieceMaterial, ProceduralPieceArt } from '@/fx/piece-art';
 
 type MaybeMove =
   | Position
@@ -43,6 +44,7 @@ interface ChessBoardProps {
   currentPlayer?: PieceColor;
   readOnly?: boolean;
   highlightSquares?: Position[];
+  artDirection?: string | null;
 }
 
 const pieceSymbols: Record<ChessPiece['type'], { white: string; black: string }> = {
@@ -70,9 +72,11 @@ const ChessBoard = ({
   currentPlayer,
   readOnly = false,
   highlightSquares = [],
+  artDirection,
 }: ChessBoardProps) => {
   // Protection : si board est undefined, on utilise un plateau vide 8x8
   const safeBoard = board || Array.from({ length: 8 }, () => Array(8).fill(null));
+  const pieceMaterial = inferPieceMaterial(artDirection);
 
   const isValidMove = (row: number, col: number) =>
     (validMoves ?? []).some(m => samePos(getMovePos(m), { row, col }));
@@ -196,6 +200,13 @@ const ChessBoard = ({
                     {/* Pièce */}
                     {piece && !piece.isHidden && (
                       <span className="relative flex items-center justify-center">
+                        {pieceMaterial ? (
+                          <ProceduralPieceArt
+                            type={piece.type}
+                            color={piece.color}
+                            material={pieceMaterial}
+                          />
+                        ) : (
                         <span
                           className={cn(
                             'relative z-[1] bg-gradient-to-br',
@@ -206,6 +217,7 @@ const ChessBoard = ({
                         >
                           {pieceSymbols[piece.type][piece.color]}
                         </span>
+                        )}
                         <span
                           className={cn(
                             'absolute inset-0 -z-[1] rounded-full bg-gradient-to-br',

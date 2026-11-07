@@ -12,7 +12,9 @@ type SoundEffect =
   | 'countdown'
   | 'explosion'
   | 'quantum-explosion'
-  | 'mine-detonation';
+  | 'mine-detonation'
+  | 'quicksand-place'
+  | 'quicksand-capture';
 
 type SoundSegment = {
   frequency: number;
@@ -77,6 +79,18 @@ const SOUND_SEQUENCES: Record<SoundEffect, SoundSegment[]> = {
     { frequency: 420, duration: 0.1, type: 'square', volume: 0.28 },
     { frequency: 240, duration: 0.18, type: 'triangle', volume: 0.24 },
     { frequency: 140, duration: 0.18, type: 'sine', volume: 0.2 },
+  ],
+  'quicksand-place': [
+    { frequency: 320, duration: 0.09, type: 'triangle', volume: 0.13 },
+    { frequency: 230, duration: 0.13, type: 'sine', volume: 0.16 },
+    { frequency: 170, duration: 0.18, type: 'triangle', volume: 0.10 },
+  ],
+  'quicksand-capture': [
+    { frequency: 500, duration: 0.09, type: 'triangle', volume: 0.18 },
+    { frequency: 340, duration: 0.12, type: 'sawtooth', volume: 0.18 },
+    { frequency: 210, duration: 0.15, type: 'triangle', volume: 0.23 },
+    { frequency: 115, duration: 0.20, type: 'sine', volume: 0.18 },
+    { frequency: 72, duration: 0.25, type: 'sine', volume: 0.10 },
   ],
 };
 
