@@ -170,12 +170,63 @@ const sparks = (
   }
 };
 
+/**
+ * Free, GPU-accelerated sand vortex generated from geometry at runtime.
+ * No image service, licensing dependency or remote asset is required.
+ * All repeating tweens are registered for deterministic cleanup on trap use.
+ */
+const spawnQuicksand = (
+  ctx: FxContext,
+  payload: FxPayload,
+): void => {
+  const at = point(ctx, payload.cell);
+  if (!at) return;
+  const { record } = mount(ctx, at, true);
+  const sand = 0xd9a85b;
+  const glow = 0xffe2a1;
+  disc(record, 19, 0x46301e, 0.76);
+  disc(record, 15, 0x8f602f, 0.68);
+  for (let index = 0; index < 4; index += 1) {
+    const radius = 7 + index * 4;
+    const spiral = new Graphics()
+      .arc(0, 0, radius, Math.PI * 0.13, Math.PI * 1.71)
+      .stroke({ color: index % 2 === 0 ? glow : sand, width: 2.2 - index * 0.25, alpha: 0.82 });
+    spiral.rotation = index * (Math.PI / 3);
+    record.root.addChild(spiral);
+    animate(record, spiral, {
+      rotation: spiral.rotation + (index % 2 === 0 ? 1 : -1) * Math.PI * 2,
+      duration: 2.4 + index * 0.7,
+      repeat: -1,
+      ease: "none",
+    });
+  }
+  for (let index = 0; index < 9; index += 1) {
+    const angle = (index / 9) * Math.PI * 2;
+    const radius = 13 + (index % 3) * 3;
+    const grain = disc(record, 1 + (index % 2), index % 2 ? glow : sand, 0.8);
+    grain.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    animate(record, grain, {
+      x: Math.cos(angle + Math.PI) * radius,
+      y: Math.sin(angle + Math.PI) * radius,
+      alpha: 0.25,
+      duration: 1.4 + (index % 4) * 0.3,
+      yoyo: true,
+      repeat: -1,
+      ease: "sine.inOut",
+    });
+  }
+};
+
 const spawnObject = (
   ctx: FxContext,
   payload: FxPayload,
-  kind: "mine" | "totem" | "beacon",
+  kind: "mine" | "totem" | "beacon" | "quicksand",
   style?: FxStyle,
 ): void => {
+  if (kind === "quicksand") {
+    spawnQuicksand(ctx, payload);
+    return;
+  }
   const at = point(ctx, payload.cell);
   if (!at) return;
   const { record } = mount(ctx, at, true);
@@ -398,7 +449,7 @@ export async function resolveFx(
   switch (intent.intent) {
     case "object.spawn": {
       const kind =
-        intent.kind === "totem" || intent.kind === "beacon"
+        intent.kind === "totem" || intent.kind === "beacon" || intent.kind === "quicksand"
           ? intent.kind
           : "mine";
       spawnObject(ctx, payload, kind, style);
