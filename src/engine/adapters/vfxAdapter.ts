@@ -154,6 +154,31 @@ export class VFXAdapter implements VFXAPI {
       }
       return { intent: "object.spawn", kind: "quicksand" };
     }
+    // Bounded, license-free GPU effects inferred from descriptive sprite IDs.
+    if (/fire|flame|magma|lava|incendi|brasier/.test(normalized)) {
+      return { intent: "combat.burn", power: "large", style: { color: "#ff833f", sparks: true, smoke: "light" } };
+    }
+    if (/lightning|electr|foudre|eclair|éclair|orage/.test(normalized)) {
+      return { intent: "combat.hit", power: "large", style: { color: "#d0a5ff", glow: "#e4caff", sparks: true } };
+    }
+    if (/poison|venom|venin|toxic|acid/.test(normalized)) {
+      return { intent: "combat.burn", power: "medium", style: { color: "#89df81", glow: "#b9f28d", sparks: true } };
+    }
+    if (/heal|soin|regen|protect|shield|bouclier|armure/.test(normalized)) {
+      return { intent: "viz.highlight", style: { color: "#8fe5aa", glow: "#b6ffe2", ring: true } };
+    }
+    if (/nature|forest|forêt|leaf|plante|vigne/.test(normalized)) {
+      return { intent: "viz.hologram", style: { color: "#9dd877", glow: "#e5ffc1" } };
+    }
+    if (/shadow|spectre|phantom|ghost|ombre/.test(normalized)) {
+      return { intent: "viz.hologram", style: { color: "#a38de5", glow: "#d4c0ff" } };
+    }
+    if (/water|wave|flood|vague|tsunami|tempête/.test(normalized)) {
+      return { intent: "area.hazard", kind: "field", radius: 1.2, style: { color: "#6cb6ff", pulse: true } };
+    }
+    if (/dragon|phoenix|phénix|meteor|météore/.test(normalized)) {
+      return { intent: "combat.explosion", power: "large", style: { color: "#ffb86b", sparks: true } };
+    }
     if (/explosion|boom|burst/.test(normalized)) {
       return { intent: "combat.explosion", power: "medium" };
     }
