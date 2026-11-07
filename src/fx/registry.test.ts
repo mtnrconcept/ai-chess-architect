@@ -45,6 +45,19 @@ describe("rule engine effects adapter", () => {
     ctx.app.stage.destroy({ children: true });
   });
 
+  it("renders a persistent procedural sand vortex and removes all tweens on capture", async () => {
+    const ctx = createContext();
+    await resolveFx({ intent: "object.spawn", kind: "quicksand" }, ctx, {
+      cell: "e3",
+    });
+    expect(ctx.app.stage.children.length).toBeGreaterThan(0);
+    const trap = ctx.app.stage.children[0];
+    expect(trap.children.length).toBeGreaterThan(8);
+    await resolveFx({ intent: "object.clear" }, ctx, { cell: "e3" });
+    expect(ctx.app.stage.children).toHaveLength(0);
+    ctx.app.stage.destroy({ children: true });
+  });
+
   it("does not draw on missing or malformed board coordinates", async () => {
     const ctx = createContext();
     await resolveFx({ intent: "combat.explosion" }, ctx, { cell: "../app" });
