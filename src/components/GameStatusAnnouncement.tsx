@@ -42,7 +42,13 @@ export default function GameStatusAnnouncement({
   announcerRef.current = onAnnounce;
 
   useEffect(() => {
-    if (!kind || !positionId || lastShownRef.current === positionId) return;
+    // A defensive reply may remove check before the banner timeout.
+    // Always clear the previous announcement when the position is no longer in check.
+    if (!kind || !positionId) {
+      setVisible(null);
+      return;
+    }
+    if (lastShownRef.current === positionId) return;
     lastShownRef.current = positionId;
     setVisible({ id: positionId, kind });
     announcerRef.current?.(kind);
