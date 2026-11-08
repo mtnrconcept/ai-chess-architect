@@ -65,6 +65,9 @@ export function RuleArchitectSpotlight() {
               <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
             </Link>
           </Button>
+          <Button asChild variant="outline" className="border-cyan-300/35 text-cyan-100 hover:bg-cyan-300/10">
+            <Link to="/rule-library">Explorer les 100 pouvoirs</Link>
+          </Button>
           <Button
             asChild
             variant="ghost"

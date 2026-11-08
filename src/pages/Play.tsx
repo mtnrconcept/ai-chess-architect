@@ -29,6 +29,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import ChessBoard from "@/components/ChessBoard";
 import { realOpenAIQuicksandRule } from "@/engine/__tests__/fixtures/openai-quicksand-20261107";
+import { getCompiledCatalogRule } from "@/lib/ruleCatalogue100";
 import { ChessEngine } from "@/lib/chessEngine";
 import { chooseAiMove } from "@/lib/aiOpponent";
 import { applyMoveToGameState, canPlayFromState } from "@/lib/gameMoveState";
@@ -423,6 +424,16 @@ const Play = () => {
 
   // Récupérer le ruleId depuis l'URL (ex: /play?ruleId=xxx)
   const urlRuleId = searchParams.get("ruleId");
+  const catalogRuleId = searchParams.get("catalog");
+  const compiledCatalogDemoRule = useMemo(
+    () => catalogRuleId ? getCompiledCatalogRule(catalogRuleId) : null,
+    [catalogRuleId],
+  );
+  const isCatalogDemo = Boolean(compiledCatalogDemoRule) &&
+    location.pathname === "/play" &&
+    !locationState?.lobbyId && !locationState?.matchId &&
+    !locationState?.customRules?.length &&
+    !locationState?.presetRuleIds?.length && !urlRuleId;
   // Local, unranked demonstration of an actual GPT-5.6 Sol-compiled rule.
   // This URL cannot grant publishing rights, access authenticated lobbies,
   // or override a rule set supplied by a real match.
@@ -437,7 +448,7 @@ const Play = () => {
   const params = useParams<{ matchId?: string }>();
 
   const opponentType =
-    isQuicksandDemo
+    (isQuicksandDemo || isCatalogDemo)
       ? "local"
       : locationState?.opponentType === "player"
       ? "player"
@@ -655,6 +666,9 @@ const Play = () => {
     if (Array.isArray(custom) && custom.length > 0) {
       return custom as ChessRule[];
     }
+    if (isCatalogDemo && compiledCatalogDemoRule) {
+      return [convertRuleJsonToChessRule(compiledCatalogDemoRule)];
+    }
     if (isQuicksandDemo) {
       // This fixture came from a real OpenAI Responses call and passed the
       // deterministic Rule Architect compiler and independent coverage audit.
@@ -667,7 +681,7 @@ const Play = () => {
       ];
     }
     return [] as ChessRule[];
-  }, [locationState, isQuicksandDemo]);
+  }, [locationState, isQuicksandDemo, isCatalogDemo, compiledCatalogDemoRule]);
 
   const initialPresetRuleIds = useMemo(() => {
     const preset = locationState?.presetRuleIds;
