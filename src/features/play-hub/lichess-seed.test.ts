@@ -3,7 +3,7 @@ import {fileURLToPath} from "node:url";
 import {Chess} from "chess.js";
 import {describe,expect,it} from "vitest";
 
-const sql=readFileSync(fileURLToPath(new URL("../../../supabase/migrations/20261108144021_lichess_cc0_daily_puzzles.sql",import.meta.url)), "utf8");
+const sql=readFileSync(fileURLToPath(new URL("../../../supabase/migrations/20261108145317_lichess_cc0_daily_puzzles_20261108.sql",import.meta.url)), "utf8");
 const entries=[...sql.matchAll(/\('([0-9]{4}-[0-9]{2}-[0-9]{2})'::date,'[^']+','([^']+)',ARRAY\['([a-h][1-8][a-h][1-8][qrbn]?)'\]::text\[/g)]
   .map(match=>({date:match[1],fen:match[2],move:match[3]}));
 
