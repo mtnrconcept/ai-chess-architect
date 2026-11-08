@@ -20,7 +20,7 @@ python scripts/prepare_lichess_candidates.py combined_puzzle_db_first_50k.ndjson
 node scripts/build-lichess-daily-puzzles.mjs candidates.json seed.sql 2026-11-08 365
 ```
 
-Le fichier `supabase/migrations/20261108144021_lichess_cc0_daily_puzzles.sql`
+Le fichier `supabase/migrations/20261108145317_lichess_cc0_daily_puzzles_20261108.sql`
 contient 365 problèmes distincts datés du 8 novembre 2026 au 7 novembre 2027.
 L'import vérifie les coups avec `chess.js` et contrôle les mats annoncés par les tags.
 Une journée déjà configurée par un administrateur est préservée : `ON CONFLICT DO NOTHING`.
