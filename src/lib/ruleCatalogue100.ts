@@ -491,8 +491,11 @@ export function getCompiledCatalogRule(id: string): RuleJSON | null {
   if (!item) return null;
   const result = compileRuleBlueprint(makeCatalogBlueprint(item));
   if (!result.ok || !result.compiledRule) return null;
-  return {
+  // The V2 compiler validates the DSL before this legacy-engine adapter.
+  // Its typed "if?: unknown" is already checked by the V2 compiler.
+  const compiled = {
     ...result.compiledRule,
     meta:{...result.compiledRule.meta,isActive:true},
   };
+  return compiled as unknown as RuleJSON;
 }
