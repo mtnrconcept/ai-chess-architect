@@ -7,6 +7,7 @@ import AppLayout from "./components/layout/AppLayout";
 import RouteErrorPage from "./components/routing/RouteErrorPage";
 import Index from "./pages/Index";
 import RuleArchitect from "./pages/RuleArchitect";
+import RuleLibrary from "./pages/RuleLibrary";
 import Lobby from "./pages/Lobby";
 import RuleLobby from "./pages/RuleLobby";
 import Play from "./pages/Play";
@@ -34,6 +35,7 @@ const router = createBrowserRouter(
       children: [
         { path: "/", element: <Index /> },
         { path: "/generator", element: <RuleArchitect /> },
+        { path: "/rule-library", element: <RuleLibrary /> },
         { path: "/generator-legacy", element: <RuleArchitect /> },
         { path: "/lobby", element: <Lobby /> },
         { path: "/rule-lobby", element: <RuleLobby /> },

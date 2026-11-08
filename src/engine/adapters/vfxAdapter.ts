@@ -2,6 +2,7 @@ import type { AudioId, SpriteId, Tile, VFXAPI } from "../types";
 import type { SoundEffect } from "@/hooks/useSoundEffects";
 import type { FxIntent, FxPayload } from "@/fx/types";
 import { parseManagedCinematicResourceId } from "@/fx/managed-asset-ids";
+import { getCatalogGifUrl, playCatalogGifDom } from "@/fx/catalogGif";
 import {
   playManagedCinematicDom,
   playProceduralCinematicDom,
@@ -90,6 +91,14 @@ export class VFXAdapter implements VFXAPI {
   }
 
   playAnimation(spriteId: SpriteId, tile: Tile): void {
+    if (getCatalogGifUrl(spriteId)) {
+      void playCatalogGifDom(spriteId, tile).catch((error: unknown) => {
+        console.warn("[VFXAdapter] catalog GIF skipped, procedural fallback", error);
+        void this.playProceduralFallback(spriteId, tile);
+      });
+      this.animationCallback?.(spriteId, tile);
+      return;
+    }
     const managed = parseManagedCinematicResourceId(spriteId);
     if (managed) {
       void playManagedCinematicDom(managed.resourceId, tile).catch(
