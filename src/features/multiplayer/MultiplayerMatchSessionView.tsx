@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,6 +10,8 @@ import {
   ShieldCheck,
   TimerOff,
   WifiOff,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { getSfxVolume, setSfxVolume, useSoundEffects } from "@/hooks/useSoundEffects";
+import GameStatusAnnouncement, { announcementFromFen, type ChessAnnouncementKind } from "@/components/GameStatusAnnouncement";
 import { formatClock } from "./clock";
 import type {
   MatchIdentity,
@@ -125,6 +129,10 @@ export function MultiplayerMatchSessionView({
   const [resignationPending, setResignationPending] = useState(false);
   const [timeoutClaimPending, setTimeoutClaimPending] = useState(false);
   const [customRulesUnavailable, setCustomRulesUnavailable] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [volume, setVolume] = useState(getSfxVolume);
+  const { playSound } = useSoundEffects();
+  const lastSoundPlyRef = useRef<number | null>(null);
 
   const player = state.participants.find(
     (participant) => participant.userId === userId,
@@ -137,6 +145,33 @@ export function MultiplayerMatchSessionView({
   const lastMove = state.moves.length
     ? state.moves[state.moves.length - 1]
     : null;
+  const positionAlert = useMemo(
+    () => announcementFromFen(canonicalFen),
+    [canonicalFen],
+  );
+  const announce = useCallback(
+    (kind: ChessAnnouncementKind) => {
+      if (soundEnabled) void playSound(kind);
+    },
+    [playSound, soundEnabled],
+  );
+  useEffect(() => {
+    if (state.phase === "synchronizing") return;
+    const ply = state.moves.length;
+    if (lastSoundPlyRef.current === null) {
+      lastSoundPlyRef.current = ply;
+      return;
+    }
+    if (ply <= lastSoundPlyRef.current) {
+      lastSoundPlyRef.current = ply;
+      return;
+    }
+    lastSoundPlyRef.current = ply;
+    // Check/mate is announced by the shared banner with its own richer SFX.
+    if (!positionAlert && soundEnabled) {
+      void playSound(lastMove?.san?.includes("x") ? "capture" : "move");
+    }
+  }, [lastMove?.san, playSound, positionAlert, soundEnabled, state.moves.length, state.phase]);
 
   const interactionBlockReason = (() => {
     if (customRulesUnavailable) {
@@ -349,6 +384,18 @@ export function MultiplayerMatchSessionView({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" aria-label={soundEnabled ? "Couper les sons" : "Activer les sons"}
+            className="border-white/20 bg-slate-950/70 text-white hover:bg-white/10 hover:text-white"
+            onClick={() => setSoundEnabled(value => !value)}>
+            {soundEnabled ? <Volume2 className="mr-2 h-4 w-4" /> : <VolumeX className="mr-2 h-4 w-4" />}
+            Son {soundEnabled ? "on" : "off"}
+          </Button>
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            Volume
+            <input type="range" aria-label="Volume des sons multijoueur" min="0" max="1" step="0.05"
+              value={volume} onChange={event=>{const next=Number(event.target.value);setVolume(next);setSfxVolume(next);}}
+              className="w-20 accent-cyan-400"/>
+          </label>
           <Button
             type="button"
             variant="outline"
@@ -509,6 +556,12 @@ export function MultiplayerMatchSessionView({
             <div className="h-[76px] animate-pulse rounded-xl border border-white/10 bg-slate-950/60" />
           )}
 
+          <div className="relative">
+            <GameStatusAnnouncement
+              positionId={`${identity.matchId}:${state.moves.length}:${positionAlert ?? "neutral"}`}
+              kind={positionAlert}
+              onAnnounce={announce}
+            />
           <MultiplayerBoard
             fen={canonicalFen}
             perspective={playerSide ?? "white"}
@@ -516,6 +569,7 @@ export function MultiplayerMatchSessionView({
             lastMove={lastMove}
             onMoveIntent={(uci) => void submitMoveIntent(uci)}
           />
+          </div>
 
           <div
             className={cn(

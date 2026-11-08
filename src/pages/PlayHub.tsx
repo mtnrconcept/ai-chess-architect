@@ -5,6 +5,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Trophy,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -291,6 +292,17 @@ export default function PlayHub() {
                 playerName={displayName}
                 userId={user?.id}
               />
+              <Card className="border-amber-300/20 bg-gradient-to-r from-amber-400/10 via-slate-950 to-fuchsia-400/10">
+                <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
+                  <div>
+                    <h3 className="flex items-center gap-2 font-semibold text-white"><Trophy className="h-5 w-5 text-amber-300"/>Salons des tournois</h3>
+                    <p className="mt-1 max-w-lg text-sm text-slate-300">Rejoins les créneaux programmés, consulte les tables en direct et lance un duel multijoueur sécurisé.</p>
+                  </div>
+                  <Button asChild className="shrink-0 bg-amber-300 text-slate-950 hover:bg-amber-200">
+                    <Link to="/tournaments">Explorer les tournois</Link>
+                  </Button>
+                </CardContent>
+              </Card>
               <div className="space-y-3 pt-3">
                 <h3 className="px-1 text-xs font-semibold uppercase tracking-[0.2em] text-fuchsia-100/60">
                   Règles personnalisées · Rule Architect
