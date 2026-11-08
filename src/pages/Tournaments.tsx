@@ -1217,6 +1217,13 @@ const TournamentPage = () => {
                         >
                           Voir le classement
                         </Button>
+                        <Button
+                          variant="outline"
+                          className="rounded-xl border-fuchsia-400/45 text-fuchsia-100 hover:bg-fuchsia-500/10"
+                          onClick={() => navigate(`/tournaments/${tournament.id}/lobby`)}
+                        >
+                          Ouvrir le salon
+                        </Button>
                         {isUserRegistered ? (
                           <Badge className="rounded-xl bg-emerald-500/20 text-emerald-100">
                             Inscrit

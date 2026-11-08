@@ -132,6 +132,12 @@ export function ServerDailyPuzzleCard({
             ? `${perspective === "white" ? "Les Blancs" : "Les Noirs"} jouent. La réponse est vérifiée exclusivement côté serveur.`
             : "La position reçue est invalide. Aucun coup ne sera envoyé."}
         </CardDescription>
+        {puzzle.title?.startsWith("Problème du jour") && (
+          <p className="text-xs text-amber-100/55">
+            Position issue de la base publique Lichess (CC0), normalisée et validée par le serveur.{" "}
+            <a href="https://database.lichess.org/#puzzles" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-100">Source des problèmes</a>
+          </p>
+        )}
         {puzzle.themes.length > 0 && (
           <div
             className="flex flex-wrap gap-2 pt-1"

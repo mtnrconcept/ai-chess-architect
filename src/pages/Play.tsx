@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import ChessBoard from "@/components/ChessBoard";
+import GameStatusAnnouncement, { announcementFromGameStatus } from "@/components/GameStatusAnnouncement";
 import { realOpenAIQuicksandRule } from "@/engine/__tests__/fixtures/openai-quicksand-20261107";
 import { getCompiledCatalogRule } from "@/lib/ruleCatalogue100";
 import { ChessEngine } from "@/lib/chessEngine";
@@ -70,7 +71,7 @@ import {
   type TimeControlOption,
   isTimeControlOption,
 } from "@/types/timeControl";
-import { useSoundEffects, type SoundEffect } from "@/hooks/useSoundEffects";
+import { getSfxVolume, setSfxVolume, useSoundEffects, type SoundEffect } from "@/hooks/useSoundEffects";
 import {
   getSpecialAbilityMetadata,
   normalizeSpecialAbilityParameters,
@@ -813,6 +814,7 @@ const Play = () => {
   );
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [volume, setVolume] = useState(getSfxVolume);
   const [coachEnabled, setCoachEnabled] = useState(true);
   const [coachMessages, setCoachMessages] = useState<CoachChatMessage[]>(() => [
     createWelcomeMessage(),
@@ -1832,6 +1834,12 @@ const Play = () => {
               )}
               Son
             </Button>
+            <label className="flex items-center gap-2 text-xs text-white/60">
+              Volume
+              <input aria-label="Volume des effets sonores" type="range" min="0" max="1" step="0.05"
+                value={volume} onChange={(event) => { const v=Number(event.target.value); setVolume(v); setSfxVolume(v); }}
+                className="w-16 accent-cyan-400 sm:w-24"/>
+            </label>
             <Button
               variant="outline"
               size="sm"
@@ -1903,6 +1911,11 @@ const Play = () => {
                 </div>
               </div>
             )}
+            <GameStatusAnnouncement
+              positionId={`local-${gameState.moveHistory.length}-${gameState.gameStatus}`}
+              kind={announcementFromGameStatus(gameState.gameStatus)}
+              onAnnounce={(kind) => { if (soundEnabled) void playSfx(kind); }}
+            />
             <ChessBoard
               artDirection={primaryRule ? `${primaryRule.ruleName} ${primaryRule.description}` : null}
               decorations={ruleDecals}

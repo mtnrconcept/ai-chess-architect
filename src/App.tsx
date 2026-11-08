@@ -8,6 +8,7 @@ import RouteErrorPage from "./components/routing/RouteErrorPage";
 import Index from "./pages/Index";
 import RuleArchitect from "./pages/RuleArchitect";
 import RuleLibrary from "./pages/RuleLibrary";
+import TournamentLobby from "./pages/TournamentLobby";
 import Lobby from "./pages/Lobby";
 import RuleLobby from "./pages/RuleLobby";
 import Play from "./pages/Play";
@@ -49,6 +50,7 @@ const router = createBrowserRouter(
         { path: "/settings", element: <Settings /> },
         { path: "/analysis", element: <MatchAnalysis /> },
         { path: "/tournaments", element: <Tournaments /> },
+        { path: "/tournaments/:tournamentId/lobby", element: <TournamentLobby /> },
         { path: "/pricing", element: <Pricing /> },
         { path: "/diagnostics", element: <Diagnostics /> },
         { path: "/legal", element: <Legal /> },
