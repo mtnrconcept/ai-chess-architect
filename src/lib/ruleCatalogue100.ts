@@ -1,3 +1,4 @@
+import {suggestAnimationId} from "@/fx/animationLibrary";
 import { compileRuleBlueprint } from "@/rules-v2/compiler";
 import type { RuleBlueprintV2, RuleCategory, BlueprintCondition, BlueprintEffect } from "@/rules-v2/types";
 import type { RuleJSON } from "@/engine/types";
@@ -450,7 +451,7 @@ export function makeCatalogBlueprint(item: CatalogRule): RuleBlueprintV2 {
   const visualTile = noTarget ? sourceTile("tile") : targetTile("tile");
   const triggers: RuleBlueprintV2["triggers"] = [{
     id: "use-power",event:"ui.action", actionId:"activate", priority:10,
-    conditions:guarded, effects:[primary,eff("animated-effect","vfx.play",[argument("sprite",item.sprite),visualTile])],
+    conditions:guarded, effects:[primary,eff("animated-effect","vfx.play",[argument("sprite",suggestAnimationId(`${item.title} ${item.family} ${item.mode}`,item.piece === "any" ? null : item.piece,item.sprite) ?? item.sprite),visualTile])],
     onFailure:"blockAction",message:"Cette cible ne respecte pas les conditions de la règle.",
   }];
   if (item.mode === "trap") {

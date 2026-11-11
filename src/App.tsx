@@ -1,3 +1,5 @@
+import {useEffect} from "react";
+import {loadAnimationAssets} from "@/fx/animationLibrary";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -8,6 +10,7 @@ import RouteErrorPage from "./components/routing/RouteErrorPage";
 import Index from "./pages/Index";
 import RuleArchitect from "./pages/RuleArchitect";
 import RuleLibrary from "./pages/RuleLibrary";
+import AnimationLibrary from "./pages/AnimationLibrary";
 import TournamentLobby from "./pages/TournamentLobby";
 import Lobby from "./pages/Lobby";
 import RuleLobby from "./pages/RuleLobby";
@@ -37,6 +40,7 @@ const router = createBrowserRouter(
         { path: "/", element: <Index /> },
         { path: "/generator", element: <RuleArchitect /> },
         { path: "/rule-library", element: <RuleLibrary /> },
+        { path: "/animation-library", element: <AnimationLibrary /> },
         { path: "/generator-legacy", element: <RuleArchitect /> },
         { path: "/lobby", element: <Lobby /> },
         { path: "/rule-lobby", element: <RuleLobby /> },
@@ -65,7 +69,9 @@ const router = createBrowserRouter(
   },
 );
 
-const App = () => (
+const App = () => {
+  useEffect(() => { void loadAnimationAssets(); }, []);
+  return (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
@@ -75,6 +81,7 @@ const App = () => (
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;

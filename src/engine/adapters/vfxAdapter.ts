@@ -1,3 +1,4 @@
+import {suggestAnimationId} from "@/fx/animationLibrary";
 import type { AudioId, SpriteId, Tile, VFXAPI } from "../types";
 import type { SoundEffect } from "@/hooks/useSoundEffects";
 import type { FxIntent, FxPayload } from "@/fx/types";
@@ -110,6 +111,17 @@ export class VFXAdapter implements VFXAPI {
       return;
     }
 
+    // Legacy and user-generated sprites receive a safe, deterministic, cosmetic
+    // match when an imported animation catalog is available. No rule state changes.
+    const matchedId = suggestAnimationId(String(spriteId), null, null);
+    if (matchedId && getCatalogGifUrl(matchedId)) {
+      void playCatalogGifDom(matchedId, tile).catch((error: unknown) => {
+        console.warn("[VFXAdapter] library GIF skipped; procedural fallback", error);
+        void this.playProceduralFallback(spriteId, tile);
+      });
+      this.animationCallback?.(spriteId, tile);
+      return;
+    }
     const intent = this.mapSpriteToIntent(spriteId);
     if (this.fxTrigger && intent) {
       void this.fxTrigger([intent], { cell: tile }).catch((error: unknown) => {

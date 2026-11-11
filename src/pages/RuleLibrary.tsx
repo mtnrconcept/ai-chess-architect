@@ -1,3 +1,4 @@
+import {suggestAnimationId} from "@/fx/animationLibrary";
 import {useMemo, useState} from "react";
 import {Link} from "react-router-dom";
 import {ArrowLeft, Gamepad2, Search, Sparkles, ShieldCheck} from "lucide-react";
@@ -42,6 +43,7 @@ export default function RuleLibrary() {
           <span className="rounded-xl bg-white/10 px-3 py-2">{100-faithful} adaptations du DSL</span>
         </div>
       </header>
+      <div><Button variant="outline" asChild className="border-white/20 text-white"><Link to="/animation-library">Bibliothèque des animations</Link></Button></div>
       <section aria-label="Filtres du catalogue" className="space-y-3">
         <label className="relative block">
           <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/45"/>
@@ -54,7 +56,8 @@ export default function RuleLibrary() {
       <p role="status" aria-live="polite" className="text-sm text-white/60">{results.length} règle{results.length>1?"s":""} affichée{results.length>1?"s":""}</p>
       <section aria-label="Règles personnalisées" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {results.map(item=>{
-          const animation=getCatalogGifUrl(item.sprite);
+          const animationId=suggestAnimationId(`${item.title} ${item.family} ${item.mode}`,item.piece === "any" ? null : item.piece,item.sprite) ?? item.sprite;
+          const animation=getCatalogGifUrl(animationId);
           return <Card key={item.id} className="group overflow-hidden border-white/15 bg-slate-950/90 text-white transition hover:border-cyan-300/50">
             <div className="relative h-40 overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950/60 to-slate-950">
               {animation&&<img alt="" aria-hidden="true" src={animation} loading="lazy" className="mx-auto h-full w-full object-contain p-2 transition-transform group-hover:scale-105"/>}
