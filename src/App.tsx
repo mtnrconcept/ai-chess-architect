@@ -8,6 +8,7 @@ import RouteErrorPage from "./components/routing/RouteErrorPage";
 import Index from "./pages/Index";
 import RuleArchitect from "./pages/RuleArchitect";
 import RuleLibrary from "./pages/RuleLibrary";
+import AnimationLibrary from "./pages/AnimationLibrary";
 import TournamentLobby from "./pages/TournamentLobby";
 import Lobby from "./pages/Lobby";
 import RuleLobby from "./pages/RuleLobby";
@@ -37,6 +38,7 @@ const router = createBrowserRouter(
         { path: "/", element: <Index /> },
         { path: "/generator", element: <RuleArchitect /> },
         { path: "/rule-library", element: <RuleLibrary /> },
+        { path: "/animation-library", element: <AnimationLibrary /> },
         { path: "/generator-legacy", element: <RuleArchitect /> },
         { path: "/lobby", element: <Lobby /> },
         { path: "/rule-lobby", element: <RuleLobby /> },
