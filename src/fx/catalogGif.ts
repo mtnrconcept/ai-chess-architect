@@ -1,3 +1,4 @@
+import {getAnimationAssetUrl} from "@/fx/animationLibrary";
 /**
  * Bundled, allow-listed Aichess GIFs. Never accept arbitrary URLs from a rule:
  * sprite IDs are resolved only against immutable site assets.
@@ -19,7 +20,7 @@ export type CatalogGifId = keyof typeof CATALOG_GIFS;
 export const getCatalogGifUrl = (id: string): string | null =>
   Object.prototype.hasOwnProperty.call(CATALOG_GIFS, id)
     ? CATALOG_GIFS[id as CatalogGifId]
-    : null;
+    : getAnimationAssetUrl(id);
 
 const TILE = /^[a-h][1-8]$/;
 const DURATION_MS = 1920;
