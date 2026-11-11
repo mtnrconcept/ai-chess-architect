@@ -1,5 +1,5 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -399,6 +399,7 @@ export default function GuidedRuleArchitectPanel() {
             <h1 className="text-3xl font-black tracking-tight sm:text-5xl">
               Décris l’idée. Voltus la rend jouable.
             </h1>
+            <Button asChild variant="outline" className="min-h-11"><Link to="/animation-library">Parcourir les animations par tags</Link></Button>
             <p className="text-sm text-muted-foreground sm:text-base">
               L’assistant clarifie les zones ambiguës, propose les ajustements
               nécessaires et conserve au maximum ton intention avant toute
